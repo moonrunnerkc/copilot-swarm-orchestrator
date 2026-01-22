@@ -1,0 +1,27 @@
+{
+  "name": "copilot-swarm-conductor",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo 'Tests pass - Phase 0 scaffold'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moonrunnerkc/copilot-swarm-conductor.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/moonrunnerkc/copilot-swarm-conductor/issues"
+  },
+  "homepage": "https://github.com/moonrunnerkc/copilot-swarm-conductor#readme",
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
