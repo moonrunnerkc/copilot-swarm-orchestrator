@@ -27,7 +27,8 @@ export class DemoMode {
     return [
       this.getTodoAppScenario(),
       this.getApiServerScenario(),
-      this.getFullStackScenario()
+      this.getFullStackScenario(),
+      this.getSaaSMvpScenario()
     ];
   }
 
@@ -270,6 +271,124 @@ export class DemoMode {
             'README.md',
             'docs/API.md',
             'docs/DEPLOYMENT.md',
+            'CHANGELOG.md'
+          ]
+        }
+      ]
+    };
+  }
+
+  /**
+   * SaaS MVP Demo - Flagship scenario showcasing all capabilities
+   */
+  private getSaaSMvpScenario(): DemoScenario {
+    return {
+      name: 'saas-mvp',
+      description: 'Full SaaS todo app MVP with auth, Stripe payments, analytics dashboard, and deployment',
+      goal: 'Build and deploy a complete SaaS todo app MVP with user authentication, Stripe subscription payments, analytics dashboard, comprehensive tests, security audit, and cloud deployment',
+      expectedDuration: '20-30 minutes',
+      steps: [
+        {
+          stepNumber: 1,
+          agentName: 'backend_master',
+          task: 'Create Express + PostgreSQL backend with user auth (JWT), session management, todo CRUD with user ownership',
+          dependencies: [],
+          expectedOutputs: [
+            'src/server/index.ts',
+            'src/routes/auth.ts',
+            'src/routes/todos.ts',
+            'src/models/user.ts',
+            'src/models/todo.ts',
+            'prisma/schema.prisma'
+          ]
+        },
+        {
+          stepNumber: 2,
+          agentName: 'backend_master',
+          task: 'Add Stripe integration: subscription plans (free, pro, enterprise), webhook handling, payment methods',
+          dependencies: [1],
+          expectedOutputs: [
+            'src/routes/stripe.ts',
+            'src/services/stripe.ts',
+            'src/webhooks/stripe-events.ts',
+            'src/models/subscription.ts'
+          ]
+        },
+        {
+          stepNumber: 3,
+          agentName: 'frontend_expert',
+          task: 'Create React frontend with auth pages, todo dashboard, subscription management, pricing page',
+          dependencies: [],
+          expectedOutputs: [
+            'src/client/App.tsx',
+            'src/client/pages/Login.tsx',
+            'src/client/pages/Dashboard.tsx',
+            'src/client/pages/Pricing.tsx',
+            'src/client/components/TodoList.tsx',
+            'src/client/components/SubscriptionCard.tsx'
+          ]
+        },
+        {
+          stepNumber: 4,
+          agentName: 'frontend_expert',
+          task: 'Add analytics dashboard with user metrics (todos completed, active time, engagement), charts (Chart.js)',
+          dependencies: [3],
+          expectedOutputs: [
+            'src/client/pages/Analytics.tsx',
+            'src/client/components/MetricsCard.tsx',
+            'src/client/components/ActivityChart.tsx',
+            'src/services/analytics.ts'
+          ]
+        },
+        {
+          stepNumber: 5,
+          agentName: 'security_auditor',
+          task: 'Security audit: rate limiting, input sanitization, CORS, CSP, Stripe webhook signature verification, PCI compliance',
+          dependencies: [1, 2],
+          expectedOutputs: [
+            'src/middleware/security.ts',
+            'src/middleware/ratelimit.ts',
+            'src/middleware/stripe-verify.ts',
+            'SECURITY.md'
+          ]
+        },
+        {
+          stepNumber: 6,
+          agentName: 'tester_elite',
+          task: 'Comprehensive tests: auth flows, todo CRUD, Stripe integration (mocked webhooks), analytics data',
+          dependencies: [1, 2, 3, 4],
+          expectedOutputs: [
+            'test/routes/auth.test.ts',
+            'test/routes/todos.test.ts',
+            'test/services/stripe.test.ts',
+            'test/client/components/TodoList.test.tsx',
+            'test/e2e/subscription-flow.spec.ts'
+          ]
+        },
+        {
+          stepNumber: 7,
+          agentName: 'devops_pro',
+          task: 'Deployment setup: Docker multi-stage build, environment configs, GitHub Actions CI/CD, deploy to Railway/Render with DB',
+          dependencies: [1, 2, 3, 4, 5],
+          expectedOutputs: [
+            'Dockerfile',
+            'docker-compose.yml',
+            '.github/workflows/ci.yml',
+            '.github/workflows/deploy-preview.yml',
+            '.env.example'
+          ]
+        },
+        {
+          stepNumber: 8,
+          agentName: 'integrator_finalizer',
+          task: 'Final integration: connect all services, E2E tests (auth → subscribe → todos → analytics), comprehensive docs, deployment guide',
+          dependencies: [1, 2, 3, 4, 5, 6, 7],
+          expectedOutputs: [
+            'test/e2e/full-saas-workflow.spec.ts',
+            'README.md',
+            'docs/API.md',
+            'docs/DEPLOYMENT.md',
+            'docs/STRIPE-SETUP.md',
             'CHANGELOG.md'
           ]
         }

@@ -1,8 +1,69 @@
-# Screenshot Guide for Proof Submission
+# Screenshot & GIF Guide for Final Submission
 
-## What to Screenshot
+Complete guide for capturing all visual evidence needed for the DEV.to submission.
 
-### 1. Dashboard Display (REQUIRED)
+---
+
+## Required Screenshots & GIFs
+
+### 1. **Dashboard with Productivity Summary** (REQUIRED)
+
+**What:** Live dashboard showing completed run with metrics comparison
+
+**How to Capture:**
+```bash
+# Run a demo that will complete
+npm start demo todo-app
+
+# Watch the dashboard to completion
+# When it shows "✨ Swarm execution complete!"
+# You'll see the Productivity Summary at the bottom
+```
+
+**What the screenshot/GIF should show:**
+- Wave progress
+- Steps with status icons (✅ completed)
+- Recent commits section
+- **Productivity Summary box** showing:
+  - Time comparison (e.g., "5m 23s ▼ 12.3% vs avg 6m 10s")
+  - Commits comparison
+  - Verification pass rate
+  - Visual indicators (▲▼━) with colors
+
+**Tool:** GIF recommended (use Kap, LICEcap, or ScreenToGif)
+
+**Purpose:** Shows Phase 5 analytics in action, proves system learns and compares runs.
+
+---
+
+### 2. **Analytics Comparison Data** (REQUIRED)
+
+**What:** Terminal output showing metrics.json and comparison
+
+**Command:**
+```bash
+# After running a demo 2+ times, show comparison
+cat runs/demo-todo-app/metrics.json | jq '{
+  time_minutes: (.totalTimeMs / 60000),
+  commits: .commitCount,
+  pass_rate: (.verificationsPassed / (.verificationsPassed + .verificationsFailed))
+}'
+
+# Show global analytics
+cat runs/analytics.json | jq 'length'
+cat runs/analytics.json | jq '.[-2:] | .[] | {id: .metrics.executionId, time: .metrics.totalTimeMs, commits: .metrics.commitCount}'
+```
+
+**What to show:**
+- Multiple runs logged
+- Metrics for each run
+- Clear progression/comparison
+
+**Purpose:** Proves analytics system is working and tracking history.
+
+---
+
+### 3. **Human Steering (Pause/Resume)** (OPTIONAL)
 
 **Command:**
 ```bash
