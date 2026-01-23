@@ -9,7 +9,7 @@
     // See also https://aka.ms/tsconfig/module
     "module": "commonjs",
     "target": "esnext",
-    "types": ["node"],
+    "types": ["node", "mocha"],
     "lib": ["es2020"],
     // For nodejs:
     // "lib": ["esnext"],
@@ -35,11 +35,7 @@
 
     // Recommended Options
     "strict": true,
-    "jsx": "react-jsx",
-    "verbatimModuleSyntax": true,
     "isolatedModules": true,
-    "noUncheckedSideEffectImports": true,
-    "moduleDetection": "force",
     "skipLibCheck": true,
 
     "esModuleInterop": true,
@@ -47,5 +43,6 @@
     "allowJs": true,
     "noImplicitAny": true,
   },
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "test", "dist"]
 }
