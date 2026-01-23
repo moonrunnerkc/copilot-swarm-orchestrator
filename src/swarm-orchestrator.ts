@@ -6,6 +6,7 @@ import { AgentProfile } from './config-loader';
 import SessionExecutor, { SessionResult, SessionOptions } from './session-executor';
 import ContextBroker, { ContextEntry } from './context-broker';
 import ShareParser from './share-parser';
+import VerifierEngine, { VerificationResult } from './verifier-engine';
 
 export interface ParallelStepResult {
   stepNumber: number;
@@ -13,6 +14,7 @@ export interface ParallelStepResult {
   status: 'pending' | 'running' | 'completed' | 'failed' | 'blocked';
   branchName?: string;
   sessionResult?: SessionResult;
+  verificationResult?: VerificationResult;
   error?: string;
   startTime?: string;
   endTime?: string;
@@ -35,12 +37,14 @@ export interface SwarmExecutionContext {
 export class SwarmOrchestrator {
   private sessionExecutor: SessionExecutor;
   private shareParser: ShareParser;
+  private verifier: VerifierEngine;
   private workingDir: string;
 
   constructor(workingDir?: string) {
     this.workingDir = workingDir || process.cwd();
     this.sessionExecutor = new SessionExecutor(this.workingDir);
     this.shareParser = new ShareParser();
+    this.verifier = new VerifierEngine(this.workingDir);
   }
 
   /**
@@ -204,6 +208,53 @@ export class SwarmOrchestrator {
       const transcriptContent = fs.readFileSync(transcriptPath, 'utf8');
       const shareIndex = this.shareParser.parse(transcriptContent);
 
+      // verify the step
+      const verificationResult = await this.verifier.verifyStep(
+        step.stepNumber,
+        agent.name,
+        transcriptPath,
+        {
+          requireTests: step.task.toLowerCase().includes('test'),
+          requireBuild: step.task.toLowerCase().includes('build'),
+          requireCommits: true // Always require commits for human-like history
+        }
+      );
+
+      result.verificationResult = verificationResult;
+
+      // generate and commit verification report
+      const reportPath = path.join(
+        context.runDir,
+        'verification',
+        `step-${step.stepNumber}-verification.md`
+      );
+      
+      await this.verifier.generateVerificationReport(verificationResult, reportPath);
+
+      if (verificationResult.passed) {
+        await this.verifier.commitVerificationReport(
+          reportPath,
+          step.stepNumber,
+          agent.name,
+          true
+        );
+      } else {
+        // verification failed - attempt rollback
+        console.warn(`  ⚠️ Step ${step.stepNumber} failed verification, attempting rollback...`);
+        
+        const rollbackResult = await this.verifier.rollback(
+          step.stepNumber,
+          branchName,
+          shareIndex.changedFiles
+        );
+
+        if (rollbackResult.success) {
+          console.warn(`  🔄 Rollback successful, ${rollbackResult.filesRestored.length} file(s) restored`);
+        }
+
+        throw new Error('Step failed verification - see verification report');
+      }
+
       // add to shared context
       const contextEntry: ContextEntry = {
         stepNumber: step.stepNumber,
@@ -213,7 +264,8 @@ export class SwarmOrchestrator {
           filesChanged: shareIndex.changedFiles,
           outputsSummary: step.expectedOutputs.join(', '),
           branchName,
-          commitShas: shareIndex.gitCommits.map(c => c.sha || 'unknown')
+          commitShas: shareIndex.gitCommits.map(c => c.sha || 'unknown'),
+          verificationPassed: verificationResult.passed
         }
       };
 
@@ -222,7 +274,7 @@ export class SwarmOrchestrator {
       result.status = 'completed';
       result.endTime = new Date().toISOString();
 
-      console.log(`  ✅ Step ${step.stepNumber} (${agent.name}) completed`);
+      console.log(`  ✅ Step ${step.stepNumber} (${agent.name}) completed and verified`);
 
     } catch (error: unknown) {
       const err = error as Error;

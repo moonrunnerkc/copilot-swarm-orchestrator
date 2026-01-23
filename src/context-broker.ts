@@ -14,6 +14,7 @@ export interface ContextEntry {
     outputsSummary: string;
     branchName?: string;
     commitShas?: string[];
+    verificationPassed?: boolean;
   };
 }
 
