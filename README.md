@@ -1,32 +1,34 @@
-# Copilot Swarm Conductor
+# Copilot Swarm Orchestrator
 
-> Sequential AI workflow coordinator using GitHub Copilot CLI
+> Parallel AI workflow orchestrator using GitHub Copilot CLI
 
-A demonstration tool for the **GitHub Copilot CLI Challenge** that turns one developer into a structured, repeatable team workflow using sequential custom agents.
+A demonstration tool for the **GitHub Copilot CLI Challenge** that coordinates concurrent custom agent sessions for true parallel execution.
 
 [![CI](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions/workflows/ci.yml/badge.svg)](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions)
-[![Tests](https://img.shields.io/badge/tests-213%20passing-brightgreen)](https://github.com/moonrunnerkc/copilot-swarm-conductor)
+[![Tests](https://img.shields.io/badge/tests-218%20passing-brightgreen)](https://github.com/moonrunnerkc/copilot-swarm-conductor)
 
 ## What This Does
 
-Copilot Swarm Conductor coordinates sequential AI workflow steps using GitHub Copilot CLI. It:
+Copilot Swarm Orchestrator enables true parallel AI workflows by coordinating multiple concurrent Copilot CLI sessions. It:
 
-1. **Generates structured plans** from high-level goals with dependency management
+1. **Generates structured plans** from high-level goals with dependency analysis
 2. **Assigns specialized agents** to each step with bounded scope and refusal rules
-3. **Produces session prompts** that humans paste into Copilot CLI sessions
-4. **Captures `/share` transcripts** and verifies claims to prevent AI drift
-5. **Integrates GitHub features** (`/delegate` for PRs, MCP for context)
-6. **Visualizes progress** via terminal dashboard
+3. **Executes sessions in parallel** when dependencies allow (independent steps run concurrently)
+4. **Manages shared context** via file-based broker with git locking
+5. **Creates per-agent branches** that auto-merge or flag conflicts
+6. **Captures transcripts** and verifies claims to prevent AI drift
+7. **Produces human-like commits** - incremental, natural, varied messages throughout
+8. **Visualizes live progress** via terminal dashboard showing parallel execution
 
-**Key Constraint:** This tool coordinates human-driven Copilot CLI sessions. It does NOT automate or execute sessions.
+**Key Innovation:** Coordinates multiple programmatic `copilot -p` sessions concurrently with safe merge handling.
 
 ## Why This Matters
 
-This project demonstrates Copilot CLI integration with verifiable artifacts:
+This project demonstrates advanced Copilot CLI integration with verifiable artifacts:
 
-- **PRs created via `/delegate`** - Real GitHub integration
-- **MCP evidence in transcripts** - GitHub context informed decisions
-- **Complete session transcripts via `/share`** - Full audit trail
+- **True parallel execution** - Independent steps run simultaneously
+- **Natural git history** - Incremental commits that look human-written
+- **Complete session transcripts via `--share`** - Full audit trail
 - **Drift trap mechanism** - Verifies claims against evidence
 - **Clean git history** - Committed proof documents
 
