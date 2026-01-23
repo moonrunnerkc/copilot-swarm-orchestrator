@@ -1,0 +1,90 @@
+{
+  "plan": {
+    "goal": "Build a user authentication system",
+    "createdAt": "2026-01-23T00:07:02.306Z",
+    "steps": [
+      {
+        "stepNumber": 1,
+        "agentName": "BackendMaster",
+        "task": "Design and implement core API structure",
+        "dependencies": [],
+        "expectedOutputs": [
+          "API endpoint definitions",
+          "Database schema",
+          "Test results"
+        ]
+      },
+      {
+        "stepNumber": 2,
+        "agentName": "SecurityAuditor",
+        "task": "Review API security and authentication",
+        "dependencies": [
+          1
+        ],
+        "expectedOutputs": [
+          "Security audit report",
+          "Fixed vulnerabilities"
+        ]
+      },
+      {
+        "stepNumber": 3,
+        "agentName": "TesterElite",
+        "task": "Create comprehensive test suite",
+        "dependencies": [
+          1,
+          2
+        ],
+        "expectedOutputs": [
+          "Test files",
+          "Coverage report",
+          "Test execution results"
+        ]
+      },
+      {
+        "stepNumber": 4,
+        "agentName": "IntegratorFinalizer",
+        "task": "Verify integration and prepare documentation",
+        "dependencies": [
+          1,
+          2,
+          3
+        ],
+        "expectedOutputs": [
+          "Integration test results",
+          "API documentation",
+          "Release notes"
+        ]
+      }
+    ],
+    "metadata": {
+      "totalSteps": 4
+    }
+  },
+  "planFilename": "plan-2026-01-23T00-07-02-308Z-build-a-user-authentication-system.json",
+  "executionId": "exec-2026-01-23T00-17-01-717Z",
+  "startTime": "2026-01-23T00:17:01.717Z",
+  "currentStep": 0,
+  "stepResults": [
+    {
+      "stepNumber": 1,
+      "agentName": "BackendMaster",
+      "status": "pending"
+    },
+    {
+      "stepNumber": 2,
+      "agentName": "SecurityAuditor",
+      "status": "pending"
+    },
+    {
+      "stepNumber": 3,
+      "agentName": "TesterElite",
+      "status": "pending"
+    },
+    {
+      "stepNumber": 4,
+      "agentName": "IntegratorFinalizer",
+      "status": "pending"
+    }
+  ],
+  "priorContext": []
+}
