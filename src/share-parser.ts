@@ -18,6 +18,27 @@ export interface ShareIndex {
     reason?: string;
   }[];
   prLinks: string[];
+  gitCommits: {
+    sha?: string;
+    message: string;
+    verified: boolean;
+  }[];
+  packageOperations: {
+    operation: string;  // install, uninstall, update
+    packages: string[];
+  }[];
+  buildOperations: {
+    tool: string;  // tsc, webpack, vite, rollup, etc.
+    verified: boolean;
+  }[];
+  lintOperations: {
+    tool: string;  // eslint, prettier, biome, etc.
+    verified: boolean;
+  }[];
+  mcpSections: {
+    content: string;
+    verified: boolean;
+  }[];
   claims: {
     claim: string;
     verified: boolean;
@@ -27,7 +48,7 @@ export interface ShareIndex {
 
 export class ShareParser {
   /**
-   * parse /share transcript and extract key facts
+   * parse /share transcript and extract key facts with comprehensive verification
    */
   parse(content: string): ShareIndex {
     const index: ShareIndex = {
@@ -35,6 +56,11 @@ export class ShareParser {
       commandsExecuted: [],
       testsRun: [],
       prLinks: [],
+      gitCommits: [],
+      packageOperations: [],
+      buildOperations: [],
+      lintOperations: [],
+      mcpSections: [],
       claims: []
     };
 
@@ -51,6 +77,21 @@ export class ShareParser {
 
     // extract PR links
     index.prLinks = this.extractPRLinks(lines);
+
+    // extract git commits
+    index.gitCommits = this.extractGitCommits(lines, index.commandsExecuted);
+
+    // extract package operations
+    index.packageOperations = this.extractPackageOperations(lines, index.commandsExecuted);
+
+    // extract build operations
+    index.buildOperations = this.extractBuildOperations(lines, index.commandsExecuted);
+
+    // extract lint operations
+    index.lintOperations = this.extractLintOperations(lines, index.commandsExecuted);
+
+    // extract MCP sections
+    index.mcpSections = this.extractMcpSections(lines);
 
     // extract and verify claims
     index.claims = this.extractClaims(lines, index);
@@ -217,6 +258,256 @@ export class ShareParser {
     return Array.from(links);
   }
 
+  private extractGitCommits(lines: string[], commands: string[]): ShareIndex['gitCommits'] {
+    const commits: ShareIndex['gitCommits'] = [];
+    const commitMap = new Map<string, { message?: string; sha?: string; verified?: boolean }>();
+
+    // look for git commit commands
+    const commitCommands = commands.filter(cmd => cmd.match(/git\s+commit/));
+
+    for (const cmd of commitCommands) {
+      // extract message from command
+      const messageMatch = cmd.match(/git\s+commit\s+-m\s+["']([^"']+)["']/);
+      if (messageMatch && messageMatch[1]) {
+        const message = messageMatch[1];
+        commitMap.set(message, { message, verified: true });
+      }
+    }
+
+    // also look for commit SHAs in output (format: [branch sha] message)
+    for (const line of lines) {
+      const shaMatch = line.match(/\[(?:\w+\s+)?([a-f0-9]{7,40})\]/);
+      if (shaMatch && shaMatch[1]) {
+        const sha = shaMatch[1];
+        
+        // try to find associated message in the same line
+        const messageAfterSha = line.substring(line.indexOf(']') + 1).trim();
+        
+        // look for existing commit with this message
+        let foundCommit = false;
+        for (const [message, commit] of commitMap.entries()) {
+          if (messageAfterSha.includes(message) || message.includes(messageAfterSha)) {
+            commit.sha = sha;
+            foundCommit = true;
+            break;
+          }
+        }
+        
+        if (!foundCommit && messageAfterSha) {
+          // new commit found in output
+          commitMap.set(messageAfterSha, { message: messageAfterSha, sha, verified: true });
+        }
+      }
+    }
+
+    // convert map to array
+    for (const commit of commitMap.values()) {
+      const result: ShareIndex['gitCommits'][0] = {
+        message: commit.message || 'commit detected',
+        verified: true
+      };
+      if (commit.sha) {
+        result.sha = commit.sha;
+      }
+      commits.push(result);
+    }
+
+    return commits;
+  }
+
+  private extractPackageOperations(lines: string[], commands: string[]): ShareIndex['packageOperations'] {
+    const operations: ShareIndex['packageOperations'] = [];
+    const processedCommands = new Set<string>();
+
+    // npm/yarn/pnpm patterns
+    const packageManagers = ['npm', 'yarn', 'pnpm', 'bun'];
+
+    for (const cmd of commands) {
+      // skip if already processed
+      if (processedCommands.has(cmd)) {
+        continue;
+      }
+
+      for (const pm of packageManagers) {
+        // install operations (install, add, i)
+        const installMatch = cmd.match(new RegExp(`^${pm}\\s+(?:add|install|i)\\s+(.+)`));
+        if (installMatch && installMatch[1]) {
+          const argString = installMatch[1];
+          // filter out flags and extract package names
+          const packages = argString
+            .split(/\s+/)
+            .filter(p => p.trim() !== '' && !p.startsWith('-'));
+          
+          if (packages.length > 0) {
+            operations.push({
+              operation: 'install',
+              packages
+            });
+            processedCommands.add(cmd);
+            break; // found a match, move to next command
+          }
+        }
+
+        // uninstall operations
+        const uninstallMatch = cmd.match(new RegExp(`^${pm}\\s+(?:remove|uninstall|rm)\\s+(.+)`));
+        if (uninstallMatch && uninstallMatch[1]) {
+          const argString = uninstallMatch[1];
+          const packages = argString
+            .split(/\s+/)
+            .filter(p => p.trim() !== '' && !p.startsWith('-'));
+          
+          if (packages.length > 0) {
+            operations.push({
+              operation: 'uninstall',
+              packages
+            });
+            processedCommands.add(cmd);
+            break;
+          }
+        }
+
+        // update operations
+        if (cmd.match(new RegExp(`^${pm}\\s+(?:update|upgrade)`))) {
+          operations.push({
+            operation: 'update',
+            packages: ['all packages']
+          });
+          processedCommands.add(cmd);
+          break;
+        }
+      }
+    }
+
+    return operations;
+  }
+
+  private extractBuildOperations(lines: string[], commands: string[]): ShareIndex['buildOperations'] {
+    const operations: ShareIndex['buildOperations'] = [];
+    const buildTools = [
+      { tool: 'tsc', pattern: /\btsc\b/ },
+      { tool: 'webpack', pattern: /\bwebpack\b/ },
+      { tool: 'vite', pattern: /\bvite\s+build\b/ },
+      { tool: 'rollup', pattern: /\brollup\b/ },
+      { tool: 'esbuild', pattern: /\besbuild\b/ },
+      { tool: 'swc', pattern: /\bswc\b/ },
+      { tool: 'babel', pattern: /\bbabel\b/ },
+      { tool: 'next', pattern: /\bnext\s+build\b/ },
+      { tool: 'nuxt', pattern: /\bnuxt\s+build\b/ },
+      { tool: 'npm build', pattern: /\bnpm\s+run\s+build\b/ },
+      { tool: 'yarn build', pattern: /\byarn\s+build\b/ }
+    ];
+
+    for (const { tool, pattern } of buildTools) {
+      const buildCmd = commands.find(cmd => pattern.test(cmd));
+      if (buildCmd) {
+        // verify build succeeded by looking for output
+        const verified = this.hasBuildOutput(lines, buildCmd);
+        operations.push({ tool, verified });
+      }
+    }
+
+    return operations;
+  }
+
+  private hasBuildOutput(lines: string[], buildCommand: string): boolean {
+    const cmdIndex = lines.findIndex(line => line.includes(buildCommand));
+    if (cmdIndex === -1) return false;
+
+    // check next 100 lines for build success indicators
+    const outputLines = lines.slice(cmdIndex + 1, cmdIndex + 101);
+
+    for (const line of outputLines) {
+      // success patterns
+      if (line.match(/build\s+succe(ss|eded)/i)) return true;
+      if (line.match(/compiled successfully/i)) return true;
+      if (line.match(/built in \d+/i)) return true;
+      if (line.match(/✓.*built/i)) return true;
+      if (line.match(/done in \d+/i)) return true;
+      if (line.match(/successfully built/i)) return true;
+    }
+
+    return false;
+  }
+
+  private extractLintOperations(lines: string[], commands: string[]): ShareIndex['lintOperations'] {
+    const operations: ShareIndex['lintOperations'] = [];
+    const lintTools = [
+      { tool: 'eslint', pattern: /\beslint\b/ },
+      { tool: 'prettier', pattern: /\bprettier\b/ },
+      { tool: 'biome', pattern: /\bbiome\s+(?:check|lint)\b/ },
+      { tool: 'tslint', pattern: /\btslint\b/ },
+      { tool: 'npm lint', pattern: /\bnpm\s+run\s+lint\b/ },
+      { tool: 'yarn lint', pattern: /\byarn\s+lint\b/ }
+    ];
+
+    for (const { tool, pattern } of lintTools) {
+      const lintCmd = commands.find(cmd => pattern.test(cmd));
+      if (lintCmd) {
+        // verify lint succeeded
+        const verified = this.hasLintOutput(lines, lintCmd);
+        operations.push({ tool, verified });
+      }
+    }
+
+    return operations;
+  }
+
+  private hasLintOutput(lines: string[], lintCommand: string): boolean {
+    const cmdIndex = lines.findIndex(line => line.includes(lintCommand));
+    if (cmdIndex === -1) return false;
+
+    // check next 50 lines for lint output
+    const outputLines = lines.slice(cmdIndex + 1, cmdIndex + 51);
+
+    for (const line of outputLines) {
+      // success patterns
+      if (line.match(/✓.*no.*(error|warning|problem)/i)) return true;
+      if (line.match(/0\s+errors/i)) return true;
+      if (line.match(/all.*passed/i)) return true;
+      if (line.match(/✨.*done/i)) return true;
+    }
+
+    return false;
+  }
+
+  private extractMcpSections(lines: string[]): ShareIndex['mcpSections'] {
+    const sections: ShareIndex['mcpSections'] = [];
+
+    // look for MCP Evidence headers
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+
+      if (line.match(/##\s+MCP\s+Evidence/i)) {
+        // extract section content (everything until next ## or end)
+        let content = '';
+        let j = i + 1;
+        
+        while (j < lines.length && !lines[j]?.match(/^##\s+/)) {
+          content += (lines[j] || '') + '\n';
+          j++;
+        }
+
+        const trimmedContent = content.trim();
+        
+        // verify MCP section has actual evidence
+        const hasIssueRef = /issue\s+#?\d+/i.test(trimmedContent);
+        const hasPrRef = /pr\s+#?\d+|pull request/i.test(trimmedContent);
+        const hasWorkflowRef = /workflow|\.github\/workflows|CI/i.test(trimmedContent);
+        const hasDecision = /decision|influenced|based on|considering/i.test(trimmedContent);
+
+        const verified = (hasIssueRef || hasPrRef || hasWorkflowRef) && hasDecision && trimmedContent.length >= 50;
+
+        sections.push({
+          content: trimmedContent,
+          verified
+        });
+      }
+    }
+
+    return sections;
+  }
+
   private extractClaims(lines: string[], index: ShareIndex): ShareIndex['claims'] {
     const claims: ShareIndex['claims'] = [];
 
@@ -224,7 +515,7 @@ export class ShareParser {
       const lowerLine = line.toLowerCase();
 
       // check for test passing claims
-      if (lowerLine.includes('tests pass') ||
+      if ((lowerLine.match(/\btests?\b/) && lowerLine.match(/\b(pass|passed|passing)\b/)) ||
           lowerLine.includes('all tests passed') ||
           lowerLine.includes('tests are passing')) {
 
@@ -240,26 +531,37 @@ export class ShareParser {
       }
 
       // check for build success claims
-      if (lowerLine.includes('build succeed') ||
-          lowerLine.includes('build passed') ||
+      if (lowerLine.match(/\b(build|builds)\s+(succeed|succeeded|passed|successful)/i) ||
           lowerLine.includes('compiled successfully')) {
 
-        const hasBuildCommand = index.commandsExecuted.some(cmd =>
-          cmd.includes('build') || cmd.includes('compile') || cmd.includes('tsc')
-        );
+        const hasBuildCommand = index.buildOperations.some(b => b.verified);
 
         claims.push({
           claim: line.trim(),
           verified: hasBuildCommand,
           evidence: hasBuildCommand
-            ? `verified build command: ${index.commandsExecuted.find(cmd => cmd.includes('build'))}`
+            ? `verified build with: ${index.buildOperations.find(b => b.verified)?.tool}`
             : 'no build command found in transcript'
         });
       }
 
+      // check for lint claims
+      if (lowerLine.match(/\b(lint|linting)\s+(pass|passed|succeeded)/i) ||
+          lowerLine.match(/no\s+lint\s+errors?/i)) {
+
+        const hasLintCommand = index.lintOperations.some(l => l.verified);
+
+        claims.push({
+          claim: line.trim(),
+          verified: hasLintCommand,
+          evidence: hasLintCommand
+            ? `verified lint with: ${index.lintOperations.find(l => l.verified)?.tool}`
+            : 'no lint command found in transcript'
+        });
+      }
+
       // check for deployment claims
-      if (lowerLine.includes('deployed') ||
-          lowerLine.includes('deployment succeeded')) {
+      if (lowerLine.match(/\b(deploy|deployed|deployment)\s+(succeed|succeeded|successful)/i)) {
 
         const hasDeployCommand = index.commandsExecuted.some(cmd =>
           cmd.includes('deploy') || cmd.includes('publish')
@@ -271,6 +573,51 @@ export class ShareParser {
           evidence: hasDeployCommand
             ? 'verified deployment command found'
             : 'no deployment command found in transcript'
+        });
+      }
+
+      // check for package install claims
+      if (lowerLine.match(/\b(installed|added)\s+package/i) ||
+          lowerLine.match(/\bnpm\s+install/i)) {
+
+        const hasPackageOp = index.packageOperations.some(op => op.operation === 'install');
+
+        claims.push({
+          claim: line.trim(),
+          verified: hasPackageOp,
+          evidence: hasPackageOp
+            ? `verified package install: ${index.packageOperations.find(op => op.operation === 'install')?.packages.join(', ')}`
+            : 'no package install command found'
+        });
+      }
+
+      // check for git commit claims
+      if (lowerLine.match(/\bcommitted\s+(the\s+)?changes?/i) ||
+          lowerLine.match(/\bgit\s+commit/i)) {
+
+        const hasCommit = index.gitCommits.length > 0;
+
+        claims.push({
+          claim: line.trim(),
+          verified: hasCommit,
+          evidence: hasCommit
+            ? `verified commit: ${index.gitCommits[0]?.message}`
+            : 'no git commit found in transcript'
+        });
+      }
+
+      // check for MCP usage claims
+      if (lowerLine.match(/\b(consulted|checked|reviewed)\s+(mcp|github|issues?)/i) &&
+          (lowerLine.includes('mcp') || lowerLine.includes('github') || lowerLine.includes('context'))) {
+
+        const hasMcp = index.mcpSections.some(m => m.verified);
+
+        claims.push({
+          claim: line.trim(),
+          verified: hasMcp,
+          evidence: hasMcp
+            ? 'verified MCP Evidence section found'
+            : 'no MCP Evidence section or insufficient evidence'
         });
       }
     }

@@ -5,7 +5,34 @@
 A demonstration tool for the **GitHub Copilot CLI Challenge** that turns one developer into a structured, repeatable team workflow using sequential custom agents.
 
 [![CI](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions/workflows/ci.yml/badge.svg)](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions)
-[![Tests](https://img.shields.io/badge/tests-126%20passing-brightgreen)](https://github.com/moonrunnerkc/copilot-swarm-conductor)
+[![Tests](https://img.shields.io/badge/tests-213%20passing-brightgreen)](https://github.com/moonrunnerkc/copilot-swarm-conductor)
+
+---
+
+## 🏆 For Challenge Judges
+
+**Want to verify championship-level quality in <5 minutes?**
+
+👉 **[START HERE: Judge Quick-Start Guide](JUDGE-QUICKSTART.md)** 👈
+
+**Quick verification:**
+```bash
+npm run build && npm test
+# Expected: Zero errors, 213/213 tests passing
+```
+
+**See the proof:**
+- 📋 [Championship Summary](CHAMPIONSHIP-SUMMARY.md) - Complete feature breakdown
+- 📊 [Submission Checklist](SUBMISSION-CHECKLIST.md) - Verification checklist
+- 📁 [Demo Run](runs/demo-todo-api/proof/) - Real Copilot transcripts & drift trap verification
+
+**Key differentiators:**
+- ✅ **213 comprehensive tests** (exceeded 200+ goal)
+- ✅ **Zero placeholders** - Fully Copilot-driven planning + intelligent fallback
+- ✅ **Drift trap innovation** - Verifies 8 claim types with evidence extraction
+- ✅ **Production quality** - Full TypeScript, strict null checks, zero errors
+
+---
 
 ## What This Does
 

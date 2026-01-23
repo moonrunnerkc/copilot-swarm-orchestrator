@@ -13,115 +13,201 @@ function showUsage(): void {
 Copilot Swarm Conductor - Sequential AI Workflow Tool
 
 Usage:
-  swarm-conductor plan <goal>              Generate a plan for the given goal
+  swarm-conductor plan <goal>                   Generate intelligent plan (enhanced fallback)
+  swarm-conductor plan --copilot <goal>         Generate Copilot CLI prompt for planning
+  swarm-conductor plan import <runid> <transcript>
+                                                Parse plan from Copilot /share transcript
   swarm-conductor execute <planfile> [--delegate] [--mcp]
-                                            Execute a saved plan step-by-step
-  swarm-conductor status <execid>          Show execution status
-  swarm-conductor dashboard <execid>       Show TUI dashboard for execution
+                                                Execute a saved plan step-by-step
+  swarm-conductor status <execid>               Show execution status
+  swarm-conductor dashboard <execid>            Show TUI dashboard for execution
   swarm-conductor share import <runid> <step> <agent> <path>
-                                            Import /share transcript for a step
-  swarm-conductor share context <runid> <step>
-                                            Show prior context for a step
-  swarm-conductor --help                   Show this help message
+                                                Import /share transcript for a step
+  swarm-conductor share context <runid> <step>  Show prior context for a step
+  swarm-conductor --help                        Show this help message
 
 Flags:
   --delegate    Instruct agents to use /delegate for PR creation
   --mcp         Require MCP evidence from GitHub context in verification
 
 Examples:
+  # Generate plan using intelligent fallback
   swarm-conductor plan "Build a REST API for user management"
+  
+  # Generate Copilot CLI planning prompt
+  swarm-conductor plan --copilot "Build a REST API"
+  # Then: paste output into Copilot CLI, run /share, save transcript
+  
+  # Import Copilot-generated plan from transcript
+  swarm-conductor plan import run-001 /path/to/planning-share.md
+  
+  # Execute plan
   swarm-conductor execute plan-2026-01-23T00-07-02-308Z-build-api.json --delegate --mcp
+  
+  # Check status
   swarm-conductor status exec-2026-01-23T00-17-01-717Z
+  
+  # Show dashboard
   swarm-conductor dashboard exec-2026-01-23T00-17-01-717Z
+  
+  # Import step transcript
   swarm-conductor share import run-001 1 BackendMaster /path/to/share.md
+  
+  # Show context for next step
   swarm-conductor share context run-001 2
 
 The share import command:
   - Parses the /share transcript
-  - Extracts changed files, commands, test runs, PR links
+  - Extracts changed files, commands, test runs, PR links, git commits
   - Verifies claims (e.g., "tests passed" needs evidence)
+  - Detects drift (claims without evidence)
   - Stores index for next steps to use as context
 `);
 }
 
-function generatePlan(goal: string): void {
-  console.log('Copilot Swarm Conductor - Plan Generation\n');
-  console.log(`Goal: ${goal}\n`);
-
-  // Load available agents
+function generatePlan(goal: string, copilotMode: boolean = false): void {
   const configLoader = new ConfigLoader();
   const agents = configLoader.loadAllAgents();
+  const generator = new PlanGenerator(agents);
+
+  if (copilotMode) {
+    // generate Copilot CLI prompt for planning
+    console.log('╔══════════════════════════════════════════════════════════════════════╗');
+    console.log('║  COPILOT CLI PLANNING MODE                                           ║');
+    console.log('╚══════════════════════════════════════════════════════════════════════╝\n');
+    console.log('📋 Goal:', goal, '\n');
+    console.log('Instructions:');
+    console.log('  1. Copy the prompt below');
+    console.log('  2. Start a new Copilot CLI session: gh copilot');
+    console.log('  3. Paste the prompt and press Enter');
+    console.log('  4. When Copilot responds with JSON, run: /share');
+    console.log('  5. Save the /share transcript to a file');
+    console.log('  6. Import the plan: swarm-conductor plan import <runid> <transcript-path>\n');
+    console.log('═'.repeat(70));
+    console.log('PROMPT (copy from next line until the marker):');
+    console.log('═'.repeat(70));
+    console.log();
+    
+    const prompt = generator.generateCopilotPlanningPrompt(goal);
+    console.log(prompt);
+    
+    console.log();
+    console.log('═'.repeat(70));
+    console.log('END OF PROMPT');
+    console.log('═'.repeat(70));
+    console.log();
+    return;
+  }
+
+  // intelligent fallback plan generation
+  console.log('╔══════════════════════════════════════════════════════════════════════╗');
+  console.log('║  INTELLIGENT PLAN GENERATION (Fallback Mode)                        ║');
+  console.log('╚══════════════════════════════════════════════════════════════════════╝\n');
+  console.log('📋 Goal:', goal, '\n');
+  console.log('💡 Tip: Use --copilot for Copilot CLI-generated plans\n');
   
   console.log(`Loaded ${agents.length} agent profiles:`);
   agents.forEach(agent => {
-    console.log(`  - ${agent.name}: ${agent.purpose}`);
+    console.log(`  ✓ ${agent.name}: ${agent.purpose}`);
   });
   console.log();
 
-  // Generate plan
-  const generator = new PlanGenerator(agents);
-  
-  // For Phase 3, we create a simple demonstration plan
-  // In production, this would invoke Copilot CLI to generate the plan
-  const exampleSteps: PlanStep[] = [
-    {
-      stepNumber: 1,
-      agentName: 'BackendMaster',
-      task: 'Design and implement core API structure',
-      dependencies: [],
-      expectedOutputs: ['API endpoint definitions', 'Database schema', 'Test results']
-    },
-    {
-      stepNumber: 2,
-      agentName: 'SecurityAuditor',
-      task: 'Review API security and authentication',
-      dependencies: [1],
-      expectedOutputs: ['Security audit report', 'Fixed vulnerabilities']
-    },
-    {
-      stepNumber: 3,
-      agentName: 'TesterElite',
-      task: 'Create comprehensive test suite',
-      dependencies: [1, 2],
-      expectedOutputs: ['Test files', 'Coverage report', 'Test execution results']
-    },
-    {
-      stepNumber: 4,
-      agentName: 'IntegratorFinalizer',
-      task: 'Verify integration and prepare documentation',
-      dependencies: [1, 2, 3],
-      expectedOutputs: ['Integration test results', 'API documentation', 'Release notes']
-    }
-  ];
+  // generate intelligent plan based on goal analysis
+  const plan = generator.createPlan(goal);
 
-  const plan = generator.createPlan(goal, exampleSteps);
-
-  // Display plan
+  // display plan
   console.log('Generated Execution Plan:');
-  console.log('========================\n');
+  console.log('═'.repeat(70));
+  console.log();
   
   plan.steps.forEach(step => {
     console.log(`Step ${step.stepNumber}: ${step.task}`);
-    console.log(`  Agent: ${step.agentName}`);
+    console.log(`  👤 Agent: ${step.agentName}`);
     if (step.dependencies.length > 0) {
-      console.log(`  Dependencies: Steps ${step.dependencies.join(', ')}`);
+      console.log(`  🔗 Dependencies: Steps ${step.dependencies.join(', ')}`);
     }
-    console.log(`  Expected outputs:`);
+    console.log(`  📦 Expected outputs:`);
     step.expectedOutputs.forEach(output => {
-      console.log(`    - ${output}`);
+      console.log(`     • ${output}`);
     });
     console.log();
   });
 
-  // Get execution order
+  // get execution order
   const executionOrder = generator.getExecutionOrder(plan);
-  console.log(`Execution Order: ${executionOrder.join(' → ')}\n`);
+  console.log(`🔄 Execution Order: ${executionOrder.join(' → ')}\n`);
 
-  // Save plan
+  // save plan
   const storage = new PlanStorage();
   const planPath = storage.savePlan(plan);
-  console.log(`✓ Plan saved to: ${planPath}`);
-  console.log(`\nTo execute this plan, run: swarm-conductor execute ${path.basename(planPath)}\n`);
+  console.log(`✅ Plan saved to: ${planPath}`);
+  console.log(`\n▶  To execute: swarm-conductor execute ${path.basename(planPath)}\n`);
+}
+
+function importPlanFromTranscript(runId: string, transcriptPath: string): void {
+  console.log('╔══════════════════════════════════════════════════════════════════════╗');
+  console.log('║  IMPORT COPILOT-GENERATED PLAN                                       ║');
+  console.log('╚══════════════════════════════════════════════════════════════════════╝\n');
+
+  console.log('📁 Transcript:', transcriptPath);
+  console.log('🆔 Run ID:', runId);
+  console.log();
+
+  try {
+    const fs = require('fs');
+    
+    if (!fs.existsSync(transcriptPath)) {
+      throw new Error(`Transcript file not found: ${transcriptPath}`);
+    }
+
+    const transcriptContent = fs.readFileSync(transcriptPath, 'utf-8');
+    
+    const configLoader = new ConfigLoader();
+    const agents = configLoader.loadAllAgents();
+    const generator = new PlanGenerator(agents);
+
+    console.log('🔍 Parsing transcript for JSON plan...');
+    const plan = generator.parseCopilotPlanFromTranscript(transcriptContent);
+    
+    console.log('✅ Plan parsed successfully!\n');
+    console.log('Plan details:');
+    console.log(`  Goal: ${plan.goal}`);
+    console.log(`  Steps: ${plan.steps.length}`);
+    console.log(`  Created: ${plan.createdAt}\n`);
+
+    // display steps
+    console.log('Steps:');
+    console.log('═'.repeat(70));
+    plan.steps.forEach(step => {
+      console.log(`\nStep ${step.stepNumber}: ${step.task}`);
+      console.log(`  👤 Agent: ${step.agentName}`);
+      if (step.dependencies.length > 0) {
+        console.log(`  🔗 Dependencies: ${step.dependencies.join(', ')}`);
+      }
+      console.log(`  📦 Outputs: ${step.expectedOutputs.join(', ')}`);
+    });
+    console.log('\n' + '═'.repeat(70));
+
+    // validate execution order
+    const executionOrder = generator.getExecutionOrder(plan);
+    console.log(`\n🔄 Execution Order: ${executionOrder.join(' → ')}`);
+
+    // save plan
+    const storage = new PlanStorage();
+    const planPath = storage.savePlan(plan);
+    console.log(`\n✅ Plan saved to: ${planPath}`);
+    console.log(`\n▶  To execute: swarm-conductor execute ${path.basename(planPath)}\n`);
+
+  } catch (error) {
+    console.error('\n❌ Error importing plan:');
+    console.error('  ', error instanceof Error ? error.message : String(error));
+    console.error('\nTroubleshooting:');
+    console.error('  • Ensure the transcript contains valid JSON output from Copilot');
+    console.error('  • The JSON must match the ExecutionPlan schema');
+    console.error('  • Check that all agent names are valid');
+    console.error('  • Ensure dependencies form a valid DAG (no cycles)\n');
+    process.exit(1);
+  }
 }
 
 function executePlan(planFilename: string, options?: ExecutionOptions): void {
@@ -352,12 +438,56 @@ function main(): void {
       process.exit(0);
     }
 
-    const goal = args.slice(1).join(' ');
-    try {
-      generatePlan(goal);
-    } catch (error) {
-      console.error('Error generating plan:', error instanceof Error ? error.message : error);
-      process.exit(1);
+    // check for subcommands
+    const subcommand = args[1];
+
+    if (subcommand === 'import') {
+      // plan import <runid> <transcript>
+      if (args.length < 4) {
+        console.error('Error: plan import requires: <runid> <transcript-path>\n');
+        showUsage();
+        process.exit(1);
+      }
+
+      const runId = args[2];
+      const transcriptPath = args[3];
+
+      if (!runId || !transcriptPath) {
+        console.error('Error: all arguments required\n');
+        showUsage();
+        process.exit(1);
+      }
+
+      try {
+        importPlanFromTranscript(runId, transcriptPath);
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : error);
+        process.exit(1);
+      }
+    } else if (subcommand === '--copilot') {
+      // plan --copilot <goal>
+      if (args.length < 3) {
+        console.error('Error: goal required for --copilot mode\n');
+        showUsage();
+        process.exit(1);
+      }
+
+      const goal = args.slice(2).join(' ');
+      try {
+        generatePlan(goal, true);  // copilotMode = true
+      } catch (error) {
+        console.error('Error generating Copilot prompt:', error instanceof Error ? error.message : error);
+        process.exit(1);
+      }
+    } else {
+      // plan <goal> (regular mode)
+      const goal = args.slice(1).join(' ');
+      try {
+        generatePlan(goal, false);  // copilotMode = false
+      } catch (error) {
+        console.error('Error generating plan:', error instanceof Error ? error.message : error);
+        process.exit(1);
+      }
     }
   } else if (command === 'execute') {
     if (args.length < 2 || !args[1]) {
