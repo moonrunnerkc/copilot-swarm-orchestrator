@@ -7,36 +7,9 @@ A demonstration tool for the **GitHub Copilot CLI Challenge** that turns one dev
 [![CI](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions/workflows/ci.yml/badge.svg)](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions)
 [![Tests](https://img.shields.io/badge/tests-213%20passing-brightgreen)](https://github.com/moonrunnerkc/copilot-swarm-conductor)
 
----
-
-## 🏆 For Challenge Judges
-
-**Want to verify championship-level quality in <5 minutes?**
-
-👉 **[START HERE: Judge Quick-Start Guide](JUDGE-QUICKSTART.md)** 👈
-
-**Quick verification:**
-```bash
-npm run build && npm test
-# Expected: Zero errors, 213/213 tests passing
-```
-
-**See the proof:**
-- 📋 [Championship Summary](CHAMPIONSHIP-SUMMARY.md) - Complete feature breakdown
-- 📊 [Submission Checklist](SUBMISSION-CHECKLIST.md) - Verification checklist
-- 📁 [Demo Run](runs/demo-todo-api/proof/) - Real Copilot transcripts & drift trap verification
-
-**Key differentiators:**
-- ✅ **213 comprehensive tests** (exceeded 200+ goal)
-- ✅ **Zero placeholders** - Fully Copilot-driven planning + intelligent fallback
-- ✅ **Drift trap innovation** - Verifies 8 claim types with evidence extraction
-- ✅ **Production quality** - Full TypeScript, strict null checks, zero errors
-
----
-
 ## What This Does
 
-Copilot Swarm Conductor is **not** a magic parallel AI swarm. It's a credible, auditable sequential workflow coordinator that:
+Copilot Swarm Conductor coordinates sequential AI workflow steps using GitHub Copilot CLI. It:
 
 1. **Generates structured plans** from high-level goals with dependency management
 2. **Assigns specialized agents** to each step with bounded scope and refusal rules
@@ -47,17 +20,17 @@ Copilot Swarm Conductor is **not** a magic parallel AI swarm. It's a credible, a
 
 **Key Constraint:** This tool coordinates human-driven Copilot CLI sessions. It does NOT automate or execute sessions.
 
-## Why This Matters (Competition Context)
+## Why This Matters
 
-This project proves Copilot CLI value with artifacts judges can check:
+This project demonstrates Copilot CLI integration with verifiable artifacts:
 
-- ✅ **PRs created via `/delegate`** - Real GitHub integration
-- ✅ **MCP evidence in transcripts** - GitHub context informed decisions
-- ✅ **Complete session transcripts via `/share`** - Full audit trail
-- ✅ **Drift trap mechanism** - Catches AI lies (e.g., "tests passed" without test output)
-- ✅ **Clean git history** - Every phase committed with proof documents
+- **PRs created via `/delegate`** - Real GitHub integration
+- **MCP evidence in transcripts** - GitHub context informed decisions
+- **Complete session transcripts via `/share`** - Full audit trail
+- **Drift trap mechanism** - Verifies claims against evidence
+- **Clean git history** - Committed proof documents
 
-**No fantasy features. No invented APIs. No parallel magic.**
+All features use real Copilot CLI capabilities.
 
 ## Quick Start
 
@@ -78,9 +51,32 @@ node dist/src/cli.js execute plan-<timestamp>.json --delegate --mcp
 node dist/src/cli.js dashboard exec-<timestamp>
 ```
 
+## Verification
+
+**Build and test:**
+```bash
+npm install
+npm run build && npm test
+# Expected: Zero errors, 213/213 tests passing in ~100ms
+```
+
+**Try the features:**
+```bash
+# Copilot-driven planning
+node dist/src/cli.js plan --copilot "Build REST API"
+
+# Intelligent fallback
+node dist/src/cli.js plan "Deploy to Kubernetes"
+```
+
+**See proof artifacts:**
+- [Demo run transcripts](runs/demo-todo-api/proof/) - Real Copilot session outputs
+- [Feature summary](FEATURE-SUMMARY.md) - Complete feature breakdown
+- [Test coverage](test/) - 213 tests across all components
+
 ## Judge Quick Start
 
-**Want to see it work in under 5 minutes?** Follow this:
+**To verify in under 5 minutes:**
 
 ### 1. View the Demo Run
 
