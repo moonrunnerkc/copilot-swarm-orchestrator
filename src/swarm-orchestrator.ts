@@ -7,6 +7,7 @@ import SessionExecutor, { SessionResult, SessionOptions } from './session-execut
 import ContextBroker, { ContextEntry } from './context-broker';
 import ShareParser from './share-parser';
 import VerifierEngine, { VerificationResult } from './verifier-engine';
+import { DeploymentMetadata } from './deployment-manager';
 
 export interface ParallelStepResult {
   stepNumber: number;
@@ -28,6 +29,7 @@ export interface SwarmExecutionContext {
   results: ParallelStepResult[];
   contextBroker: ContextBroker;
   mainBranch: string;
+  deployments?: DeploymentMetadata[];
 }
 
 /**
@@ -87,6 +89,9 @@ export class SwarmOrchestrator {
     options?: {
       model?: string;
       maxConcurrency?: number;
+      enableExternal?: boolean;
+      dryRun?: boolean;
+      autoPR?: boolean;
     }
   ): Promise<SwarmExecutionContext> {
     const context = this.initializeSwarmExecution(plan, runDir);
@@ -139,6 +144,37 @@ export class SwarmOrchestrator {
     // merge all agent branches back to main
     console.log('\n🔀 Merging agent branches to main...');
     await this.mergeAllBranches(context);
+
+    // Auto-create PR if requested
+    if (options?.autoPR) {
+      console.log('\n📝 Creating PR...');
+      try {
+        const PRAutomation = require('./pr-automation').default;
+        const ExternalToolManager = require('./external-tool-manager').default;
+        const DeploymentManager = require('./deployment-manager').default;
+        
+        const toolManager = new ExternalToolManager({
+          enableExternal: options.enableExternal || false,
+          dryRun: options.dryRun || false,
+          logFile: path.join(runDir, 'external-commands.log')
+        });
+        
+        const deploymentManager = new DeploymentManager(toolManager, this.workingDir);
+        const prAutomation = new PRAutomation(toolManager, this.workingDir);
+        
+        const deployments = deploymentManager.loadDeploymentMetadata(runDir);
+        const summary = prAutomation.generatePRSummary(context, deployments);
+        const prResult = await prAutomation.createPR(summary);
+        
+        if (prResult.success) {
+          console.log(`✅ PR created: ${prResult.url}`);
+        } else {
+          console.warn(`⚠️  PR creation failed: ${prResult.error}`);
+        }
+      } catch (error) {
+        console.warn(`⚠️  PR automation error: ${error instanceof Error ? error.message : error}`);
+      }
+    }
 
     return context;
   }
