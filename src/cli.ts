@@ -356,10 +356,10 @@ async function executeSwarm(
   console.log(`Run ID: ${runId}`);
   console.log(`Run Directory: ${runDir}\n`);
 
-  // Start dashboard if enabled
+  // Start dashboard if enabled (dynamic import for ESM dashboard)
   let dashboard;
   if (!options?.noDashboard) {
-    const { startDashboard } = require('./dashboard');
+    const { startDashboard } = await import('./dashboard.js');
     dashboard = startDashboard({
       executionId: runId,
       goal: plan.goal,
@@ -605,7 +605,7 @@ function showShareContext(runId: string, stepNumber: string): void {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
   if (args.length === 0) {
@@ -745,7 +745,7 @@ function main(): void {
       const options: { model?: string; noDashboard?: boolean } = {};
       if (model) options.model = model;
       if (noDashboard) options.noDashboard = noDashboard;
-      executeSwarm(planFilename, options);
+      await executeSwarm(planFilename, options);
     } catch (error) {
       console.error('Error executing swarm:', error instanceof Error ? error.message : error);
       process.exit(1);

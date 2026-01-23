@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+// @ts-ignore - Ink is ESM, TypeScript module resolution limitation
 import { Box, Text, render, useInput } from 'ink';
+// @ts-ignore - Ink-spinner is ESM, TypeScript module resolution limitation
 import Spinner from 'ink-spinner';
 import { ParallelStepResult } from './swarm-orchestrator';
 import { SteeringCommand, Conflict, OrchestratorState, parseSteeringCommand, formatSteeringCommand } from './steering-types';
@@ -165,7 +167,7 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
   const [showInput, setShowInput] = useState(!readOnly);
 
   // Handle keyboard input
-  useInput((inputChar, key) => {
+  useInput((inputChar: string, key: any) => {
     if (readOnly) return;
 
     if (key.return) {
@@ -431,21 +433,26 @@ export function startDashboard(
   let currentProps = { ...initialProps };
   let currentCommandHandler = commandHandler;
   
+  const getProps = () => ({
+    ...currentProps,
+    ...(currentCommandHandler ? { onCommand: currentCommandHandler } : {})
+  });
+  
   const { rerender, unmount, waitUntilExit } = render(
-    <SwarmDashboard {...currentProps} onCommand={currentCommandHandler} />
+    <SwarmDashboard {...getProps()} />
   );
 
   return {
     update: (updates: Partial<DashboardProps>) => {
       currentProps = { ...currentProps, ...updates };
-      rerender(<SwarmDashboard {...currentProps} onCommand={currentCommandHandler} />);
+      rerender(<SwarmDashboard {...getProps()} />);
     },
     stop: () => {
       unmount();
     },
     setCommandHandler: (handler: (command: SteeringCommand) => void) => {
       currentCommandHandler = handler;
-      rerender(<SwarmDashboard {...currentProps} onCommand={currentCommandHandler} />);
+      rerender(<SwarmDashboard {...getProps()} />);
     }
   };
 }
