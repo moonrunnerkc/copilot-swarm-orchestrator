@@ -3,6 +3,7 @@ import { Box, Text, render, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import { ParallelStepResult } from './swarm-orchestrator';
 import { SteeringCommand, Conflict, OrchestratorState, parseSteeringCommand, formatSteeringCommand } from './steering-types';
+import { MetricsComparison } from './metrics-types';
 
 interface DashboardProps {
   executionId: string;
@@ -17,6 +18,7 @@ interface DashboardProps {
   orchestratorState?: OrchestratorState;
   onCommand?: (command: SteeringCommand) => void;
   readOnly?: boolean;
+  metricsComparison?: MetricsComparison | null;
 }
 
 interface StatusIconProps {
@@ -63,6 +65,85 @@ const ProgressBar: React.FC<ProgressBarProps> = ({ completed, total, width = 40 
   );
 };
 
+interface ProductivitySummaryProps {
+  comparison: MetricsComparison;
+}
+
+const ProductivitySummary: React.FC<ProductivitySummaryProps> = ({ comparison }) => {
+  const { current, averageHistorical, delta } = comparison;
+  
+  const formatTime = (ms: number): string => {
+    const seconds = Math.floor(ms / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}m ${remainingSeconds}s`;
+  };
+
+  const getChangeIndicator = (value: number, lowerIsBetter: boolean = false): { text: string; color: string } => {
+    if (Math.abs(value) < 0.01) return { text: '━', color: 'gray' };
+    
+    const isGood = lowerIsBetter ? value < 0 : value > 0;
+    const symbol = value > 0 ? '▲' : '▼';
+    const color = isGood ? 'green' : 'yellow';
+    
+    return { text: symbol, color };
+  };
+
+  const timeIndicator = getChangeIndicator(delta.timePercent, true);
+  const passRateIndicator = getChangeIndicator(delta.passRateDiff, false);
+
+  return (
+    <Box flexDirection="column" marginBottom={1} borderStyle="double" borderColor="cyan" paddingX={1}>
+      <Text bold underline color="cyan">
+        📊 Productivity Summary
+      </Text>
+      
+      <Box flexDirection="column" marginTop={1}>
+        <Text>
+          <Text bold>Time: </Text>
+          {formatTime(current.totalTimeMs)}
+          {' '}
+          <Text color={timeIndicator.color}>
+            {timeIndicator.text} {Math.abs(delta.timePercent).toFixed(1)}%
+          </Text>
+          <Text color="gray"> vs avg {formatTime(averageHistorical.totalTimeMs)}</Text>
+        </Text>
+        
+        <Text>
+          <Text bold>Commits: </Text>
+          {current.commitCount}
+          {' '}
+          {delta.commitCountDiff !== 0 && (
+            <Text color={delta.commitCountDiff > 0 ? 'green' : 'yellow'}>
+              ({delta.commitCountDiff > 0 ? '+' : ''}{delta.commitCountDiff.toFixed(0)})
+            </Text>
+          )}
+          <Text color="gray"> vs avg {averageHistorical.commitCount.toFixed(1)}</Text>
+        </Text>
+        
+        <Text>
+          <Text bold>Verification: </Text>
+          {current.verificationsPassed}/{current.verificationsPassed + current.verificationsFailed}
+          {' '}
+          ({(current.verificationsPassed / (current.verificationsPassed + current.verificationsFailed) * 100).toFixed(0)}%)
+          {' '}
+          <Text color={passRateIndicator.color}>
+            {passRateIndicator.text} {Math.abs(delta.passRateDiff * 100).toFixed(1)}%
+          </Text>
+        </Text>
+        
+        {current.recoveryEvents.length > 0 && (
+          <Text color="yellow">
+            <Text bold>Recoveries: </Text>
+            {current.recoveryEvents.length}
+          </Text>
+        )}
+      </Box>
+    </Box>
+  );
+};
+
 const SwarmDashboard: React.FC<DashboardProps> = ({
   executionId,
   goal,
@@ -75,7 +156,8 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
   startTime,
   orchestratorState,
   onCommand,
-  readOnly = false
+  readOnly = false,
+  metricsComparison
 }) => {
   const [elapsedTime, setElapsedTime] = useState('0s');
   const [input, setInput] = useState('');
@@ -293,6 +375,11 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
           <Text>{input}</Text>
           <Text color="gray" dimColor>▊</Text>
         </Box>
+      )}
+
+      {/* Productivity Summary - shown at end of run */}
+      {metricsComparison && completedSteps === totalSteps && (
+        <ProductivitySummary comparison={metricsComparison} />
       )}
 
       {/* Footer */}

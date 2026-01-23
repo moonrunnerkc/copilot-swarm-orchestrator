@@ -8,6 +8,8 @@ import ContextBroker, { ContextEntry } from './context-broker';
 import ShareParser from './share-parser';
 import VerifierEngine, { VerificationResult } from './verifier-engine';
 import { DeploymentMetadata } from './deployment-manager';
+import MetricsCollector from './metrics-collector';
+import AnalyticsLog from './analytics-log';
 
 export interface ParallelStepResult {
   stepNumber: number;
@@ -30,6 +32,7 @@ export interface SwarmExecutionContext {
   contextBroker: ContextBroker;
   mainBranch: string;
   deployments?: DeploymentMetadata[];
+  metricsCollector?: MetricsCollector;
 }
 
 /**
@@ -83,6 +86,7 @@ export class SwarmOrchestrator {
   ): SwarmExecutionContext {
     const executionId = this.generateExecutionId();
     const contextBroker = new ContextBroker(runDir);
+    const metricsCollector = new MetricsCollector(executionId, plan.goal);
     
     // get current git branch
     const mainBranch = this.getCurrentBranch();
@@ -98,7 +102,8 @@ export class SwarmOrchestrator {
         status: 'pending'
       })),
       contextBroker,
-      mainBranch
+      mainBranch,
+      metricsCollector
     };
 
     return context;
@@ -140,6 +145,9 @@ export class SwarmOrchestrator {
       const wave = executionWaves[waveIndex];
       console.log(`\n📊 Wave ${waveIndex + 1}: ${wave.length} step(s) in parallel`);
       
+      // Track wave start
+      context.metricsCollector?.startWave(waveIndex + 1);
+      
       // Check for pause before starting wave
       if (this.pauseRequested) {
         console.log('\n⏸️  Pause requested. Waiting for resume...');
@@ -176,6 +184,21 @@ export class SwarmOrchestrator {
     // merge all agent branches back to main
     console.log('\n🔀 Merging agent branches to main...');
     await this.mergeAllBranches(context);
+
+    // Finalize metrics and save to analytics log
+    if (context.metricsCollector) {
+      const metrics = context.metricsCollector.finalize();
+      
+      // Save metrics to run directory
+      const metricsPath = path.join(runDir, 'metrics.json');
+      fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2), 'utf8');
+      
+      // Append to analytics log
+      const analyticsLog = new AnalyticsLog();
+      analyticsLog.appendRun(metrics);
+      
+      console.log(`\n📊 Metrics saved: ${metricsPath}`);
+    }
 
     // Auto-create PR if requested
     if (options?.autoPR) {
@@ -237,6 +260,9 @@ export class SwarmOrchestrator {
         }
       }
 
+      // Track step execution
+      context.metricsCollector?.trackStep(step.stepNumber, agent.name);
+
       // create per-agent branch
       const branchName = `swarm/${context.executionId}/step-${step.stepNumber}-${agent.name.toLowerCase()}`;
       result.branchName = branchName;
@@ -276,6 +302,13 @@ export class SwarmOrchestrator {
       const transcriptContent = fs.readFileSync(transcriptPath, 'utf8');
       const shareIndex = this.shareParser.parse(transcriptContent);
 
+      // Track commits from this step
+      if (shareIndex.gitCommits) {
+        shareIndex.gitCommits.forEach(() => {
+          context.metricsCollector?.trackCommit(agent.name);
+        });
+      }
+
       // verify the step
       const verificationResult = await this.verifier.verifyStep(
         step.stepNumber,
@@ -289,6 +322,9 @@ export class SwarmOrchestrator {
       );
 
       result.verificationResult = verificationResult;
+      
+      // Track verification result
+      context.metricsCollector?.trackVerification(verificationResult.passed);
 
       // generate and commit verification report
       const reportPath = path.join(
