@@ -4,6 +4,8 @@ dist/
 .DS_Store
 plans/
 test-plans/
-runs/
 test-runs/
 test-proof/
+
+# Allow demo run for judges
+!runs/demo-*/
