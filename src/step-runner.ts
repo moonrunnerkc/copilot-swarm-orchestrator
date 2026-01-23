@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ExecutionPlan, PlanStep } from './plan-generator';
 import { AgentProfile } from './config-loader';
+import { ExecutionOptions } from './types';
+import { GitHubMcpIntegrator } from './github-mcp-integrator';
 
 export interface StepResult {
   stepNumber: number;
@@ -23,6 +25,7 @@ export interface ExecutionContext {
   currentStep: number;
   stepResults: StepResult[];
   priorContext: string[];  // Accumulated context from previous steps
+  options?: ExecutionOptions;  // GitHub integration flags
 }
 
 export class StepRunner {
@@ -35,7 +38,7 @@ export class StepRunner {
   /**
    * Initialize execution context for a plan
    */
-  initializeExecution(plan: ExecutionPlan, planFilename: string): ExecutionContext {
+  initializeExecution(plan: ExecutionPlan, planFilename: string, options?: ExecutionOptions): ExecutionContext {
     const executionId = this.generateExecutionId();
     
     const context: ExecutionContext = {
@@ -51,6 +54,10 @@ export class StepRunner {
       })),
       priorContext: []
     };
+
+    if (options) {
+      context.options = options;
+    }
 
     return context;
   }
@@ -167,6 +174,19 @@ export class StepRunner {
       lines.push(`   - ${output}`);
     });
     lines.push('');
+
+    // add GitHub integration instructions
+    if (context.options?.mcp) {
+      lines.push('');
+      lines.push(GitHubMcpIntegrator.generateMcpPromptSection());
+      lines.push('');
+    }
+
+    if (context.options?.delegate) {
+      lines.push('');
+      lines.push(GitHubMcpIntegrator.generateDelegatePromptSection());
+      lines.push('');
+    }
 
     const transcriptPath = agent.output_contract.transcript.replace('{N}', step.stepNumber.toString());
     lines.push(`3. Proof transcript saved to: ${transcriptPath}`);

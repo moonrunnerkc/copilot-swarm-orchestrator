@@ -6,6 +6,7 @@ import { PlanGenerator, PlanStep } from './plan-generator';
 import { PlanStorage } from './plan-storage';
 import { StepRunner } from './step-runner';
 import { SessionManager } from './session-manager';
+import { ExecutionOptions } from './types';
 
 function showUsage(): void {
   console.log(`
@@ -13,7 +14,8 @@ Copilot Swarm Conductor - Sequential AI Workflow Tool
 
 Usage:
   swarm-conductor plan <goal>              Generate a plan for the given goal
-  swarm-conductor execute <planfile>       Execute a saved plan step-by-step
+  swarm-conductor execute <planfile> [--delegate] [--mcp]
+                                            Execute a saved plan step-by-step
   swarm-conductor status <execid>          Show execution status
   swarm-conductor share import <runid> <step> <agent> <path>
                                             Import /share transcript for a step
@@ -21,9 +23,13 @@ Usage:
                                             Show prior context for a step
   swarm-conductor --help                   Show this help message
 
+Flags:
+  --delegate    Instruct agents to use /delegate for PR creation
+  --mcp         Require MCP evidence from GitHub context in verification
+
 Examples:
   swarm-conductor plan "Build a REST API for user management"
-  swarm-conductor execute plan-2026-01-23T00-07-02-308Z-build-api.json
+  swarm-conductor execute plan-2026-01-23T00-07-02-308Z-build-api.json --delegate --mcp
   swarm-conductor status exec-2026-01-23T00-17-01-717Z
   swarm-conductor share import run-001 1 BackendMaster /path/to/share.md
   swarm-conductor share context run-001 2
@@ -116,7 +122,7 @@ function generatePlan(goal: string): void {
   console.log(`\nTo execute this plan, run: swarm-conductor execute ${path.basename(planPath)}\n`);
 }
 
-function executePlan(planFilename: string): void {
+function executePlan(planFilename: string, options?: ExecutionOptions): void {
   console.log('Copilot Swarm Conductor - Plan Execution\n');
 
   // Load plan
@@ -124,7 +130,14 @@ function executePlan(planFilename: string): void {
   const plan = storage.loadPlan(planFilename);
   
   console.log(`Plan: ${plan.goal}`);
-  console.log(`Steps: ${plan.steps.length}\n`);
+  console.log(`Steps: ${plan.steps.length}`);
+  
+  if (options?.delegate || options?.mcp) {
+    console.log('\nGitHub Integration:');
+    if (options.delegate) console.log('  ✓ /delegate enabled - agents will be instructed to create PRs');
+    if (options.mcp) console.log('  ✓ MCP required - agents must provide GitHub context evidence');
+  }
+  console.log('');
 
   // Load agents
   const configLoader = new ConfigLoader();
@@ -132,7 +145,7 @@ function executePlan(planFilename: string): void {
 
   // Initialize execution
   const runner = new StepRunner();
-  const context = runner.initializeExecution(plan, planFilename);
+  const context = runner.initializeExecution(plan, planFilename, options);
   
   console.log(`Execution ID: ${context.executionId}\n`);
 
@@ -352,8 +365,15 @@ function main(): void {
     }
 
     const planFilename = args[1];
+    const hasDelegate = args.includes('--delegate');
+    const hasMcp = args.includes('--mcp');
+    
+    const options: ExecutionOptions = {};
+    if (hasDelegate) options.delegate = true;
+    if (hasMcp) options.mcp = true;
+    
     try {
-      executePlan(planFilename);
+      executePlan(planFilename, Object.keys(options).length > 0 ? options : undefined);
     } catch (error) {
       console.error('Error executing plan:', error instanceof Error ? error.message : error);
       process.exit(1);
