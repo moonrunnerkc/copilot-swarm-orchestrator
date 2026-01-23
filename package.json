@@ -1,8 +1,11 @@
 {
   "name": "copilot-swarm-conductor",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Sequential AI workflow conductor using GitHub Copilot CLI",
+  "main": "dist/src/index.js",
+  "bin": {
+    "swarm-conductor": "dist/src/cli.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "npm run build && mocha dist/test/**/*.test.js"
