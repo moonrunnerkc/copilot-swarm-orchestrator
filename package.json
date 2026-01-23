@@ -26,8 +26,11 @@
     "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.10",
     "@types/node": "^25.0.10",
+    "@types/react": "^19.2.9",
+    "ink": "^6.6.0",
     "js-yaml": "^4.1.1",
     "mocha": "^11.7.5",
+    "react": "^19.2.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

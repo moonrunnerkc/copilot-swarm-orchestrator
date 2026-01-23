@@ -17,6 +17,7 @@ Usage:
   swarm-conductor execute <planfile> [--delegate] [--mcp]
                                             Execute a saved plan step-by-step
   swarm-conductor status <execid>          Show execution status
+  swarm-conductor dashboard <execid>       Show TUI dashboard for execution
   swarm-conductor share import <runid> <step> <agent> <path>
                                             Import /share transcript for a step
   swarm-conductor share context <runid> <step>
@@ -31,6 +32,7 @@ Examples:
   swarm-conductor plan "Build a REST API for user management"
   swarm-conductor execute plan-2026-01-23T00-07-02-308Z-build-api.json --delegate --mcp
   swarm-conductor status exec-2026-01-23T00-17-01-717Z
+  swarm-conductor dashboard exec-2026-01-23T00-17-01-717Z
   swarm-conductor share import run-001 1 BackendMaster /path/to/share.md
   swarm-conductor share context run-001 2
 
@@ -390,6 +392,21 @@ function main(): void {
       showStatus(executionId);
     } catch (error) {
       console.error('Error showing status:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  } else if (command === 'dashboard') {
+    if (args.length < 2 || !args[1]) {
+      console.error('Error: Execution ID required\n');
+      showUsage();
+      process.exit(1);
+    }
+
+    const executionId = args[1];
+    try {
+      const { renderDashboard } = require('./dashboard');
+      renderDashboard(executionId);
+    } catch (error) {
+      console.error('Error showing dashboard:', error instanceof Error ? error.message : error);
       process.exit(1);
     }
   } else if (command === '--help' || command === '-h') {
