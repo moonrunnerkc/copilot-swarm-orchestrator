@@ -35,18 +35,43 @@ export interface SwarmExecutionContext {
 /**
  * Swarm Orchestrator - coordinates parallel execution of independent Copilot CLI sessions
  * Manages concurrent sessions, per-agent branches, and automatic merging
+ * Phase 4: Supports pause/resume and human steering
  */
 export class SwarmOrchestrator {
   private sessionExecutor: SessionExecutor;
   private shareParser: ShareParser;
   private verifier: VerifierEngine;
   private workingDir: string;
+  private pauseRequested: boolean = false;
+  private resumeRequested: boolean = false;
 
   constructor(workingDir?: string) {
     this.workingDir = workingDir || process.cwd();
     this.sessionExecutor = new SessionExecutor(this.workingDir);
     this.shareParser = new ShareParser();
     this.verifier = new VerifierEngine(this.workingDir);
+  }
+
+  /**
+   * Request pause of current execution
+   */
+  requestPause(): void {
+    this.pauseRequested = true;
+  }
+
+  /**
+   * Request resume of paused execution
+   */
+  requestResume(): void {
+    this.resumeRequested = true;
+    this.pauseRequested = false;
+  }
+
+  /**
+   * Check if pause is requested
+   */
+  isPauseRequested(): boolean {
+    return this.pauseRequested;
   }
 
   /**
@@ -114,6 +139,13 @@ export class SwarmOrchestrator {
     for (let waveIndex = 0; waveIndex < executionWaves.length; waveIndex++) {
       const wave = executionWaves[waveIndex];
       console.log(`\n📊 Wave ${waveIndex + 1}: ${wave.length} step(s) in parallel`);
+      
+      // Check for pause before starting wave
+      if (this.pauseRequested) {
+        console.log('\n⏸️  Pause requested. Waiting for resume...');
+        await this.waitForResume();
+        console.log('\n▶️  Resuming execution...');
+      }
       
       const wavePromises = wave.map(stepNumber => {
         const step = plan.steps.find(s => s.stepNumber === stepNumber);
@@ -488,6 +520,21 @@ export class SwarmOrchestrator {
   /**
    * Merge a branch with conflict detection
    */
+  /**
+   * Wait for resume signal
+   */
+  private async waitForResume(): Promise<void> {
+    return new Promise((resolve) => {
+      const checkInterval = setInterval(() => {
+        if (this.resumeRequested || !this.pauseRequested) {
+          clearInterval(checkInterval);
+          this.resumeRequested = false;
+          resolve();
+        }
+      }, 500); // Check every 500ms
+    });
+  }
+
   private async mergeBranch(branchName: string, context: SwarmExecutionContext): Promise<void> {
     // acquire git lock
     const lockId = await context.contextBroker.acquireGitLock('orchestrator', `merge ${branchName}`);

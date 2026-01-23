@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Text, render } from 'ink';
+import { Box, Text, render, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import { ParallelStepResult } from './swarm-orchestrator';
+import { SteeringCommand, Conflict, OrchestratorState, parseSteeringCommand, formatSteeringCommand } from './steering-types';
 
 interface DashboardProps {
   executionId: string;
@@ -13,6 +14,9 @@ interface DashboardProps {
   recentCommits: Array<{ message: string; sha?: string; agent?: string }>;
   prLinks: string[];
   startTime: string;
+  orchestratorState?: OrchestratorState;
+  onCommand?: (command: SteeringCommand) => void;
+  readOnly?: boolean;
 }
 
 interface StatusIconProps {
@@ -68,9 +72,40 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
   results,
   recentCommits,
   prLinks,
-  startTime
+  startTime,
+  orchestratorState,
+  onCommand,
+  readOnly = false
 }) => {
   const [elapsedTime, setElapsedTime] = useState('0s');
+  const [input, setInput] = useState('');
+  const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  const [showInput, setShowInput] = useState(!readOnly);
+
+  // Handle keyboard input
+  useInput((inputChar, key) => {
+    if (readOnly) return;
+
+    if (key.return) {
+      // Submit command
+      if (input.trim()) {
+        const command = parseSteeringCommand(input);
+        if (command && onCommand) {
+          onCommand(command);
+          setCommandHistory(prev => [...prev, formatSteeringCommand(command)].slice(-5));
+        } else {
+          setCommandHistory(prev => [...prev, `Invalid: ${input}`].slice(-5));
+        }
+        setInput('');
+      }
+    } else if (key.backspace || key.delete) {
+      setInput(prev => prev.slice(0, -1));
+    } else if (key.escape) {
+      setInput('');
+    } else if (inputChar && !key.ctrl && !key.meta) {
+      setInput(prev => prev + inputChar);
+    }
+  });
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -210,9 +245,67 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
         </Box>
       )}
 
+      {/* Pending Conflicts */}
+      {orchestratorState && orchestratorState.pendingConflicts.length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold underline color="yellow">
+            ⚠️ Pending Conflicts ({orchestratorState.pendingConflicts.length}):
+          </Text>
+          {orchestratorState.pendingConflicts.slice(0, 3).map((conflict, idx) => (
+            <Box key={conflict.id} flexDirection="column" marginLeft={2}>
+              <Text color="yellow">
+                {idx + 1}. Step {conflict.stepNumber} ({conflict.agentName}): {conflict.type}
+              </Text>
+              <Text color="gray">   {conflict.description}</Text>
+            </Box>
+          ))}
+          {orchestratorState.pendingConflicts.length > 3 && (
+            <Text color="gray" marginLeft={2}>
+              ... and {orchestratorState.pendingConflicts.length - 3} more conflicts
+            </Text>
+          )}
+          {!readOnly && (
+            <Text color="cyan" marginTop={1} marginLeft={2}>
+              Type 'approve' or 'reject' to resolve
+            </Text>
+          )}
+        </Box>
+      )}
+
+      {/* Steering History */}
+      {!readOnly && commandHistory.length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold underline>
+            Recent Commands:
+          </Text>
+          {commandHistory.map((cmd, idx) => (
+            <Box key={idx}>
+              <Text color="gray">{cmd}</Text>
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {/* Live Input */}
+      {showInput && !readOnly && (
+        <Box marginTop={1} borderStyle="single" borderColor="cyan" paddingX={1}>
+          <Text color="cyan">Command: </Text>
+          <Text>{input}</Text>
+          <Text color="gray" dimColor>▊</Text>
+        </Box>
+      )}
+
       {/* Footer */}
       <Box marginTop={1}>
-        {completedSteps === totalSteps && failedSteps === 0 ? (
+        {readOnly ? (
+          <Text bold color="blue">
+            👁️  Read-only mode - Observing execution
+          </Text>
+        ) : orchestratorState?.status === 'paused' ? (
+          <Text bold color="yellow">
+            ⏸️  Execution paused - Type 'resume' to continue
+          </Text>
+        ) : completedSteps === totalSteps && failedSteps === 0 ? (
           <Text bold color="green">
             ✨ Swarm execution complete! All steps verified.
           </Text>
@@ -221,7 +314,14 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
             ⚠️ Swarm execution complete with {failedSteps} failure(s).
           </Text>
         ) : (
-          <Text color="gray">Press Ctrl+C to stop execution</Text>
+          <Box flexDirection="column">
+            {!readOnly && (
+              <Text color="gray">Commands: pause, resume, approve, reject, help | Ctrl+C to exit</Text>
+            )}
+            {readOnly && (
+              <Text color="gray">Press Ctrl+C to exit</Text>
+            )}
+          </Box>
         )}
       </Box>
     </Box>
@@ -231,25 +331,34 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
 export interface DashboardManager {
   update: (updates: Partial<DashboardProps>) => void;
   stop: () => void;
+  setCommandHandler: (handler: (command: SteeringCommand) => void) => void;
 }
 
 /**
  * Start the live dashboard
  */
-export function startDashboard(initialProps: DashboardProps): DashboardManager {
+export function startDashboard(
+  initialProps: DashboardProps,
+  commandHandler?: (command: SteeringCommand) => void
+): DashboardManager {
   let currentProps = { ...initialProps };
+  let currentCommandHandler = commandHandler;
   
   const { rerender, unmount, waitUntilExit } = render(
-    <SwarmDashboard {...currentProps} />
+    <SwarmDashboard {...currentProps} onCommand={currentCommandHandler} />
   );
 
   return {
     update: (updates: Partial<DashboardProps>) => {
       currentProps = { ...currentProps, ...updates };
-      rerender(<SwarmDashboard {...currentProps} />);
+      rerender(<SwarmDashboard {...currentProps} onCommand={currentCommandHandler} />);
     },
     stop: () => {
       unmount();
+    },
+    setCommandHandler: (handler: (command: SteeringCommand) => void) => {
+      currentCommandHandler = handler;
+      rerender(<SwarmDashboard {...currentProps} onCommand={currentCommandHandler} />);
     }
   };
 }
