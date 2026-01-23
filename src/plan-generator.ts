@@ -102,6 +102,36 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
   }
 
   /**
+   * Create plan from bootstrap analysis
+   * Uses annotated steps with source evidence
+   */
+  createBootstrapPlan(
+    goal: string,
+    annotatedSteps: import('./bootstrap-types').AnnotatedPlanStep[]
+  ): ExecutionPlan {
+    // Validate agent assignments
+    const regularSteps = annotatedSteps.map(s => ({
+      stepNumber: s.stepNumber,
+      agentName: s.agentName,
+      task: s.task,
+      dependencies: s.dependencies,
+      expectedOutputs: s.expectedOutputs
+    }));
+    
+    this.validateAgentAssignments(regularSteps);
+    this.validateDependencies(regularSteps);
+
+    return {
+      goal: goal.trim(),
+      createdAt: new Date().toISOString(),
+      steps: annotatedSteps,
+      metadata: {
+        totalSteps: annotatedSteps.length
+      }
+    };
+  }
+
+  /**
    * Parse Copilot-generated plan from /share transcript
    * Extracts JSON from transcript and validates against schema
    */

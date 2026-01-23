@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import * as fs from 'fs';
 import * as path from 'path';
 import { ConfigLoader } from './config-loader';
 import { PlanGenerator, PlanStep } from './plan-generator';
@@ -15,6 +16,8 @@ function showUsage(): void {
 Copilot Swarm Orchestrator - Parallel AI Workflow Tool
 
 Usage:
+  swarm-orchestrator bootstrap <path(s)> "Goal"  Deep analysis and plan generation
+                                                 (supports multi-repo)
   swarm-orchestrator plan <goal>                   Generate intelligent plan (enhanced fallback)
   swarm-orchestrator plan --copilot <goal>         Generate Copilot CLI prompt for planning
   swarm-orchestrator plan import <runid> <transcript>
@@ -64,6 +67,43 @@ The swarm command:
   - Auto-rollback on verification failure
   - Preserves human-like git commit history
 `);
+}
+
+function bootstrap(repoPaths: string[], goal: string): void {
+  console.log('╔══════════════════════════════════════════════════════════════════════╗');
+  console.log('║  BOOTSTRAP MODE - Multi-Repo Analysis & Planning                     ║');
+  console.log('╚══════════════════════════════════════════════════════════════════════╝\n');
+
+  const BootstrapOrchestrator = require('./bootstrap-orchestrator').default;
+  const PlanStorage = require('./plan-storage').PlanStorage;
+
+  const orchestrator = new BootstrapOrchestrator();
+  const storage = new PlanStorage();
+
+  // Create run directory
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const goalSlug = goal.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 30);
+  const runId = `bootstrap-${timestamp}-${goalSlug}`;
+  const runDir = path.join(process.cwd(), 'runs', runId);
+
+  orchestrator.bootstrap(repoPaths, goal, runDir)
+    .then(({ evidencePath, plan }: any) => {
+      // Save plan
+      const planPath = storage.savePlan(plan, runId);
+      
+      console.log('📋 Bootstrap Results:');
+      console.log(`  Evidence: ${evidencePath}`);
+      console.log(`  Plan: ${planPath}`);
+      console.log(`  Run ID: ${runId}`);
+      console.log();
+      console.log('Next steps:');
+      console.log(`  1. Review the evidence: cat ${evidencePath}`);
+      console.log(`  2. Execute the plan: swarm-orchestrator swarm ${planPath}`);
+    })
+    .catch((error: Error) => {
+      console.error('Bootstrap failed:', error.message);
+      process.exit(1);
+    });
 }
 
 function generatePlan(goal: string, copilotMode: boolean = false): void {
@@ -574,6 +614,28 @@ function main(): void {
   }
 
   const command = args[0];
+
+  if (command === 'bootstrap') {
+    if (args.length < 3) {
+      console.error('Usage: swarm-orchestrator bootstrap <repo-path> [<repo-path2> ...] "Goal description"');
+      process.exit(1);
+    }
+
+    // Parse: all args except last are repo paths, last is goal
+    const repoPaths = args.slice(1, -1);
+    const goal = args[args.length - 1];
+
+    // Validate paths
+    for (const repoPath of repoPaths) {
+      if (!fs.existsSync(repoPath)) {
+        console.error(`Repository path does not exist: ${repoPath}`);
+        process.exit(1);
+      }
+    }
+
+    bootstrap(repoPaths, goal);
+    return;
+  }
 
   if (command === 'plan') {
     if (args.length < 2 || args[1] === '--help') {
