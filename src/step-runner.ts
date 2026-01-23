@@ -4,6 +4,7 @@ import { ExecutionPlan, PlanStep } from './plan-generator';
 import { AgentProfile } from './config-loader';
 import { ExecutionOptions } from './types';
 import { GitHubMcpIntegrator } from './github-mcp-integrator';
+import SessionExecutor, { SessionResult, SessionOptions } from './session-executor';
 
 export interface StepResult {
   stepNumber: number;
@@ -30,9 +31,11 @@ export interface ExecutionContext {
 
 export class StepRunner {
   private proofDir: string;
+  private sessionExecutor: SessionExecutor;
 
   constructor(proofDir?: string) {
     this.proofDir = proofDir || path.join(process.cwd(), 'proof');
+    this.sessionExecutor = new SessionExecutor(process.cwd());
   }
 
   /**
@@ -207,6 +210,48 @@ export class StepRunner {
     lines.push('='.repeat(70));
 
     return lines.join('\n');
+  }
+
+  /**
+   * Execute a step programmatically (automated execution)
+   * Returns session result with transcript path
+   */
+  async executeStepAutomated(
+    step: PlanStep,
+    agent: AgentProfile,
+    context: ExecutionContext,
+    options?: {
+      model?: string;
+      retries?: number;
+    }
+  ): Promise<SessionResult> {
+    console.log(`\nExecuting Step ${step.stepNumber} (${agent.name}) programmatically...`);
+    
+    const sessionOptions = {
+      model: options?.model || undefined,
+      allowAllTools: true,
+      silent: false
+    } as SessionOptions;
+
+    // execute with retry
+    const maxRetries = options?.retries || 3;
+    const result = await this.sessionExecutor.executeWithRetry(
+      this.sessionExecutor['buildStepPrompt'](step, agent, context),
+      sessionOptions,
+      maxRetries
+    );
+
+    if (result.success && result.transcriptPath) {
+      console.log(`✓ Step ${step.stepNumber} completed`);
+      console.log(`  Transcript: ${result.transcriptPath}`);
+    } else {
+      console.error(`✗ Step ${step.stepNumber} failed after ${maxRetries} attempts`);
+      if (result.error) {
+        console.error(`  Error: ${result.error}`);
+      }
+    }
+
+    return result;
   }
 
   /**
