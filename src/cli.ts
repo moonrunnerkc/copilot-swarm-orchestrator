@@ -5,34 +5,34 @@ import { ConfigLoader } from './config-loader';
 import { PlanGenerator, PlanStep } from './plan-generator';
 import { PlanStorage } from './plan-storage';
 import { StepRunner } from './step-runner';
+import { SessionManager } from './session-manager';
 
 function showUsage(): void {
   console.log(`
 Copilot Swarm Conductor - Sequential AI Workflow Tool
 
 Usage:
-  swarm-conductor plan <goal>          Generate a plan for the given goal
-  swarm-conductor execute <planfile>   Execute a saved plan step-by-step
-  swarm-conductor status <execid>      Show execution status
-  swarm-conductor --help               Show this help message
+  swarm-conductor plan <goal>              Generate a plan for the given goal
+  swarm-conductor execute <planfile>       Execute a saved plan step-by-step
+  swarm-conductor status <execid>          Show execution status
+  swarm-conductor share import <runid> <step> <agent> <path>
+                                            Import /share transcript for a step
+  swarm-conductor share context <runid> <step>
+                                            Show prior context for a step
+  swarm-conductor --help                   Show this help message
 
 Examples:
   swarm-conductor plan "Build a REST API for user management"
   swarm-conductor execute plan-2026-01-23T00-07-02-308Z-build-api.json
-  swarm-conductor status exec-2026-01-23T00-10-15-123Z
+  swarm-conductor status exec-2026-01-23T00-17-01-717Z
+  swarm-conductor share import run-001 1 BackendMaster /path/to/share.md
+  swarm-conductor share context run-001 2
 
-The plan command will:
-  1. Load available agent profiles
-  2. Create a step-by-step execution plan
-  3. Save the plan to plans/ directory
-  4. Display the plan for review
-
-The execute command will:
-  1. Load the specified plan
-  2. Walk through each step sequentially
-  3. Generate Copilot CLI session prompts
-  4. Track execution progress and context
-  5. Save execution state to proof/ directory
+The share import command:
+  - Parses the /share transcript
+  - Extracts changed files, commands, test runs, PR links
+  - Verifies claims (e.g., "tests passed" needs evidence)
+  - Stores index for next steps to use as context
 `);
 }
 
@@ -214,6 +214,113 @@ function showStatus(executionId: string): void {
   }
 }
 
+function importShare(runId: string, stepNumber: string, agentName: string, transcriptPath: string): void {
+  console.log('Copilot Swarm Conductor - Import /share Transcript\n');
+
+  const step = parseInt(stepNumber, 10);
+  if (isNaN(step)) {
+    console.error('Error: Step number must be a number');
+    process.exit(1);
+  }
+
+  const manager = new SessionManager();
+
+  try {
+    const stepShare = manager.importShare(runId, step, agentName, transcriptPath);
+
+    console.log(`✓ Imported /share transcript for step ${step}`);
+    console.log(`  Agent: ${agentName}`);
+    console.log(`  Run: ${runId}`);
+    console.log(`  Saved to: ${stepShare.transcriptPath}\n`);
+
+    console.log('Extracted Index:');
+    console.log('===============');
+
+    if (stepShare.index.changedFiles.length > 0) {
+      console.log(`\nChanged Files (${stepShare.index.changedFiles.length}):`);
+      stepShare.index.changedFiles.forEach(file => console.log(`  - ${file}`));
+    }
+
+    if (stepShare.index.commandsExecuted.length > 0) {
+      console.log(`\nCommands Executed (${stepShare.index.commandsExecuted.length}):`);
+      stepShare.index.commandsExecuted.forEach(cmd => console.log(`  $ ${cmd}`));
+    }
+
+    if (stepShare.index.testsRun.length > 0) {
+      console.log(`\nTests Run:`);
+      stepShare.index.testsRun.forEach(test => {
+        const status = test.verified ? '✓' : '✗';
+        console.log(`  ${status} ${test.command}`);
+        if (!test.verified && test.reason) {
+          console.log(`    reason: ${test.reason}`);
+        }
+      });
+    }
+
+    if (stepShare.index.prLinks.length > 0) {
+      console.log(`\nPR Links:`);
+      stepShare.index.prLinks.forEach(link => console.log(`  - ${link}`));
+    }
+
+    if (stepShare.index.claims.length > 0) {
+      console.log(`\nClaims Verification:`);
+      stepShare.index.claims.forEach(claim => {
+        const status = claim.verified ? '✓' : '⚠';
+        console.log(`  ${status} ${claim.claim.substring(0, 80)}`);
+        if (claim.evidence) {
+          console.log(`    evidence: ${claim.evidence}`);
+        }
+      });
+    }
+
+    // show unverified warnings
+    const unverified = stepShare.index.claims.filter(c => !c.verified);
+    if (unverified.length > 0) {
+      console.log(`\n⚠ WARNING: ${unverified.length} unverified claims detected`);
+      console.log('this step may require manual review before proceeding\n');
+    } else {
+      console.log('\n✓ All claims verified\n');
+    }
+
+  } catch (error) {
+    console.error('Error importing share:', error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+}
+
+function showShareContext(runId: string, stepNumber: string): void {
+  console.log('Copilot Swarm Conductor - Prior Context\n');
+
+  const step = parseInt(stepNumber, 10);
+  if (isNaN(step)) {
+    console.error('Error: Step number must be a number');
+    process.exit(1);
+  }
+
+  const manager = new SessionManager();
+
+  try {
+    const summary = manager.generateContextSummary(runId, step);
+    console.log(`Prior context for step ${step} in run ${runId}:\n`);
+    console.log(summary);
+    console.log();
+
+    // check for unverified claims across all prior steps
+    const allUnverified = manager.getUnverifiedClaims(runId);
+    if (allUnverified.length > 0) {
+      console.log('⚠ UNVERIFIED CLAIMS IN PRIOR STEPS:');
+      allUnverified.forEach(item => {
+        console.log(`  Step ${item.step} (${item.agent}): ${item.claims.length} unverified claims`);
+      });
+      console.log();
+    }
+
+  } catch (error) {
+    console.error('Error loading context:', error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+}
+
 function main(): void {
   const args = process.argv.slice(2);
 
@@ -268,6 +375,66 @@ function main(): void {
   } else if (command === '--help' || command === '-h') {
     showUsage();
     process.exit(0);
+  } else if (command === 'share') {
+    const subcommand = args[1];
+
+    if (!subcommand) {
+      console.error('Error: share subcommand required (import or context)\n');
+      showUsage();
+      process.exit(1);
+    }
+
+    if (subcommand === 'import') {
+      if (args.length < 6) {
+        console.error('Error: share import requires: <runid> <step> <agent> <path>\n');
+        showUsage();
+        process.exit(1);
+      }
+
+      const runId = args[2];
+      const stepNumber = args[3];
+      const agentName = args[4];
+      const transcriptPath = args[5];
+
+      if (!runId || !stepNumber || !agentName || !transcriptPath) {
+        console.error('Error: all arguments required\n');
+        showUsage();
+        process.exit(1);
+      }
+
+      try {
+        importShare(runId, stepNumber, agentName, transcriptPath);
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : error);
+        process.exit(1);
+      }
+    } else if (subcommand === 'context') {
+      if (args.length < 4) {
+        console.error('Error: share context requires: <runid> <step>\n');
+        showUsage();
+        process.exit(1);
+      }
+
+      const runId = args[2];
+      const stepNumber = args[3];
+
+      if (!runId || !stepNumber) {
+        console.error('Error: all arguments required\n');
+        showUsage();
+        process.exit(1);
+      }
+
+      try {
+        showShareContext(runId, stepNumber);
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : error);
+        process.exit(1);
+      }
+    } else {
+      console.error(`Unknown share subcommand: ${subcommand}\n`);
+      showUsage();
+      process.exit(1);
+    }
   } else {
     console.log(`Unknown command: ${command}\n`);
     showUsage();
