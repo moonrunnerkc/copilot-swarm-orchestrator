@@ -28,7 +28,7 @@ export class Dashboard {
   private renderHeader(): void {
     const width = 70;
     console.log('═'.repeat(width));
-    console.log('  Copilot Swarm Conductor - Execution Dashboard');
+    console.log('  Copilot Swarm Orchestrator - Execution Dashboard');
     console.log('═'.repeat(width));
     console.log(`  Execution ID: ${this.context.executionId}`);
     console.log('─'.repeat(width));

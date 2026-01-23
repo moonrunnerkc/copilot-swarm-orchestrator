@@ -212,7 +212,7 @@ function importPlanFromTranscript(runId: string, transcriptPath: string): void {
 }
 
 function executePlan(planFilename: string, options?: ExecutionOptions): void {
-  console.log('Copilot Swarm Conductor - Plan Execution\n');
+  console.log('Copilot Swarm Orchestrator - Plan Execution\n');
 
   // Load plan
   const storage = new PlanStorage();
@@ -429,7 +429,7 @@ async function runDemo(scenarioName: string): Promise<void> {
 }
 
 function showStatus(executionId: string): void {
-  console.log('Copilot Swarm Conductor - Execution Status\n');
+  console.log('Copilot Swarm Orchestrator - Execution Status\n');
 
   const runner = new StepRunner();
   
@@ -459,7 +459,7 @@ function showStatus(executionId: string): void {
 }
 
 function importShare(runId: string, stepNumber: string, agentName: string, transcriptPath: string): void {
-  console.log('Copilot Swarm Conductor - Import /share Transcript\n');
+  console.log('Copilot Swarm Orchestrator - Import /share Transcript\n');
 
   const step = parseInt(stepNumber, 10);
   if (isNaN(step)) {
@@ -533,7 +533,7 @@ function importShare(runId: string, stepNumber: string, agentName: string, trans
 }
 
 function showShareContext(runId: string, stepNumber: string): void {
-  console.log('Copilot Swarm Conductor - Prior Context\n');
+  console.log('Copilot Swarm Orchestrator - Prior Context\n');
 
   const step = parseInt(stepNumber, 10);
   if (isNaN(step)) {
