@@ -53,6 +53,30 @@ fix: resolve API contract mismatch
 update integration docs with examples
 add e2e test for full user workflow
 finalize release notes for v2.0
+wire up database connection
+smooth out rough edges in error handling
+polish user-facing messages
+```
+
+**Varied message styles (all acceptable):**
+```
+# Conventional commits (use sparingly)
+feat: add user profile endpoint
+fix: button alignment on mobile
+
+# Imperative mood (preferred)
+add health check endpoint
+update README with setup instructions
+refactor error handling for clarity
+
+# Natural, conversational (when appropriate)
+make error messages more friendly
+clean up unused imports
+tweak config for production
+
+# Fix typos naturally
+fix typo in error message
+update stale comment
 ```
 
 **Commit workflow:**
@@ -65,8 +89,22 @@ npm run test:e2e
 git add docs/
 git commit -m "update API documentation with new endpoints"
 
+# Make small, logical commits - NOT one giant commit at end
+git add src/config/app.ts
+git commit -m "tweak timeout settings for production"
+
 # Only squash if absolutely necessary - preserve natural commit history
 ```
+
+**Commit polish guidelines:**
+1. Review git log with `git log --oneline`
+2. If history is clean and tells a good story, **leave it alone**
+3. Only squash if:
+   - Multiple "fix typo" commits on same file
+   - WIP commits that break the build
+   - Commits that undo each other
+4. Preserve incremental development story
+5. Varied message styles show human developer (not AI pattern)
 
 ## Hard Rules
 
