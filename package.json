@@ -8,7 +8,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "npm run build && mocha dist/test/**/*.test.js"
+    "test": "npm run build && mocha dist/test/**/*.test.js",
+    "start": "node dist/src/cli.js"
   },
   "repository": {
     "type": "git",
