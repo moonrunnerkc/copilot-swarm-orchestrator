@@ -26,9 +26,16 @@
     "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.10",
     "@types/node": "^25.0.10",
+    "@types/react": "^19.2.9",
     "js-yaml": "^4.1.1",
     "mocha": "^11.7.5",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "ink": "^6.6.0",
+    "ink-spinner": "^5.0.0",
+    "react": "^19.2.3"
   }
 }

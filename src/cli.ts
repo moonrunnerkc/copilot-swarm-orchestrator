@@ -6,62 +6,63 @@ import { PlanGenerator, PlanStep } from './plan-generator';
 import { PlanStorage } from './plan-storage';
 import { StepRunner } from './step-runner';
 import { SessionManager } from './session-manager';
+import { SwarmOrchestrator } from './swarm-orchestrator';
+import { DemoMode } from './demo-mode';
 import { ExecutionOptions } from './types';
 
 function showUsage(): void {
   console.log(`
-Copilot Swarm Conductor - Sequential AI Workflow Tool
+Copilot Swarm Orchestrator - Parallel AI Workflow Tool
 
 Usage:
-  swarm-conductor plan <goal>                   Generate intelligent plan (enhanced fallback)
-  swarm-conductor plan --copilot <goal>         Generate Copilot CLI prompt for planning
-  swarm-conductor plan import <runid> <transcript>
+  swarm-orchestrator plan <goal>                   Generate intelligent plan (enhanced fallback)
+  swarm-orchestrator plan --copilot <goal>         Generate Copilot CLI prompt for planning
+  swarm-orchestrator plan import <runid> <transcript>
                                                 Parse plan from Copilot /share transcript
-  swarm-conductor execute <planfile> [--delegate] [--mcp]
+  swarm-orchestrator execute <planfile> [--delegate] [--mcp]
                                                 Execute a saved plan step-by-step
-  swarm-conductor status <execid>               Show execution status
-  swarm-conductor dashboard <execid>            Show TUI dashboard for execution
-  swarm-conductor share import <runid> <step> <agent> <path>
+  swarm-orchestrator swarm <planfile> [--model <name>]
+                                                Execute plan in parallel swarm mode
+  swarm-orchestrator demo <scenario>            Run pre-configured demo scenario
+  swarm-orchestrator demo list                  List available demo scenarios
+  swarm-orchestrator status <execid>            Show execution status
+  swarm-orchestrator dashboard <execid>         Show TUI dashboard for execution
+  swarm-orchestrator share import <runid> <step> <agent> <path>
                                                 Import /share transcript for a step
-  swarm-conductor share context <runid> <step>  Show prior context for a step
-  swarm-conductor --help                        Show this help message
+  swarm-orchestrator share context <runid> <step> Show prior context for a step
+  swarm-orchestrator --help                     Show this help message
 
 Flags:
   --delegate    Instruct agents to use /delegate for PR creation
   --mcp         Require MCP evidence from GitHub context in verification
+  --model       Specify model for sessions (e.g., claude-sonnet-4.5)
+  --no-dashboard Disable live dashboard in swarm mode
 
 Examples:
+  # Quick demo (recommended for first-time users)
+  swarm-orchestrator demo todo-app
+  
+  # List available demos
+  swarm-orchestrator demo list
+  
   # Generate plan using intelligent fallback
-  swarm-conductor plan "Build a REST API for user management"
+  swarm-orchestrator plan "Build a REST API for user management"
   
-  # Generate Copilot CLI planning prompt
-  swarm-conductor plan --copilot "Build a REST API"
-  # Then: paste output into Copilot CLI, run /share, save transcript
+  # Execute plan in parallel swarm mode with live dashboard
+  swarm-orchestrator swarm plan-2026-01-23T00-07-02-308Z-build-api.json
   
-  # Import Copilot-generated plan from transcript
-  swarm-conductor plan import run-001 /path/to/planning-share.md
+  # Execute with specific model
+  swarm-orchestrator swarm plan.json --model claude-opus-4.5
   
-  # Execute plan
-  swarm-conductor execute plan-2026-01-23T00-07-02-308Z-build-api.json --delegate --mcp
-  
-  # Check status
-  swarm-conductor status exec-2026-01-23T00-17-01-717Z
-  
-  # Show dashboard
-  swarm-conductor dashboard exec-2026-01-23T00-17-01-717Z
-  
-  # Import step transcript
-  swarm-conductor share import run-001 1 BackendMaster /path/to/share.md
-  
-  # Show context for next step
-  swarm-conductor share context run-001 2
+  # Sequential execution (legacy mode)
+  swarm-orchestrator execute plan.json --delegate --mcp
 
-The share import command:
-  - Parses the /share transcript
-  - Extracts changed files, commands, test runs, PR links, git commits
-  - Verifies claims (e.g., "tests passed" needs evidence)
-  - Detects drift (claims without evidence)
-  - Stores index for next steps to use as context
+The swarm command:
+  - Executes steps in parallel based on dependencies
+  - Shows live dashboard with commit history, agent status, progress
+  - Verifies each step with evidence-based checks
+  - Auto-rollback on verification failure
+  - Preserves human-like git commit history
 `);
 }
 
@@ -283,6 +284,148 @@ function executePlan(planFilename: string, options?: ExecutionOptions): void {
   console.log(`\n✓ Execution context saved to: ${contextPath}`);
   console.log(`\nTo continue execution after completing this step, run:`);
   console.log(`  swarm-conductor status ${context.executionId}\n`);
+}
+
+async function executeSwarm(
+  planFilename: string,
+  options?: { model?: string; noDashboard?: boolean }
+): Promise<void> {
+  console.log('🐝 Copilot Swarm Orchestrator - Parallel Execution\n');
+
+  // Load plan
+  const storage = new PlanStorage();
+  const plan = storage.loadPlan(planFilename);
+  
+  console.log(`Goal: ${plan.goal}`);
+  console.log(`Total Steps: ${plan.steps.length}\n`);
+
+  // Load agents
+  const configLoader = new ConfigLoader();
+  const agents = configLoader.loadAllAgents();
+
+  // Create agent map
+  const agentMap = new Map(agents.map(a => [a.name, a]));
+
+  // Initialize orchestrator
+  const orchestrator = new SwarmOrchestrator();
+  
+  // Create run directory
+  const runId = `swarm-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  const runDir = path.join(process.cwd(), 'runs', runId);
+
+  console.log(`Run ID: ${runId}`);
+  console.log(`Run Directory: ${runDir}\n`);
+
+  // Start dashboard if enabled
+  let dashboard;
+  if (!options?.noDashboard) {
+    const { startDashboard } = require('./dashboard');
+    dashboard = startDashboard({
+      executionId: runId,
+      goal: plan.goal,
+      totalSteps: plan.steps.length,
+      currentWave: 0,
+      totalWaves: 0,
+      results: [],
+      recentCommits: [],
+      prLinks: [],
+      startTime: new Date().toISOString()
+    });
+  }
+
+  try {
+    // Execute swarm
+    const context = await orchestrator.executeSwarm(plan, agentMap, runDir, options);
+
+    // Final dashboard update
+    if (dashboard) {
+      dashboard.update({
+        currentWave: context.results.filter(r => r.status === 'completed').length,
+        results: context.results
+      });
+      
+      // Wait a moment for user to see final state
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      dashboard.stop();
+    }
+
+    // Summary
+    const completed = context.results.filter(r => r.status === 'completed').length;
+    const failed = context.results.filter(r => r.status === 'failed').length;
+
+    console.log('\n' + '='.repeat(70));
+    console.log('SWARM EXECUTION COMPLETE');
+    console.log('='.repeat(70));
+    console.log(`\n✅ Completed: ${completed}/${plan.steps.length}`);
+    
+    if (failed > 0) {
+      console.log(`❌ Failed: ${failed}/${plan.steps.length}`);
+      console.log('\nFailed steps:');
+      context.results
+        .filter(r => r.status === 'failed')
+        .forEach(r => {
+          console.log(`  - Step ${r.stepNumber} (${r.agentName}): ${r.error}`);
+        });
+    }
+
+    console.log(`\n📁 Results saved to: ${runDir}`);
+    console.log(`📊 Verification reports: ${runDir}/verification/\n`);
+
+    if (completed === plan.steps.length) {
+      console.log('🎉 All steps completed successfully!');
+      console.log('Review the git log to see the natural commit history:\n');
+      console.log('  git log --oneline -20\n');
+    }
+
+  } catch (error) {
+    if (dashboard) {
+      dashboard.stop();
+    }
+    throw error;
+  }
+}
+
+async function runDemo(scenarioName: string): Promise<void> {
+  console.log('🐝 Copilot Swarm Orchestrator - Demo Mode\n');
+
+  const demoMode = new DemoMode();
+  const scenario = demoMode.getScenario(scenarioName);
+
+  if (!scenario) {
+    console.error(`❌ Demo scenario "${scenarioName}" not found\n`);
+    console.log('Available scenarios:');
+    demoMode.getAvailableScenarios().forEach(s => {
+      console.log(`  - ${s.name}: ${s.description}`);
+    });
+    console.log('\nRun: swarm-orchestrator demo list\n');
+    process.exit(1);
+  }
+
+  console.log(`📋 Scenario: ${scenario.name}`);
+  console.log(`Description: ${scenario.description}`);
+  console.log(`Estimated Duration: ${scenario.expectedDuration}`);
+  console.log(`Steps: ${scenario.steps.length}\n`);
+
+  console.log('This demo will:');
+  console.log('  1. Execute all steps in parallel based on dependencies');
+  console.log('  2. Show live dashboard with commit history and progress');
+  console.log('  3. Verify each step with evidence-based checks');
+  console.log('  4. Demonstrate human-like git commit history\n');
+
+  console.log('⚠️  NOTE: This will execute real Copilot CLI sessions.');
+  console.log('    Make sure you are in a clean working directory or test repo.\n');
+
+  // Convert scenario to plan
+  const plan = demoMode.scenarioToPlan(scenario);
+
+  // Save plan
+  const storage = new PlanStorage();
+  const planPath = storage.savePlan(plan);
+
+  console.log(`✅ Demo plan saved to: ${planPath}\n`);
+
+  // Execute in swarm mode
+  await executeSwarm(path.basename(planPath));
 }
 
 function showStatus(executionId: string): void {
@@ -522,6 +665,67 @@ function main(): void {
       showStatus(executionId);
     } catch (error) {
       console.error('Error showing status:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  } else if (command === 'swarm') {
+    if (args.length < 2 || !args[1]) {
+      console.error('Error: Plan filename required\n');
+      showUsage();
+      process.exit(1);
+    }
+
+    const planFilename = args[1];
+    const modelIndex = args.indexOf('--model');
+    const model = modelIndex !== -1 && args[modelIndex + 1] ? args[modelIndex + 1] : undefined;
+    const noDashboard = args.includes('--no-dashboard');
+
+    try {
+      const options: { model?: string; noDashboard?: boolean } = {};
+      if (model) options.model = model;
+      if (noDashboard) options.noDashboard = noDashboard;
+      executeSwarm(planFilename, options);
+    } catch (error) {
+      console.error('Error executing swarm:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  } else if (command === 'demo') {
+    const subcommand = args[1];
+
+    if (!subcommand || subcommand === '--help') {
+      console.log('\nAvailable demo scenarios:');
+      console.log('  todo-app        - Simple todo app (5-8 min, 4 steps)');
+      console.log('  api-server      - REST API with auth (10-15 min, 6 steps)');
+      console.log('  full-stack-app  - Complete full-stack app (15-20 min, 7 steps)\n');
+      console.log('Usage:');
+      console.log('  swarm-orchestrator demo <scenario-name>');
+      console.log('  swarm-orchestrator demo list\n');
+      process.exit(0);
+    }
+
+    if (subcommand === 'list') {
+      const demoMode = new DemoMode();
+      const scenarios = demoMode.getAvailableScenarios();
+      
+      console.log('\n╔══════════════════════════════════════════════════════════════════════╗');
+      console.log('║  Available Demo Scenarios                                            ║');
+      console.log('╚══════════════════════════════════════════════════════════════════════╝\n');
+      
+      scenarios.forEach(scenario => {
+        console.log(`📋 ${scenario.name}`);
+        console.log(`   ${scenario.description}`);
+        console.log(`   Duration: ${scenario.expectedDuration}`);
+        console.log(`   Steps: ${scenario.steps.length}\n`);
+      });
+      
+      console.log('To run a demo:');
+      console.log('  swarm-orchestrator demo <scenario-name>\n');
+      process.exit(0);
+    }
+
+    try {
+      runDemo(subcommand);
+    } catch (error) {
+      console.error('Error running demo:', error instanceof Error ? error.message : error);
       process.exit(1);
     }
   } else if (command === 'dashboard') {
