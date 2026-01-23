@@ -356,22 +356,11 @@ async function executeSwarm(
   console.log(`Run ID: ${runId}`);
   console.log(`Run Directory: ${runDir}\n`);
 
-  // Start dashboard if enabled (dynamic import for ESM dashboard)
-  let dashboard;
-  if (!options?.noDashboard) {
-    const { startDashboard } = await import('./dashboard.js');
-    dashboard = startDashboard({
-      executionId: runId,
-      goal: plan.goal,
-      totalSteps: plan.steps.length,
-      currentWave: 0,
-      totalWaves: 0,
-      results: [],
-      recentCommits: [],
-      prLinks: [],
-      startTime: new Date().toISOString()
-    });
-  }
+  // Dashboard disabled due to ESM/CommonJS incompatibility
+  // Ink requires ESM with top-level await, which cannot be required from CommonJS
+  // TODO: Re-enable when project migrates to ESM or alternative TUI found
+  let dashboard: { update: (updates: any) => void; stop: () => void } | undefined;
+  console.log('ℹ️  Live dashboard disabled (ESM compatibility issue)\n');
 
   try {
     // Execute swarm
