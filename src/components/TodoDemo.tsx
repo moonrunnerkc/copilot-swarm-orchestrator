@@ -6,7 +6,7 @@ import { Todo } from './TodoList';
 
 /**
  * Demo showing TodoApp with sample data
- * Run this to see the todo UI in action
+ * Run with: node dist/src/components/TodoDemo.js
  */
 const sampleTodos: Todo[] = [
   {

@@ -91,3 +91,4 @@ node dist/src/components/TodoDemo.js
 ## Testing
 
 The todo data structure is tested in `test/todo-structure.test.ts`.
+All components pass TypeScript compilation and runtime tests.
