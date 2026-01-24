@@ -1,8 +1,9 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
-import { PlanStorage } from '../src/plan-storage';
 import { ExecutionPlan } from '../src/plan-generator';
+import { PlanStorage } from '../src/plan-storage';
 
 describe('PlanStorage', () => {
   const testPlanDir = path.join(__dirname, '..', '..', 'test-plans');
@@ -26,15 +27,15 @@ describe('PlanStorage', () => {
   describe('ensurePlanDirectory', () => {
     it('should create plan directory if it does not exist', () => {
       assert.ok(!fs.existsSync(testPlanDir));
-      
+
       storage.ensurePlanDirectory();
-      
+
       assert.ok(fs.existsSync(testPlanDir));
     });
 
     it('should not fail if directory already exists', () => {
       fs.mkdirSync(testPlanDir, { recursive: true });
-      
+
       assert.doesNotThrow(() => {
         storage.ensurePlanDirectory();
       });
@@ -140,6 +141,38 @@ describe('PlanStorage', () => {
         storage.loadPlan('nonexistent.json');
       }, /Plan file not found/);
     });
+
+    it('should load plan when given a relative path', () => {
+      const originalCwd = process.cwd();
+      const tmpWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-path-'));
+
+      try {
+        process.chdir(tmpWorkspace);
+
+        const localPlansDir = path.join(tmpWorkspace, 'plans');
+        const localStorage = new PlanStorage(localPlansDir);
+
+        const originalPlan: ExecutionPlan = {
+          goal: 'Path plan',
+          createdAt: new Date().toISOString(),
+          steps: [],
+          metadata: { totalSteps: 0 }
+        };
+
+        const planPath = localStorage.savePlan(originalPlan, 'p.json');
+        assert.ok(fs.existsSync(planPath));
+
+        const loaded = localStorage.loadPlan('plans/p.json');
+        assert.strictEqual(loaded.goal, 'Path plan');
+      } finally {
+        process.chdir(originalCwd);
+        try {
+          fs.rmSync(tmpWorkspace, { recursive: true, force: true });
+        } catch {
+          // best effort
+        }
+      }
+    });
   });
 
   describe('listPlans', () => {
@@ -175,7 +208,7 @@ describe('PlanStorage', () => {
       };
 
       storage.savePlan(plan, 'plan.json');
-      
+
       // Create non-JSON file
       storage.ensurePlanDirectory();
       fs.writeFileSync(path.join(testPlanDir, 'readme.txt'), 'test');
@@ -198,7 +231,7 @@ describe('PlanStorage', () => {
 
       storage.savePlan(plan, 'test.json');
       const planPath = path.join(testPlanDir, 'test.json');
-      
+
       assert.ok(fs.existsSync(planPath));
 
       storage.deletePlan('test.json');

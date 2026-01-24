@@ -1,6 +1,6 @@
 import * as fs from 'fs';
-import * as path from 'path';
 import * as yaml from 'js-yaml';
+import * as path from 'path';
 
 export interface AgentProfile {
   name: string;
@@ -41,8 +41,58 @@ export class ConfigLoader {
   private customAgentsDir: string;
 
   constructor(configDir?: string) {
-    this.configDir = configDir || path.join(process.cwd(), 'config');
-    this.customAgentsDir = path.join(process.cwd(), '.github', 'agents');
+    const cwd = process.cwd();
+    const packageRoot = this.findPackageRoot(__dirname);
+
+    this.configDir = configDir || this.resolveConfigDir(cwd, packageRoot);
+    this.customAgentsDir = this.resolveCustomAgentsDir(cwd, packageRoot);
+  }
+
+  private findPackageRoot(startDir: string): string {
+    // walk upwards until we find a package.json
+    let current = startDir;
+    for (let i = 0; i < 8; i++) {
+      const candidate = path.join(current, 'package.json');
+      if (fs.existsSync(candidate)) {
+        return current;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+
+    // fallback: best effort
+    return startDir;
+  }
+
+  private resolveConfigDir(cwd: string, packageRoot: string): string {
+    const cwdConfig = path.join(cwd, 'config');
+    if (fs.existsSync(path.join(cwdConfig, 'default-agents.yaml'))) {
+      return cwdConfig;
+    }
+
+    const pkgConfig = path.join(packageRoot, 'config');
+    if (fs.existsSync(path.join(pkgConfig, 'default-agents.yaml'))) {
+      return pkgConfig;
+    }
+
+    return cwdConfig;
+  }
+
+  private resolveCustomAgentsDir(cwd: string, packageRoot: string): string {
+    const cwdAgents = path.join(cwd, '.github', 'agents');
+    if (fs.existsSync(cwdAgents)) {
+      return cwdAgents;
+    }
+
+    const pkgAgents = path.join(packageRoot, '.github', 'agents');
+    if (fs.existsSync(pkgAgents)) {
+      return pkgAgents;
+    }
+
+    return cwdAgents;
   }
 
   loadDefaultAgents(): AgentConfig {
@@ -134,7 +184,7 @@ export class ConfigLoader {
     }
 
     const frontmatter = yaml.load(frontmatterMatch[1]) as CustomAgentFrontmatter;
-    
+
     // Extract markdown content after frontmatter
     const markdownContent = content.substring(frontmatterMatch[0].length).trim();
 
@@ -170,11 +220,11 @@ export class ConfigLoader {
    */
   private extractMarkdownSection(markdown: string, sectionHeader: string): string[] {
     const items: string[] = [];
-    
+
     // Find section header (## Scope or ## Boundaries, etc.)
     const headerRegex = new RegExp(`##\\s+${sectionHeader}[^\\n]*\\n`, 'i');
     const match = markdown.match(headerRegex);
-    
+
     if (!match || match.index === undefined) {
       return items;
     }
@@ -183,7 +233,7 @@ export class ConfigLoader {
     const startIndex = match.index + match[0].length;
     const remainingContent = markdown.substring(startIndex);
     const nextHeaderMatch = remainingContent.match(/\n##\s+/);
-    const sectionContent = nextHeaderMatch 
+    const sectionContent = nextHeaderMatch
       ? remainingContent.substring(0, nextHeaderMatch.index)
       : remainingContent;
 

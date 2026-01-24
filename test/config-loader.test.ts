@@ -1,7 +1,8 @@
 import * as assert from 'assert';
-import * as path from 'path';
 import * as fs from 'fs';
-import { ConfigLoader, AgentProfile } from '../src/config-loader';
+import * as os from 'os';
+import * as path from 'path';
+import { ConfigLoader } from '../src/config-loader';
 
 describe('ConfigLoader', () => {
   // Config is in project root, not in dist
@@ -31,7 +32,7 @@ describe('ConfigLoader', () => {
       ];
 
       const agentNames = config.agents.map(a => a.name);
-      
+
       for (const expectedName of expectedAgents) {
         assert.ok(
           agentNames.includes(expectedName),
@@ -55,6 +56,27 @@ describe('ConfigLoader', () => {
         assert.ok(Array.isArray(agent.output_contract.artifacts), 'Agent must have artifacts array');
         assert.ok(Array.isArray(agent.refusal_rules), 'Agent must have refusal_rules array');
       });
+    });
+
+    it('should fall back to bundled config when cwd has none', () => {
+      const originalCwd = process.cwd();
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-test-repo-'));
+
+      try {
+        process.chdir(tmpDir);
+        const loader = new ConfigLoader();
+        const config = loader.loadDefaultAgents();
+
+        assert.ok(Array.isArray(config.agents));
+        assert.ok(config.agents.length > 0, 'expected bundled default agents to load');
+      } finally {
+        process.chdir(originalCwd);
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          // best effort
+        }
+      }
     });
   });
 
@@ -111,7 +133,7 @@ describe('ConfigLoader', () => {
       // Verify first agent has all required fields
       const agent = config.agents[0];
       assert.ok(agent, 'At least one agent should exist');
-      
+
       const requiredFields = [
         'name',
         'purpose',

@@ -28,7 +28,7 @@ export class PlanStorage {
   }
 
   loadPlan(filename: string): ExecutionPlan {
-    const planPath = path.join(this.planDir, filename);
+    const planPath = this.resolvePlanPath(filename);
 
     if (!fs.existsSync(planPath)) {
       throw new Error(`Plan file not found: ${planPath}`);
@@ -50,7 +50,7 @@ export class PlanStorage {
   }
 
   deletePlan(filename: string): void {
-    const planPath = path.join(this.planDir, filename);
+    const planPath = this.resolvePlanPath(filename);
 
     if (!fs.existsSync(planPath)) {
       throw new Error(`Plan file not found: ${planPath}`);
@@ -82,6 +82,23 @@ export class PlanStorage {
     }
 
     return this.loadPlan(latestPlan);
+  }
+
+  private resolvePlanPath(planRef: string): string {
+    // allow callers to pass either:
+    // - a bare filename (resolved under planDir)
+    // - a relative path (resolved from cwd)
+    // - an absolute path
+    if (path.isAbsolute(planRef)) {
+      return planRef;
+    }
+
+    const looksLikePath = planRef.includes(path.sep) || planRef.startsWith('./') || planRef.startsWith('../');
+    if (looksLikePath) {
+      return path.resolve(process.cwd(), planRef);
+    }
+
+    return path.join(this.planDir, planRef);
   }
 }
 
