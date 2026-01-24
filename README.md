@@ -1,18 +1,38 @@
-# Copilot Swarm Orchestrator
+<div align="center">
 
-Parallel AI workflow orchestrator using GitHub Copilot CLI custom agents.
+# 🐝 Copilot Swarm Orchestrator
 
-Built for the **GitHub Copilot CLI Challenge** - coordinates concurrent agent sessions with dependency-aware execution and human-like git commit history.
+**Parallel AI workflow orchestration using GitHub Copilot CLI custom agents**
 
-## What It Does
+[![Build Status](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions/workflows/ci.yml/badge.svg)](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions)
+[![Tests](https://img.shields.io/badge/tests-428%20passing-brightgreen)](https://github.com/moonrunnerkc/copilot-swarm-conductor)
+[![Node](https://img.shields.io/badge/node-%3E%3D18-blue)](https://nodejs.org)
+[![License](https://img.shields.io/badge/license-ISC-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
 
-Runs multiple Copilot CLI sessions in parallel, each assigned to a specialized agent, with automatic verification and branch management:
+*Built for the GitHub Copilot CLI Challenge*
 
-- **Parallel Execution** - Independent steps run concurrently via `copilot -p` sessions
-- **Dependency-Aware Waves** - Steps execute in waves based on their dependencies
-- **Per-Agent Branches** - Each agent works on its own git branch, auto-merged on completion
-- **Evidence Verification** - Transcript parsing validates claims before merging
-- **Natural Git History** - Incremental commits with varied, human-like messages
+[Quick Start](#quick-start) • [Commands](#commands) • [Custom Agents](#custom-agents) • [How It Works](#how-it-works)
+
+</div>
+
+---
+
+## Overview
+
+Copilot Swarm Orchestrator coordinates multiple concurrent Copilot CLI sessions with dependency-aware execution and human-like git commit history.
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Parallel Execution** | Independent steps run concurrently via `copilot -p` sessions |
+| **Wave-Based Scheduling** | Steps execute in waves based on dependency graph |
+| **Per-Agent Branches** | Each agent works on isolated branch, auto-merged on completion |
+| **Evidence Verification** | Transcript parsing validates claims before merging |
+| **Natural Git History** | Incremental commits with varied, human-like messages |
+
+---
 
 ## Quick Start
 
@@ -155,6 +175,14 @@ config/                      # Agent YAML configurations
 
 - Node.js 18+
 - GitHub Copilot CLI installed and authenticated
+
+---
+
+<div align="center">
+
+**Built with ❤️ for the GitHub Copilot CLI Challenge**
+
+</div>
 
 ## License
 
