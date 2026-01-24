@@ -1,10 +1,9 @@
 import { spawn, SpawnOptions } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { PlanStep } from './plan-generator';
 import { AgentProfile } from './config-loader';
+import { PlanStep } from './plan-generator';
 import { ExecutionContext } from './step-runner';
-import CommitPatternDetector, { CommitMessage } from './commit-pattern-detector';
 
 export interface SessionOptions {
   model?: string | undefined;
@@ -48,7 +47,7 @@ export class SessionExecutor {
     options: SessionOptions = {}
   ): Promise<SessionResult> {
     const startTime = Date.now();
-    
+
     // build command args based on real copilot CLI flags
     const args: string[] = ['-p', prompt];
 
@@ -143,7 +142,7 @@ export class SessionExecutor {
     const sections: string[] = [];
 
     sections.push('=== COPILOT CLI SESSION - Step ' + step.stepNumber + ' ===\n');
-    
+
     sections.push('You are operating as a GitHub Copilot CLI custom agent within a supervised,');
     sections.push('sequential workflow.\n');
 
@@ -227,7 +226,7 @@ export class SessionExecutor {
       sections.push('Dependencies (steps you can rely on)');
       sections.push('------------------------------------');
       sections.push('This step depends on: Steps ' + step.dependencies.join(', '));
-      
+
       if (context.priorContext.length > 0) {
         sections.push('');
         sections.push('Context from prior steps:');
@@ -269,8 +268,9 @@ export class SessionExecutor {
   }
 
   /**
-   * Run a command and capture output
-   * Also logs output to console with agent/step prefix for parallelism visibility
+   * Run a command and capture output.
+   * Uses line buffering to prevent mid-word breaks when streaming output.
+   * Each complete line gets prefixed with [Agent:Step] for parallelism visibility.
    */
   private runCommand(
     command: string,
@@ -292,16 +292,27 @@ export class SessionExecutor {
       let stdout = '';
       let stderr = '';
 
+      // line buffers prevent mid-word breaks in streamed output
+      let stdoutBuffer = '';
+      let stderrBuffer = '';
+
       if (proc.stdout) {
         proc.stdout.on('data', (data) => {
           const text = data.toString();
           stdout += text;
-          
-          // live console logging for parallelism proof
+
+          // buffer partial lines, only print complete ones
           if (logPrefix) {
-            text.split('\n').filter((line: string) => line.trim()).forEach((line: string) => {
-              console.log(`${logPrefix} ${line}`);
-            });
+            stdoutBuffer += text;
+            const lines = stdoutBuffer.split('\n');
+            // keep last (possibly incomplete) line in buffer
+            stdoutBuffer = lines.pop() || '';
+            // print complete lines with prefix
+            for (const line of lines) {
+              if (line.trim()) {
+                console.log(`${logPrefix} ${line}`);
+              }
+            }
           }
         });
       }
@@ -310,17 +321,34 @@ export class SessionExecutor {
         proc.stderr.on('data', (data) => {
           const text = data.toString();
           stderr += text;
-          
-          // live console logging for parallelism proof
+
+          // buffer partial lines, only print complete ones
           if (logPrefix) {
-            text.split('\n').filter((line: string) => line.trim()).forEach((line: string) => {
-              console.error(`${logPrefix} ${line}`);
-            });
+            stderrBuffer += text;
+            const lines = stderrBuffer.split('\n');
+            // keep last (possibly incomplete) line in buffer
+            stderrBuffer = lines.pop() || '';
+            // print complete lines with prefix
+            for (const line of lines) {
+              if (line.trim()) {
+                console.error(`${logPrefix} ${line}`);
+              }
+            }
           }
         });
       }
 
       proc.on('close', (code) => {
+        // flush any remaining buffered content
+        if (logPrefix) {
+          if (stdoutBuffer.trim()) {
+            console.log(`${logPrefix} ${stdoutBuffer}`);
+          }
+          if (stderrBuffer.trim()) {
+            console.error(`${logPrefix} ${stderrBuffer}`);
+          }
+        }
+
         resolve({
           stdout,
           stderr,
@@ -329,6 +357,16 @@ export class SessionExecutor {
       });
 
       proc.on('error', (err) => {
+        // flush buffers on error too
+        if (logPrefix) {
+          if (stdoutBuffer.trim()) {
+            console.log(`${logPrefix} ${stdoutBuffer}`);
+          }
+          if (stderrBuffer.trim()) {
+            console.error(`${logPrefix} ${stderrBuffer}`);
+          }
+        }
+
         resolve({
           stdout,
           stderr: stderr + '\n' + err.message,

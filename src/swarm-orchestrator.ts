@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import AnalyticsLog from './analytics-log';
+import CommitPatternDetector, { CommitMessage } from './commit-pattern-detector';
 import { AgentProfile } from './config-loader';
 import ContextBroker, { ContextEntry } from './context-broker';
 import { DeploymentMetadata } from './deployment-manager';
@@ -14,8 +15,7 @@ import SessionExecutor, { SessionOptions, SessionResult } from './session-execut
 import ShareParser from './share-parser';
 import { Spinner } from './spinner';
 import VerifierEngine, { VerificationResult } from './verifier-engine';
-import { WaveResizer, AdaptiveConcurrencyManager } from './wave-resizer';
-import CommitPatternDetector, { CommitMessage } from './commit-pattern-detector';
+import { AdaptiveConcurrencyManager, WaveResizer } from './wave-resizer';
 
 export interface ParallelStepResult {
   stepNumber: number;
@@ -193,7 +193,7 @@ export class SwarmOrchestrator {
           0, // track failures separately if needed
           context.executionQueue?.getStats() || { running: 0, queued: 0, completed: 0, failed: 0, maxConcurrency: 3 }
         ) || 3;
-        
+
         if (optimalChunk < wave.length) {
           subWaves = context.waveResizer?.splitWave(wave, optimalChunk, 'concurrent_failures') || [wave];
           console.log(`  🔄 Wave split into ${subWaves.length} sub-wave(s) for stability`);
@@ -245,12 +245,12 @@ export class SwarmOrchestrator {
             const reason = failure.status === 'rejected' ? failure.reason : 'unknown';
             const errorMsg = String(reason);
             console.error(`  - Step ${subWave[idx]}: ${errorMsg}`);
-            
+
             // check if rate limit related
             const isRateLimit = /rate limit|quota|429|throttle/i.test(errorMsg);
             context.adaptiveConcurrency?.recordFailure(isRateLimit ? 'rate_limit' : 'error');
           });
-          
+
           // adjust concurrency for next sub-wave
           const newLimit = context.adaptiveConcurrency?.getCurrentLimit() || 3;
           context.executionQueue?.setMaxConcurrency(newLimit);
@@ -264,7 +264,7 @@ export class SwarmOrchestrator {
       // post-wave meta-analysis
       if (context.metaAnalyzer && context.knowledgeBase) {
         console.log(`\n🔍 Analyzing wave ${waveIndex + 1} quality...`);
-        
+
         const waveAnalysis = context.metaAnalyzer.analyzeWave(
           waveIndex,
           wave,
@@ -471,18 +471,17 @@ export class SwarmOrchestrator {
         ...(options?.model && { model: options.model })
       };
 
-      // Start spinner for visual feedback
-      const spinner = new Spinner(`Step ${step.stepNumber} (${agent.name}) — Agent working, please wait...`, {
-        style: 'dots',
-        prefix: '  '
-      });
-      spinner.start();
+      // Print static header instead of animated spinner when live logging
+      // This prevents spinner animation from interleaving with agent output
+      console.log(`  🐝 Step ${step.stepNumber} (${agent.name}) — Agent working...`);
+      console.log(`  ${'─'.repeat(60)}`);
 
       const sessionResult = await this.sessionExecutor.executeSession(enhancedPrompt, sessionOptions);
 
-      // Stop spinner with timing
+      // Print completion with timing
       const durationSec = Math.round(sessionResult.duration / 1000);
-      spinner.succeed(`Step ${step.stepNumber} (${agent.name}) complete (${durationSec}s)`);
+      console.log(`  ${'─'.repeat(60)}`);
+      console.log(`  ✅ Step ${step.stepNumber} (${agent.name}) complete (${durationSec}s)`);
 
       result.sessionResult = sessionResult;
 
@@ -505,7 +504,7 @@ export class SwarmOrchestrator {
         shareIndex.gitCommits.forEach(() => {
           context.metricsCollector?.trackCommit(agent.name);
         });
-        
+
         // Analyze commit quality for anti-patterns
         await this.analyzeCommitQuality(shareIndex.gitCommits, step.stepNumber, agent.name, context);
       }
@@ -826,7 +825,7 @@ export class SwarmOrchestrator {
   private generateExecutionId(): string {
     return `swarm-${new Date().toISOString().replace(/[:.]/g, '-')}`;
   }
-  
+
   /**
    * Analyze commit quality and flag anti-patterns
    */
@@ -837,9 +836,9 @@ export class SwarmOrchestrator {
     context: SwarmExecutionContext
   ): Promise<void> {
     if (commits.length === 0) return;
-    
+
     const detector = new CommitPatternDetector();
-    
+
     // Convert to CommitMessage format
     const commitMessages: CommitMessage[] = commits.map(c => ({
       hash: c.sha || 'unknown',
@@ -847,9 +846,9 @@ export class SwarmOrchestrator {
       timestamp: c.timestamp ? new Date(c.timestamp) : new Date(),
       files: c.files || []
     }));
-    
+
     const result = detector.analyzeCommits(commitMessages);
-    
+
     // Log analysis results if anti-patterns detected
     if (result.hasAntiPatterns) {
       console.log(`  ⚠️  Commit quality warnings for Step ${stepNumber} (${agentName}):`);
@@ -857,7 +856,7 @@ export class SwarmOrchestrator {
       result.warnings.forEach(warning => {
         console.log(`      - ${warning}`);
       });
-      
+
       // Get suggestions
       const suggestions = detector.getSuggestions(result);
       if (suggestions.length > 0) {
@@ -866,7 +865,7 @@ export class SwarmOrchestrator {
           console.log(`        • ${suggestion}`);
         });
       }
-      
+
       // Just log warnings - don't store in context (data type mismatch)
       // Meta-analyzer will detect commit quality issues from transcripts
     } else if (result.score >= 90) {
