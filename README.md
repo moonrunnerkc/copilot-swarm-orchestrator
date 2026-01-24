@@ -297,7 +297,9 @@ The orchestrator handles large swarms gracefully:
 - **Retry Logic**: Automatic retry with exponential backoff on rate limits (patterns: `rate limit`, `quota exceeded`, `429`, `throttle`)
 - **Dynamic Wave Resizing**: Splits waves when >3 concurrent failures detected
 - **Adaptive Concurrency**: Increases limit after 5 consecutive successes, halves on rate limits
-- **Dashboard Warnings**: Queue depth and rate limit alerts in real-time
+- **Live Console Logs**: Real-time output from concurrent sessions with agent/step prefixes (e.g., `[BackendMaster:1] output`)
+
+Note: The TUI dashboard is currently disabled due to ESM/CommonJS compatibility issues. Parallelism is visible via live console logs and audit trails (see "Proof of Parallelism" below).
 
 Example wave execution with queue:
 ```
@@ -336,6 +338,60 @@ The orchestrator learns and adapts as it executes:
 - Repeated verification failures
 - High-severity patterns detected
 - Suggested changes include re-executing steps or adding missing steps
+
+### Proof of Parallelism
+
+The orchestrator executes independent steps concurrently using `Promise.allSettled()` and child process spawning. Evidence of parallelism is visible through multiple audit trails:
+
+**1. Live Console Logs** (Primary Evidence)
+
+When running `swarm swarm plan.json`, you'll see interleaved output from concurrent sessions with agent/step prefixes:
+
+```
+Wave 1: 3 step(s) in parallel
+  🌿 Step 1 (BackendMaster) on branch: swarm/exec-123/step-1-backendmaster
+  🌿 Step 2 (FrontendExpert) on branch: swarm/exec-123/step-2-frontendexpert
+  🌿 Step 3 (TesterElite) on branch: swarm/exec-123/step-3-testerelite
+
+[BackendMaster:1] Analyzing task...
+[FrontendExpert:2] Creating React component...
+[BackendMaster:1] Creating Express server...
+[TesterElite:3] Setting up test framework...
+[FrontendExpert:2] Adding CSS styling...
+[BackendMaster:1] Tests passing: 5/5
+[TesterElite:3] Integration tests: 3 passing
+```
+
+The `[AgentName:StepNumber]` prefixes prove concurrent execution — output from different agents appears interleaved because sessions run simultaneously.
+
+**2. Git Commit Timestamps** (Indirect Evidence)
+
+Check the git log after execution:
+
+```bash
+git log --oneline --date=iso -20
+```
+
+Commits from different agents within the same wave will have overlapping or near-identical timestamps (within seconds), proving concurrent work.
+
+**3. Share Transcript Timestamps** (Audit Trail)
+
+Each step's `share.md` transcript includes start/end timestamps:
+
+```bash
+ls -lh runs/*/steps/*/share.md
+```
+
+Transcripts from steps in the same wave will have overlapping time ranges, confirming parallelism.
+
+**4. Code Evidence**
+
+- `src/swarm-orchestrator.ts:235`: `await Promise.allSettled(wavePromises)` — all wave promises execute concurrently
+- `src/swarm-orchestrator.ts:210-232`: Each wave step spawns a separate `copilot -p` child process
+- `src/session-executor.ts:287`: `spawn(command, args)` — real child process creation
+- `src/session-executor.ts:298-320`: Live console logging from child process stdout/stderr
+
+**Note**: The live TUI dashboard (which would show real-time agent cards) is temporarily disabled due to ESM/CommonJS compatibility. The live console logs provide equivalent proof of concurrent execution.
 
 ### Scope Expansion
 

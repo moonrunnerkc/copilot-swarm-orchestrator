@@ -467,6 +467,7 @@ export class SwarmOrchestrator {
       const sessionOptions: SessionOptions = {
         allowAllTools: true,
         shareToFile: transcriptPath,
+        logPrefix: `[${agent.name}:${step.stepNumber}]`, // live console logging for parallelism proof
         ...(options?.model && { model: options.model })
       };
 

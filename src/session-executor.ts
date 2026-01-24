@@ -14,6 +14,7 @@ export interface SessionOptions {
   mcpConfig?: string;
   agent?: string;
   shareToFile?: string;
+  logPrefix?: string; // prefix for live console logs (e.g., "[Agent:Step]")
 }
 
 export interface SessionResult {
@@ -79,8 +80,8 @@ export class SessionExecutor {
       args.push('--share', options.shareToFile);
     }
 
-    // execute copilot command
-    const result = await this.runCommand(this.copilotBin, args);
+    // execute copilot command with optional log prefix for parallelism visibility
+    const result = await this.runCommand(this.copilotBin, args, options.logPrefix);
 
     const duration = Date.now() - startTime;
 
@@ -269,10 +270,12 @@ export class SessionExecutor {
 
   /**
    * Run a command and capture output
+   * Also logs output to console with agent/step prefix for parallelism visibility
    */
   private runCommand(
     command: string,
-    args: string[]
+    args: string[],
+    logPrefix?: string
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve) => {
       const options: SpawnOptions = {
@@ -291,13 +294,29 @@ export class SessionExecutor {
 
       if (proc.stdout) {
         proc.stdout.on('data', (data) => {
-          stdout += data.toString();
+          const text = data.toString();
+          stdout += text;
+          
+          // live console logging for parallelism proof
+          if (logPrefix) {
+            text.split('\n').filter((line: string) => line.trim()).forEach((line: string) => {
+              console.log(`${logPrefix} ${line}`);
+            });
+          }
         });
       }
 
       if (proc.stderr) {
         proc.stderr.on('data', (data) => {
-          stderr += data.toString();
+          const text = data.toString();
+          stderr += text;
+          
+          // live console logging for parallelism proof
+          if (logPrefix) {
+            text.split('\n').filter((line: string) => line.trim()).forEach((line: string) => {
+              console.error(`${logPrefix} ${line}`);
+            });
+          }
         });
       }
 
