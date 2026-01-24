@@ -1,16 +1,16 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ExecutionPlan, PlanStep } from './plan-generator';
+import AnalyticsLog from './analytics-log';
 import { AgentProfile } from './config-loader';
-import SessionExecutor, { SessionResult, SessionOptions } from './session-executor';
 import ContextBroker, { ContextEntry } from './context-broker';
+import { DeploymentMetadata } from './deployment-manager';
+import MetricsCollector from './metrics-collector';
+import { ExecutionPlan, PlanStep } from './plan-generator';
+import SessionExecutor, { SessionOptions, SessionResult } from './session-executor';
 import ShareParser from './share-parser';
 import { Spinner } from './spinner';
 import VerifierEngine, { VerificationResult } from './verifier-engine';
-import { DeploymentMetadata } from './deployment-manager';
-import MetricsCollector from './metrics-collector';
-import AnalyticsLog from './analytics-log';
 
 export interface ParallelStepResult {
   stepNumber: number;
@@ -39,7 +39,6 @@ export interface SwarmExecutionContext {
 /**
  * Swarm Orchestrator - coordinates parallel execution of independent Copilot CLI sessions
  * Manages concurrent sessions, per-agent branches, and automatic merging
- * Phase 4: Supports pause/resume and human steering
  */
 export class SwarmOrchestrator {
   private sessionExecutor: SessionExecutor;

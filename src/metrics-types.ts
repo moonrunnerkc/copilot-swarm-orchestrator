@@ -1,6 +1,5 @@
 /**
  * Type definitions for productivity analytics and personalization
- * Phase 5: Track run metrics, learn preferences, enable auto-tuning
  */
 
 /**
