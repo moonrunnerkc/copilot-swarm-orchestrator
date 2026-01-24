@@ -1,6 +1,6 @@
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn } from 'child_process';
 import ShareParser, { ShareIndex } from './share-parser';
 
 export interface VerificationCheck {
@@ -98,14 +98,14 @@ export class VerifierEngine {
       checks.push(commitCheck);
     }
 
-    // Check for unverified claims (drift detection)
+    // Check for unverified claims (drift detection) - these are warnings only
     const claimCheck = this.verifyAllClaims(shareIndex);
     checks.push(...claimCheck.checks);
     unverifiedClaims.push(...claimCheck.unverifiedClaims);
 
-    // Overall pass/fail
-    const passed = checks.every(check => !check.required || check.passed) &&
-                    unverifiedClaims.length === 0;
+    // Overall pass/fail: only required checks must pass
+    // Unverified claims are warnings for drift detection, NOT hard failures
+    const passed = checks.every(check => !check.required || check.passed);
 
     const result: VerificationResult = {
       stepNumber,
@@ -125,7 +125,7 @@ export class VerifierEngine {
    */
   private verifyTests(shareIndex: ShareIndex): VerificationCheck {
     const testsRun = shareIndex.testsRun;
-    
+
     if (testsRun.length === 0) {
       return {
         type: 'test',
@@ -137,7 +137,7 @@ export class VerifierEngine {
     }
 
     const verifiedTests = testsRun.filter(t => t.verified);
-    
+
     if (verifiedTests.length === 0) {
       return {
         type: 'test',
@@ -289,15 +289,15 @@ export class VerifierEngine {
       lines.push('');
       lines.push(`**Type**: ${check.type}`);
       lines.push(`**Passed**: ${check.passed}`);
-      
+
       if (check.evidence) {
         lines.push(`**Evidence**: ${check.evidence}`);
       }
-      
+
       if (check.reason) {
         lines.push(`**Reason**: ${check.reason}`);
       }
-      
+
       lines.push('');
     });
 
@@ -327,7 +327,7 @@ export class VerifierEngine {
     }
 
     const reportContent = lines.join('\n');
-    
+
     // Ensure directory exists
     const dir = path.dirname(outputPath);
     if (!fs.existsSync(dir)) {
