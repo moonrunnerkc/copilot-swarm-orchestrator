@@ -52,6 +52,7 @@ npm start demo todo-app
 
 | Command | What it does |
 |---|---|
+| `npm start bootstrap <path(s)> "Goal"` | Analyze repo(s), optionally ingest open issues via `gh`, and generate a plan |
 | `npm start demo todo-app` | Run 4-step demo with parallel execution |
 | `npm start demo list` | List available demo scenarios |
 | `npm start plan "goal"` | Generate execution plan for a goal |
@@ -137,6 +138,19 @@ npm start demo todo-app
 # Runs 4 steps in 3 waves with live output
 ```
 
+### Parallelism Proof (Console)
+
+To validate that steps in a wave run concurrently, use the live console logs:
+
+- `swarm-orchestrator.ts` prints the wave header (for example: `Wave 1: 2 step(s) in parallel`).
+- `session-executor.ts` supports a per-step `logPrefix`, which is used to prefix live output lines from each Copilot subprocess.
+- When a wave contains multiple independent steps, you can see interleaved output lines from different prefixes.
+
+Proof anchors in code:
+
+- `src/swarm-orchestrator.ts:identifyExecutionWaves()`
+- `src/session-executor.ts` (`SessionOptions.logPrefix`)
+
 ### Source Structure
 
 ```bash
@@ -153,6 +167,16 @@ ls test/*.test.ts | wc -l  # 27 test files
 - Uses only documented Copilot CLI flags (`-p`, `--model`, `--share`, etc.)
 - Does not guarantee Copilot will complete tasks correctly; it orchestrates and verifies
 - Verification is evidence-based (transcript parsing), not semantic understanding
+
+What “adaptive” means here (today):
+
+- The swarm execution uses a concurrency-limited queue and retries tasks that fail with rate-limit-like errors (see `src/execution-queue.ts`).
+- After each wave, the orchestrator writes a wave analysis JSON file and can update `knowledge-base.json` (see `src/meta-analyzer.ts`, `src/knowledge-base.ts`, and `src/swarm-orchestrator.ts`).
+- If a wave is unhealthy, the orchestrator can log a suggested replan decision.
+
+What it does not do (today):
+
+- It does not automatically re-run steps based on replan decisions. The replan block logs suggested retries but does not execute them (`src/swarm-orchestrator.ts`).
 
 ---
 
@@ -209,6 +233,8 @@ config/
 | Transcript verification | `src/verifier-engine.ts:verifyStep()` |
 | Copilot CLI invocation | `src/session-executor.ts:executeSession()` |
 | Dependency graph | `src/swarm-orchestrator.ts:buildDependencyGraph()` |
+| Bootstrap repo analysis | `src/bootstrap-orchestrator.ts:bootstrap()` |
+| GitHub issue ingestion (if `gh` installed) | `src/github-issues-ingester.ts:fetchIssues()` |
 
 ---
 
