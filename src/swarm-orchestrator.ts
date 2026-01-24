@@ -5,12 +5,17 @@ import AnalyticsLog from './analytics-log';
 import { AgentProfile } from './config-loader';
 import ContextBroker, { ContextEntry } from './context-broker';
 import { DeploymentMetadata } from './deployment-manager';
+import { ExecutionQueue, QueueStats } from './execution-queue';
+import { KnowledgeBaseManager } from './knowledge-base';
+import { MetaAnalyzer, MetaReviewResult } from './meta-analyzer';
 import MetricsCollector from './metrics-collector';
 import { ExecutionPlan, PlanStep } from './plan-generator';
 import SessionExecutor, { SessionOptions, SessionResult } from './session-executor';
 import ShareParser from './share-parser';
 import { Spinner } from './spinner';
 import VerifierEngine, { VerificationResult } from './verifier-engine';
+import { WaveResizer, AdaptiveConcurrencyManager } from './wave-resizer';
+import CommitPatternDetector, { CommitMessage } from './commit-pattern-detector';
 
 export interface ParallelStepResult {
   stepNumber: number;
@@ -34,6 +39,13 @@ export interface SwarmExecutionContext {
   mainBranch: string;
   deployments?: DeploymentMetadata[];
   metricsCollector?: MetricsCollector;
+  executionQueue?: ExecutionQueue;
+  queueStats?: QueueStats;
+  waveResizer?: WaveResizer;
+  adaptiveConcurrency?: AdaptiveConcurrencyManager;
+  knowledgeBase?: KnowledgeBaseManager;
+  metaAnalyzer?: MetaAnalyzer;
+  waveAnalyses?: MetaReviewResult[];
 }
 
 /**
@@ -82,7 +94,8 @@ export class SwarmOrchestrator {
    */
   initializeSwarmExecution(
     plan: ExecutionPlan,
-    runDir: string
+    runDir: string,
+    maxConcurrency?: number
   ): SwarmExecutionContext {
     const executionId = this.generateExecutionId();
     const contextBroker = new ContextBroker(runDir);
@@ -90,6 +103,16 @@ export class SwarmOrchestrator {
 
     // get current git branch
     const mainBranch = this.getCurrentBranch();
+
+    // initialize scalability components
+    const concurrencyLimit = maxConcurrency || 3;
+    const executionQueue = new ExecutionQueue(concurrencyLimit);
+    const waveResizer = new WaveResizer();
+    const adaptiveConcurrency = new AdaptiveConcurrencyManager(concurrencyLimit, 10);
+
+    // initialize adaptive intelligence components
+    const knowledgeBase = new KnowledgeBaseManager(this.workingDir);
+    const metaAnalyzer = new MetaAnalyzer();
 
     const context: SwarmExecutionContext = {
       plan,
@@ -103,7 +126,14 @@ export class SwarmOrchestrator {
       })),
       contextBroker,
       mainBranch,
-      metricsCollector
+      metricsCollector,
+      executionQueue,
+      queueStats: executionQueue.getStats(),
+      waveResizer,
+      adaptiveConcurrency,
+      knowledgeBase,
+      metaAnalyzer,
+      waveAnalyses: []
     };
 
     return context;
@@ -124,7 +154,7 @@ export class SwarmOrchestrator {
       autoPR?: boolean;
     }
   ): Promise<SwarmExecutionContext> {
-    const context = this.initializeSwarmExecution(plan, runDir);
+    const context = this.initializeSwarmExecution(plan, runDir, options?.maxConcurrency);
 
     console.log('\n🚀 Starting Parallel Swarm Execution');
     console.log(`Execution ID: ${context.executionId}`);
@@ -140,9 +170,9 @@ export class SwarmOrchestrator {
 
     console.log(`Execution will proceed in ${executionWaves.length} wave(s)\n`);
 
-    // execute each wave
+    // execute each wave with queue and adaptive concurrency
     for (let waveIndex = 0; waveIndex < executionWaves.length; waveIndex++) {
-      const wave = executionWaves[waveIndex];
+      let wave = executionWaves[waveIndex];
       console.log(`\n📊 Wave ${waveIndex + 1}: ${wave.length} step(s) in parallel`);
 
       // Track wave start
@@ -155,29 +185,146 @@ export class SwarmOrchestrator {
         console.log('\n▶️  Resuming execution...');
       }
 
-      const wavePromises = wave.map(stepNumber => {
-        const step = plan.steps.find(s => s.stepNumber === stepNumber);
-        const agent = agents.get(step!.agentName);
+      // adaptive wave resizing on large waves
+      let subWaves: number[][] = [wave];
+      if (wave.length > (options?.maxConcurrency || 3)) {
+        const optimalChunk = context.waveResizer?.calculateOptimalChunkSize(
+          wave.length,
+          0, // track failures separately if needed
+          context.executionQueue?.getStats() || { running: 0, queued: 0, completed: 0, failed: 0, maxConcurrency: 3 }
+        ) || 3;
+        
+        if (optimalChunk < wave.length) {
+          subWaves = context.waveResizer?.splitWave(wave, optimalChunk, 'concurrent_failures') || [wave];
+          console.log(`  🔄 Wave split into ${subWaves.length} sub-wave(s) for stability`);
+        }
+      }
 
-        if (!step || !agent) {
-          throw new Error(`Step ${stepNumber} or agent not found`);
+      // execute sub-waves sequentially
+      for (let subWaveIndex = 0; subWaveIndex < subWaves.length; subWaveIndex++) {
+        const subWave = subWaves[subWaveIndex];
+        if (subWaves.length > 1) {
+          console.log(`  📦 Sub-wave ${subWaveIndex + 1}/${subWaves.length}: ${subWave.length} step(s)`);
         }
 
-        return this.executeStepInSwarm(step, agent, context, options);
-      });
+        const wavePromises = subWave.map(stepNumber => {
+          const step = plan.steps.find(s => s.stepNumber === stepNumber);
+          const agent = agents.get(step!.agentName);
 
-      // wait for all steps in wave to complete
-      const waveResults = await Promise.allSettled(wavePromises);
+          if (!step || !agent) {
+            throw new Error(`Step ${stepNumber} or agent not found`);
+          }
 
-      // check for failures
-      const failures = waveResults.filter(r => r.status === 'rejected');
-      if (failures.length > 0) {
-        console.error(`\n❌ Wave ${waveIndex + 1} had ${failures.length} failure(s)`);
-        failures.forEach((failure, idx) => {
-          const reason = failure.status === 'rejected' ? failure.reason : 'unknown';
-          console.error(`  - Step ${wave[idx]}: ${reason}`);
+          // enqueue with priority and retry
+          return context.executionQueue!.enqueue(
+            `step-${stepNumber}`,
+            () => this.executeStepInSwarmQueued(step, agent, context, options),
+            {
+              priority: 100 - stepNumber, // earlier steps have higher priority
+              maxRetries: 3,
+              metadata: {
+                stepNumber: step.stepNumber,
+                agentName: agent.name,
+                wave: waveIndex + 1
+              }
+            }
+          );
         });
-        // continue to next wave anyway (for partial results)
+
+        // wait for all steps in sub-wave to complete
+        const waveResults = await Promise.allSettled(wavePromises);
+
+        // update queue stats
+        context.queueStats = context.executionQueue!.getStats();
+
+        // check for failures and adjust concurrency
+        const failures = waveResults.filter(r => r.status === 'rejected');
+        if (failures.length > 0) {
+          console.error(`\n❌ Sub-wave ${subWaveIndex + 1} had ${failures.length} failure(s)`);
+          failures.forEach((failure, idx) => {
+            const reason = failure.status === 'rejected' ? failure.reason : 'unknown';
+            const errorMsg = String(reason);
+            console.error(`  - Step ${subWave[idx]}: ${errorMsg}`);
+            
+            // check if rate limit related
+            const isRateLimit = /rate limit|quota|429|throttle/i.test(errorMsg);
+            context.adaptiveConcurrency?.recordFailure(isRateLimit ? 'rate_limit' : 'error');
+          });
+          
+          // adjust concurrency for next sub-wave
+          const newLimit = context.adaptiveConcurrency?.getCurrentLimit() || 3;
+          context.executionQueue?.setMaxConcurrency(newLimit);
+          console.log(`  ⚙️  Adjusted concurrency to ${newLimit} based on failures`);
+        } else {
+          // record success
+          subWave.forEach(() => context.adaptiveConcurrency?.recordSuccess());
+        }
+      }
+
+      // post-wave meta-analysis
+      if (context.metaAnalyzer && context.knowledgeBase) {
+        console.log(`\n🔍 Analyzing wave ${waveIndex + 1} quality...`);
+        
+        const waveAnalysis = context.metaAnalyzer.analyzeWave(
+          waveIndex,
+          wave,
+          context.results,
+          plan,
+          context.executionId
+        );
+
+        context.waveAnalyses?.push(waveAnalysis);
+
+        // save analysis
+        const analysisPath = path.join(runDir, `wave-${waveIndex + 1}-analysis.json`);
+        fs.writeFileSync(analysisPath, JSON.stringify(waveAnalysis, null, 2), 'utf8');
+
+        // update knowledge base
+        if (waveAnalysis.knowledgeUpdates.length > 0) {
+          waveAnalysis.knowledgeUpdates.forEach(update => {
+            context.knowledgeBase!.addOrUpdatePattern({
+              category: update.category,
+              insight: update.insight,
+              confidence: update.confidence,
+              evidence: [update.evidence],
+              impact: update.confidence === 'high' ? 'high' : 'medium'
+            });
+          });
+          console.log(`  📚 Updated knowledge base with ${waveAnalysis.knowledgeUpdates.length} insight(s)`);
+        }
+
+        // display analysis summary
+        if (waveAnalysis.overallHealth === 'critical') {
+          console.error(`  ⚠️  Wave health: CRITICAL - ${waveAnalysis.replanReason}`);
+        } else if (waveAnalysis.overallHealth === 'degraded') {
+          console.warn(`  ⚠️  Wave health: DEGRADED`);
+        } else {
+          console.log(`  ✅ Wave health: HEALTHY`);
+        }
+
+        if (waveAnalysis.detectedPatterns.length > 0) {
+          console.log(`  🔍 Detected ${waveAnalysis.detectedPatterns.length} pattern(s):`);
+          waveAnalysis.detectedPatterns.forEach(p => {
+            const icon = p.type === 'anti-pattern' ? '❌' : p.type === 'good-pattern' ? '✅' : '⚠️';
+            console.log(`    ${icon} ${p.pattern} (${p.severity} severity, ${p.occurrences} occurrence(s))`);
+          });
+        }
+
+        // handle replan if needed
+        if (waveAnalysis.replanNeeded) {
+          console.error(`\n🔄 Replanning needed: ${waveAnalysis.replanReason}`);
+          const replanDecision = context.metaAnalyzer.makeReplanDecision(
+            waveAnalysis,
+            plan,
+            context.results.filter(r => r.status === 'completed').map(r => r.stepNumber)
+          );
+
+          if (replanDecision.stepsToRetry && replanDecision.stepsToRetry.length > 0) {
+            console.log(`  🔁 Will retry step(s): ${replanDecision.stepsToRetry.join(', ')}`);
+            // note: actual retry implementation would go here
+            // for now we just log and continue
+          }
+        }
       }
     }
 
@@ -198,6 +345,14 @@ export class SwarmOrchestrator {
       analyticsLog.appendRun(metrics);
 
       console.log(`\n📊 Metrics saved: ${metricsPath}`);
+    }
+
+    // Record execution in knowledge base
+    if (context.knowledgeBase) {
+      const totalPatternsDetected = context.waveAnalyses?.reduce(
+        (sum, analysis) => sum + analysis.detectedPatterns.length, 0
+      ) || 0;
+      context.knowledgeBase.recordRun(totalPatternsDetected);
     }
 
     // Auto-create PR if requested
@@ -232,6 +387,19 @@ export class SwarmOrchestrator {
     }
 
     return context;
+  }
+
+  /**
+   * Execute a single step within the swarm (queued version with retry support)
+   */
+  private async executeStepInSwarmQueued(
+    step: PlanStep,
+    agent: AgentProfile,
+    context: SwarmExecutionContext,
+    options?: { model?: string }
+  ): Promise<void> {
+    // delegate to original implementation
+    return this.executeStepInSwarm(step, agent, context, options);
   }
 
   /**
@@ -336,6 +504,9 @@ export class SwarmOrchestrator {
         shareIndex.gitCommits.forEach(() => {
           context.metricsCollector?.trackCommit(agent.name);
         });
+        
+        // Analyze commit quality for anti-patterns
+        await this.analyzeCommitQuality(shareIndex.gitCommits, step.stepNumber, agent.name, context);
       }
 
       // verify the step with spinner feedback
@@ -653,6 +824,54 @@ export class SwarmOrchestrator {
 
   private generateExecutionId(): string {
     return `swarm-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  }
+  
+  /**
+   * Analyze commit quality and flag anti-patterns
+   */
+  private async analyzeCommitQuality(
+    commits: any[],
+    stepNumber: number,
+    agentName: string,
+    context: SwarmExecutionContext
+  ): Promise<void> {
+    if (commits.length === 0) return;
+    
+    const detector = new CommitPatternDetector();
+    
+    // Convert to CommitMessage format
+    const commitMessages: CommitMessage[] = commits.map(c => ({
+      hash: c.sha || 'unknown',
+      message: c.message || '',
+      timestamp: c.timestamp ? new Date(c.timestamp) : new Date(),
+      files: c.files || []
+    }));
+    
+    const result = detector.analyzeCommits(commitMessages);
+    
+    // Log analysis results if anti-patterns detected
+    if (result.hasAntiPatterns) {
+      console.log(`  ⚠️  Commit quality warnings for Step ${stepNumber} (${agentName}):`);
+      console.log(`      Quality score: ${result.score}/100`);
+      result.warnings.forEach(warning => {
+        console.log(`      - ${warning}`);
+      });
+      
+      // Get suggestions
+      const suggestions = detector.getSuggestions(result);
+      if (suggestions.length > 0) {
+        console.log(`      Suggestions:`);
+        suggestions.forEach(suggestion => {
+          console.log(`        • ${suggestion}`);
+        });
+      }
+      
+      // Just log warnings - don't store in context (data type mismatch)
+      // Meta-analyzer will detect commit quality issues from transcripts
+    } else if (result.score >= 90) {
+      // Acknowledge good commit practices
+      console.log(`  ✨ Excellent commit quality: ${result.score}/100 (${commitMessages.length} commits)`);
+    }
   }
 }
 

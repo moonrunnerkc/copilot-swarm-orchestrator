@@ -10,6 +10,7 @@ import { SessionManager } from './session-manager';
 import { StepRunner } from './step-runner';
 import { SwarmOrchestrator } from './swarm-orchestrator';
 import { ExecutionOptions } from './types';
+import QuickFixMode from './quick-fix-mode';
 
 function showUsage(): void {
   console.log(`
@@ -22,6 +23,7 @@ Usage:
   swarm plan import <runid> <transcript> Parse plan from Copilot /share transcript
   swarm execute <planfile>               Execute a saved plan step-by-step
   swarm swarm <planfile>                 Execute plan in parallel swarm mode
+  swarm quick "task"                     Quick-fix mode for simple single-agent tasks
   swarm demo <scenario>                  Run pre-configured demo scenario
   swarm demo list                        List available demo scenarios
   swarm status <execid>                  Show execution status
@@ -36,10 +38,16 @@ Flags:
   --mcp          Require MCP evidence from GitHub context in verification
   --model        Specify model for sessions (e.g., claude-sonnet-4.5)
   --no-dashboard Disable live dashboard in swarm mode
+  --agent        Specify agent for quick-fix mode
+  --skip-verify  Skip verification in quick-fix mode (faster)
 
 Examples:
   # Quick demo (recommended for first-time users)
   swarm demo todo-app
+
+  # Quick-fix mode for simple tasks
+  swarm quick "fix typo in README"
+  swarm quick "update version in package.json" --skip-verify
 
   # List available demos
   swarm demo list
@@ -599,6 +607,54 @@ async function main(): Promise<void> {
   }
 
   const command = args[0];
+
+  if (command === 'quick') {
+    // Quick-fix mode
+    if (args.length < 2) {
+      console.error('Error: Quick-fix mode requires a task');
+      console.log('Usage: swarm quick "task description"');
+      console.log('Example: swarm quick "fix typo in README"');
+      process.exit(1);
+    }
+
+    const task = args[1];
+    const flags = {
+      model: args.includes('--model') ? args[args.indexOf('--model') + 1] : undefined,
+      agent: args.includes('--agent') ? args[args.indexOf('--agent') + 1] : undefined,
+      skipVerify: args.includes('--skip-verify')
+    };
+    
+    const quickFix = new QuickFixMode();
+    
+    console.log('⚡ Quick-Fix Mode\n');
+    
+    const quickOpts: any = {
+      skipVerification: flags.skipVerify
+    };
+    if (flags.model) quickOpts.model = flags.model;
+    if (flags.agent) quickOpts.agent = flags.agent;
+    
+    const result = await quickFix.execute(task, quickOpts);
+
+    if (!result.wasQuickFixEligible) {
+      console.log(result.output);
+      process.exit(1);
+    }
+
+    console.log(`\n✅ Quick-fix completed in ${(result.duration / 1000).toFixed(1)}s`);
+    console.log(`   Agent: ${result.agentUsed}`);
+    
+    if (result.verificationPassed !== undefined) {
+      console.log(`   Verification: ${result.verificationPassed ? '✓ Passed' : '✗ Failed'}`);
+    }
+    
+    if (!result.success) {
+      console.error(`\n❌ Quick-fix failed. See output above.`);
+      process.exit(1);
+    }
+    
+    return;
+  }
 
   if (command === 'bootstrap') {
     if (args.length < 3) {

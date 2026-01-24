@@ -20,6 +20,8 @@ export interface VerificationResult {
   unverifiedClaims: string[];
   timestamp: string;
   transcriptPath: string;
+  gracefulFailure?: boolean; // true if verification failed but allowed to continue
+  degradationReason?: string | undefined; // why graceful failure was applied
 }
 
 export interface RollbackResult {
@@ -53,6 +55,7 @@ export class VerifierEngine {
       requireTests?: boolean;
       requireBuild?: boolean;
       requireCommits?: boolean;
+      gracefulDegradation?: boolean; // Allow continuation even if verification fails
     }
   ): Promise<VerificationResult> {
     const checks: VerificationCheck[] = [];
@@ -107,14 +110,26 @@ export class VerifierEngine {
     // Unverified claims are warnings for drift detection, NOT hard failures
     const passed = checks.every(check => !check.required || check.passed);
 
+    // Apply graceful degradation if enabled and verification failed
+    let gracefulFailure = false;
+    let degradationReason: string | undefined;
+    
+    if (!passed && requirements?.gracefulDegradation) {
+      gracefulFailure = true;
+      const failedChecks = checks.filter(c => c.required && !c.passed);
+      degradationReason = `Verification failed but graceful degradation enabled. Failed checks: ${failedChecks.map(c => c.type).join(', ')}`;
+    }
+
     const result: VerificationResult = {
       stepNumber,
       agentName,
-      passed,
+      passed: passed || gracefulFailure, // Pass if graceful failure allowed
       checks,
       unverifiedClaims,
       timestamp: new Date().toISOString(),
-      transcriptPath
+      transcriptPath,
+      gracefulFailure,
+      degradationReason
     };
 
     return result;

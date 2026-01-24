@@ -42,12 +42,24 @@ You are an integration specialist focused on bringing all components together an
 - Ready for release or handoff
 - Git history is clean, natural, and shows incremental development
 
-## Git Commit Guidelines
+## Git Commit Guidelines (CRITICAL)
 
-Integration-focused commits that preserve natural history:
+Integration-focused commits that preserve natural history. Each commit should represent a discrete logical change.
 
-**Good examples:**
+**✅ GOOD examples (specific, varied, incremental):**
 ```
+integrate authentication module with user dashboard
+wire up payment API to checkout component
+connect database migrations to application startup
+add environment variable configuration for deployment
+merge feature branches and resolve conflicts
+update imports after module reorganization
+configure build pipeline with production optimizations
+add health check endpoint for monitoring
+integrate third-party analytics service
+fix: resolve circular dependency in services
+connect frontend components to backend API
+configure logging and error tracking integration
 integrate auth module with user service
 fix: resolve API contract mismatch
 update integration docs with examples
@@ -56,6 +68,20 @@ finalize release notes for v2.0
 wire up database connection
 smooth out rough edges in error handling
 polish user-facing messages
+```
+
+**❌ BAD examples (generic, vague, non-incremental):**
+```
+integrate components
+fix integration
+changes
+WIP
+merge branches
+update code
+fix issue
+complete integration
+various updates
+address feedback
 ```
 
 **Varied message styles (all acceptable):**

@@ -6,6 +6,7 @@ import Spinner from 'ink-spinner';
 import { ParallelStepResult } from './swarm-orchestrator';
 import { SteeringCommand, Conflict, OrchestratorState, parseSteeringCommand, formatSteeringCommand } from './steering-types';
 import { MetricsComparison } from './metrics-types';
+import { QueueStats } from './execution-queue';
 
 interface DashboardProps {
   executionId: string;
@@ -21,6 +22,7 @@ interface DashboardProps {
   onCommand?: (command: SteeringCommand) => void;
   readOnly?: boolean;
   metricsComparison?: MetricsComparison | null;
+  queueStats?: QueueStats;
 }
 
 interface StatusIconProps {
@@ -159,7 +161,8 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
   orchestratorState,
   onCommand,
   readOnly = false,
-  metricsComparison
+  metricsComparison,
+  queueStats
 }) => {
   const [elapsedTime, setElapsedTime] = useState('0s');
   const [input, setInput] = useState('');
@@ -245,6 +248,38 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
           <Text color="gray">{totalSteps} total</Text>
         </Text>
       </Box>
+
+      {/* Metrics Comparison */}
+      {metricsComparison && <ProductivitySummary comparison={metricsComparison} />}
+
+      {/* Queue Status */}
+      {queueStats && (
+        <Box flexDirection="column" marginBottom={1} borderStyle="single" borderColor="yellow" paddingX={1}>
+          <Text bold color="yellow">⚡ Execution Queue</Text>
+          <Box flexDirection="row" gap={2}>
+            <Text>
+              Running: <Text color="blue" bold>{queueStats.running}</Text>
+            </Text>
+            <Text>
+              Queued: <Text color="yellow" bold>{queueStats.queued}</Text>
+            </Text>
+            <Text>
+              Completed: <Text color="green" bold>{queueStats.completed}</Text>
+            </Text>
+            <Text>
+              Failed: <Text color="red" bold>{queueStats.failed}</Text>
+            </Text>
+            <Text>
+              Concurrency: <Text color="cyan" bold>{queueStats.maxConcurrency}</Text>
+            </Text>
+          </Box>
+          {queueStats.queued > 5 && (
+            <Text color="yellow">
+              ⚠️  High queue depth - consider reducing wave size or checking for rate limits
+            </Text>
+          )}
+        </Box>
+      )}
 
       {/* Wave Progress */}
       <Box marginBottom={1}>

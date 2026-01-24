@@ -4,9 +4,10 @@ import * as path from 'path';
 import { PlanStep } from './plan-generator';
 import { AgentProfile } from './config-loader';
 import { ExecutionContext } from './step-runner';
+import CommitPatternDetector, { CommitMessage } from './commit-pattern-detector';
 
 export interface SessionOptions {
-  model?: string;
+  model?: string | undefined;
   silent?: boolean;
   allowAllTools?: boolean;
   availableTools?: string[];

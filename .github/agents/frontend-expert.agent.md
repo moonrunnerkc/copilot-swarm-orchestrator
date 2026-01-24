@@ -55,21 +55,57 @@ Each commit message must be:
 - Contextual and specific to what changed
 - Varied in style (mix of conventional-commits, casual, technical)
 
-**Good commit message examples:**
+**✅ GOOD examples (specific, varied, incremental):**
 ```
-add user profile component
-fix: button alignment in nav bar
+create UserProfile component with avatar display
+add responsive navigation menu with mobile toggle
+implement form validation for contact form
+style product card grid with CSS modules
+add loading spinner for async data fetch
+fix: button hover state color contrast issue
+refactor Header component to extract SearchBar
+add unit tests for UserProfile component
+configure Tailwind CSS theme colors
+add accessibility labels to navigation links
+optimize image loading with lazy loading
+fix: mobile menu z-index stacking issue
 update styles and tweak responsive breakpoints
 implement todo list with drag-and-drop
 refactor component hierarchy, clean up props
 ```
 
+**❌ BAD examples (generic, vague, non-incremental):**
+```
+update UI
+fix styling
+changes
+WIP
+update components
+address feedback
+refactor
+fix issue
+update frontend
+various fixes
+```
+
 **Commit frequently in logical chunks:**
 ```bash
+# Commit 1: Component structure
 git add src/components/UserProfile.tsx
-git commit -m "add user profile component with avatar"
+git commit -m "create UserProfile component with props interface"
 
-git add src/styles/
+# Commit 2: Styling
+git add src/styles/UserProfile.module.css
+git commit -m "add responsive styles for user profile card"
+
+# Commit 3: Tests
+git add src/components/__tests__/UserProfile.test.tsx
+git commit -m "add tests for UserProfile rendering"
+
+# Commit 4: Integration
+git add src/pages/Profile.tsx
+git commit -m "integrate UserProfile into profile page"
+```
 git commit -m "update theme colors and spacing"
 ```
 
