@@ -117,7 +117,7 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       dependencies: s.dependencies,
       expectedOutputs: s.expectedOutputs
     }));
-    
+
     this.validateAgentAssignments(regularSteps);
     this.validateDependencies(regularSteps);
 
@@ -523,7 +523,7 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
   private generateGenericSteps(goal: string, startNumber: number): PlanStep[] {
     // for generic goals, create a simple 3-step plan
     const primaryAgent = this.assignAgent(goal);
-    
+
     return [
       {
         stepNumber: startNumber,
@@ -612,7 +612,12 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       return 'TesterElite';
     }
 
-    // IntegratorFinalizer as fallback
+    // Generic app/system/implementation tasks should go to BackendMaster
+    if (taskLower.match(/\b(implement|create|build|develop|system|app|application|service|functionality|core|main)\b/)) {
+      return 'BackendMaster';
+    }
+
+    // IntegratorFinalizer as last resort fallback
     return 'IntegratorFinalizer';
   }
 

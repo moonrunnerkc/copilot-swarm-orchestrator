@@ -347,8 +347,10 @@ export class SwarmOrchestrator {
         agent.name,
         transcriptPath,
         {
-          requireTests: step.task.toLowerCase().includes('test'),
-          requireBuild: step.task.toLowerCase().includes('build'),
+          // only require tests if task explicitly mentions testing/test suite
+          requireTests: /\b(test suite|unit test|integration test|e2e test|write tests)\b/i.test(step.task),
+          // only require build if task explicitly mentions build process (not "build an app")
+          requireBuild: /\b(npm build|run build|compile|bundle|webpack)\b/i.test(step.task),
           // commits are desired but not blocking for demo
           requireCommits: false
         }
