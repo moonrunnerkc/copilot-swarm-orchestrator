@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 // @ts-ignore - Ink is ESM
 import { Box, Text, useInput } from 'ink';
-import { TodoList, Todo } from './TodoList';
 import { TodoInput } from './TodoInput';
+import { Todo, TodoList } from './TodoList';
 
 interface TodoAppProps {
   initialTodos?: Todo[];
@@ -22,7 +22,7 @@ export const TodoApp: React.FC<TodoAppProps> = ({ initialTodos = [] }) => {
     setTimeout(() => setStatusMessage(''), duration);
   };
 
-  useInput((input, key) => {
+  useInput((input: string, key: { return?: boolean; escape?: boolean; upArrow?: boolean; downArrow?: boolean; backspace?: boolean; delete?: boolean; ctrl?: boolean; meta?: boolean }) => {
     if (mode === 'add' || mode === 'edit') {
       // Handle input modes
       if (key.return) {
@@ -106,8 +106,8 @@ export const TodoApp: React.FC<TodoAppProps> = ({ initialTodos = [] }) => {
   });
 
   const handleToggle = (id: string) => {
-    setTodos(prev => 
-      prev.map(todo => 
+    setTodos(prev =>
+      prev.map(todo =>
         todo.id === id ? { ...todo, completed: !todo.completed } : todo
       )
     );
@@ -180,7 +180,7 @@ export const TodoApp: React.FC<TodoAppProps> = ({ initialTodos = [] }) => {
       {/* Help */}
       <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
         <Text color="gray">
-          {mode === 'normal' 
+          {mode === 'normal'
             ? 'a:add | e:edit | d:delete | space:toggle | c:clear completed | ↑↓/jk:navigate | Ctrl+C:exit'
             : mode === 'delete'
             ? 'y:confirm | n/Esc:cancel'
