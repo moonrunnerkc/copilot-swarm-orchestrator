@@ -2,20 +2,34 @@
 
 Parallel execution of GitHub Copilot CLI sessions with dependency-aware scheduling, verification, and per-agent git branches.
 
+[![CI](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions/workflows/ci.yml/badge.svg)](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions/workflows/ci.yml)
+[![License: ISC](https://img.shields.io/badge/license-ISC-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-blue.svg)](https://www.typescriptlang.org/)
+
 ---
 
-## What This Does
+## Why This Exists
 
-This CLI tool:
+Running multiple Copilot CLI sessions for a project (backend, frontend, tests, integration) creates coordination overhead. This tool organizes that work into dependency-aware steps, runs independent steps in parallel, and verifies results from transcript evidence.
 
-1. Takes a goal (e.g., "Build a todo app with React frontend and Express backend")
-2. Generates an execution plan with steps assigned to specialized agents
-3. Executes steps in parallel waves based on dependency graph
-4. Runs each step as a `copilot -p` session on an isolated git branch
-5. Verifies each step by parsing the transcript for evidence (tests passed, files created, commits made)
-6. Auto-merges verified branches back to main
+---
 
-**It does not** invent Copilot CLI features. All execution uses real `copilot -p` with documented flags.
+## What It Does
+
+- Takes a goal (for example: "Build a todo app with React frontend and Express backend")
+- Generates an execution plan with steps assigned to specialized agents
+- Executes steps in parallel waves based on a dependency graph
+- Runs each step as a `copilot -p` session on an isolated git branch
+- Verifies each step by parsing the transcript for evidence (tests passed, files created, commits made)
+- Auto-merges verified branches back to main
+
+**What it does not do**
+
+> - Does not embed or simulate Copilot
+> - Does not invent Copilot CLI flags or features
+> - Does not guarantee the model completes tasks correctly
+
+All execution uses real `copilot -p` with documented flags.
 
 ---
 
@@ -36,19 +50,21 @@ npm start demo todo-app
 
 ## Commands
 
-```
-npm start demo todo-app           Run 4-step demo with parallel execution
-npm start demo list               List available demo scenarios
-npm start plan "goal"             Generate execution plan for a goal
-npm start swarm plan.json         Execute plan in parallel swarm mode
-npm start quick "task"            Quick single-agent task (no plan needed)
-npm start --help                  Show all options
-```
+| Command | What it does |
+|---|---|
+| `npm start demo todo-app` | Run 4-step demo with parallel execution |
+| `npm start demo list` | List available demo scenarios |
+| `npm start plan "goal"` | Generate execution plan for a goal |
+| `npm start swarm plan.json` | Execute plan in parallel swarm mode |
+| `npm start quick "task"` | Quick single-agent task (no plan needed) |
+| `npm start -- --help` | Show all options |
 
-### Demo Scenarios
+---
+
+## Demo Scenarios
 
 | Scenario | Steps | Duration | Description |
-|----------|-------|----------|-------------|
+|---|---:|---:|---|
 | `todo-app` | 4 | 5-8 min | React + Express todo app |
 | `api-server` | 6 | 10-15 min | REST API with auth and DB |
 | `full-stack-app` | 7 | 15-20 min | Full-stack with deployment |
@@ -58,42 +74,34 @@ npm start --help                  Show all options
 
 ## How It Works
 
-### Architecture
+### Architecture (text diagram)
 
 ```
-cli.ts                  Entry point, command parsing
-  |
-  v
-plan-generator.ts       Creates execution plan with steps and dependencies
-  |
-  v
-swarm-orchestrator.ts   Schedules steps into waves, manages parallel execution
-  |
-  v
-session-executor.ts     Runs `copilot -p <prompt>` per step on agent branch
-  |
-  v
-verifier-engine.ts      Parses transcript, validates tests/commits/claims
-  |
-  v
-share-parser.ts         Extracts structured data from Copilot /share output
+cli.ts
+  -> plan-generator.ts
+  -> swarm-orchestrator.ts
+      -> session-executor.ts
+      -> verifier-engine.ts
+          -> share-parser.ts
 ```
 
 ### Execution Flow
 
-1. **Plan Generation**: `PlanGenerator.createPlan()` assigns agents to tasks with dependencies
-2. **Wave Calculation**: `SwarmOrchestrator.identifyExecutionWaves()` groups independent steps
-3. **Branch Creation**: Each step runs on `swarm/<execid>/step-<n>-<agent>` branch
-4. **Session Execution**: `SessionExecutor.executeSession()` invokes `copilot -p` with prompt
+1. **Plan generation**: `PlanGenerator.createPlan()` assigns agents to tasks with dependencies
+2. **Wave scheduling**: `SwarmOrchestrator.identifyExecutionWaves()` groups independent steps
+3. **Branch creation**: each step runs on `swarm/<execid>/step-<n>-<agent>` branch
+4. **Session execution**: `SessionExecutor.executeSession()` invokes `copilot -p` with prompt
 5. **Verification**: `VerifierEngine.verifyStep()` checks transcript for evidence
-6. **Merge**: Verified branches merge to main via git
+6. **Merge**: verified branches merge to main via git
 
-### Custom Agents
+---
 
-Seven agents defined in `.github/agents/`:
+## Custom Agents
+
+Seven agents are defined in `.github/agents/`:
 
 | Agent | Purpose | File |
-|-------|---------|------|
+|---|---|---|
 | `backend_master` | Server-side logic, APIs | `backend-master.agent.md` |
 | `frontend_expert` | UI components, React | `frontend-expert.agent.md` |
 | `tester_elite` | Test suites, coverage | `tester-elite.agent.md` |
@@ -106,7 +114,7 @@ Seven agents defined in `.github/agents/`:
 
 ## Verification
 
-To verify claims in this README:
+Use these commands and outputs to verify the claims in this README.
 
 ### Test Suite
 
@@ -138,9 +146,7 @@ ls test/*.test.ts | wc -l  # 27 test files
 
 ---
 
-## Constraints
-
-This tool:
+## Constraints And Guarantees
 
 - Requires GitHub Copilot CLI to be installed and authenticated
 - Executes `copilot -p` as a subprocess; does not embed or simulate Copilot
@@ -152,22 +158,36 @@ This tool:
 
 ## File Structure
 
+Key modules and their current line counts:
+
+| File | Purpose | Lines |
+|---|---|---:|
+| `src/cli.ts` | CLI entry point | 925 |
+| `src/swarm-orchestrator.ts` | parallel execution engine | 878 |
+| `src/plan-generator.ts` | plan creation and validation | 655 |
+| `src/session-executor.ts` | Copilot CLI invocation | 411 |
+| `src/verifier-engine.ts` | transcript verification | 464 |
+| `src/share-parser.ts` | `/share` output parsing | 629 |
+| `src/config-loader.ts` | agent YAML loading | 300 |
+
+Compact view:
+
 ```
 src/
-  cli.ts                 CLI entry point (925 lines)
-  swarm-orchestrator.ts  Parallel execution engine (878 lines)
-  plan-generator.ts      Plan creation and validation (655 lines)
-  session-executor.ts    Copilot CLI invocation (411 lines)
-  verifier-engine.ts     Transcript verification (464 lines)
-  share-parser.ts        /share output parsing (629 lines)
-  config-loader.ts       Agent YAML loading (300 lines)
+  cli.ts
+  swarm-orchestrator.ts
+  plan-generator.ts
+  session-executor.ts
+  verifier-engine.ts
+  share-parser.ts
+  config-loader.ts
   ... (34 more modules)
 
 test/
   27 test files, 303 tests
 
 config/
-  default-agents.yaml    Agent definitions
+  default-agents.yaml
 
 .github/agents/
   7 custom agent markdown files
@@ -175,16 +195,10 @@ config/
 
 ---
 
-## License
-
-ISC
-
----
-
 ## Proof Map
 
 | Claim | Evidence |
-|-------|----------|
+|---|---|
 | 303 tests passing | `npm test` output |
 | 41 source files | `ls src/*.ts \| wc -l` |
 | 27 test files | `ls test/*.test.ts \| wc -l` |
@@ -195,3 +209,9 @@ ISC
 | Transcript verification | `src/verifier-engine.ts:verifyStep()` |
 | Copilot CLI invocation | `src/session-executor.ts:executeSession()` |
 | Dependency graph | `src/swarm-orchestrator.ts:buildDependencyGraph()` |
+
+---
+
+## License
+
+ISC
