@@ -5,7 +5,7 @@
 **Parallel AI workflow orchestration using GitHub Copilot CLI custom agents**
 
 [![Build Status](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions/workflows/ci.yml/badge.svg)](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions)
-[![Tests](https://img.shields.io/badge/tests-428%20passing-brightgreen)](https://github.com/moonrunnerkc/copilot-swarm-conductor)
+[![Tests](https://img.shields.io/badge/tests-392%20passing-brightgreen)](https://github.com/moonrunnerkc/copilot-swarm-conductor)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-blue)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
@@ -50,13 +50,13 @@ npm start demo todo-app
 ## Commands
 
 ```
-swarm-orchestrator demo <scenario>              Run pre-configured demo
-swarm-orchestrator demo list                    List available demos
-swarm-orchestrator plan <goal>                  Generate execution plan
-swarm-orchestrator swarm <planfile>             Execute plan in parallel
-swarm-orchestrator execute <planfile>           Execute plan sequentially
-swarm-orchestrator status <execid>              Show execution status
-swarm-orchestrator --help                       Show all options
+swarm demo <scenario>              Run pre-configured demo
+swarm demo list                    List available demos
+swarm plan <goal>                  Generate execution plan
+swarm swarm <planfile>             Execute plan in parallel
+swarm execute <planfile>           Execute plan sequentially
+swarm status <execid>              Show execution status
+swarm --help                       Show all options
 ```
 
 ### Demo Scenarios
@@ -151,7 +151,7 @@ runs/swarm-2026-01-24T.../
 npm test
 ```
 
-428 tests covering orchestration, verification, plan generation, and agent configuration.
+392 tests covering orchestration, verification, plan generation, and agent configuration.
 
 ## Project Structure
 

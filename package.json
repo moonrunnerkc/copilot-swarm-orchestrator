@@ -4,6 +4,7 @@
   "description": "Parallel AI workflow orchestrator using GitHub Copilot CLI",
   "main": "dist/src/index.js",
   "bin": {
+    "swarm": "dist/src/cli.js",
     "swarm-orchestrator": "dist/src/cli.js"
   },
   "scripts": {

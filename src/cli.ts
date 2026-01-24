@@ -3,12 +3,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ConfigLoader } from './config-loader';
-import { PlanGenerator, PlanStep } from './plan-generator';
-import { PlanStorage } from './plan-storage';
-import { StepRunner } from './step-runner';
-import { SessionManager } from './session-manager';
-import { SwarmOrchestrator } from './swarm-orchestrator';
 import { DemoMode } from './demo-mode';
+import { PlanGenerator } from './plan-generator';
+import { PlanStorage } from './plan-storage';
+import { SessionManager } from './session-manager';
+import { StepRunner } from './step-runner';
+import { SwarmOrchestrator } from './swarm-orchestrator';
 import { ExecutionOptions } from './types';
 
 function showUsage(): void {
@@ -16,49 +16,45 @@ function showUsage(): void {
 Copilot Swarm Orchestrator - Parallel AI Workflow Tool
 
 Usage:
-  swarm-orchestrator bootstrap <path(s)> "Goal"  Deep analysis and plan generation
-                                                 (supports multi-repo)
-  swarm-orchestrator plan <goal>                   Generate intelligent plan (enhanced fallback)
-  swarm-orchestrator plan --copilot <goal>         Generate Copilot CLI prompt for planning
-  swarm-orchestrator plan import <runid> <transcript>
-                                                Parse plan from Copilot /share transcript
-  swarm-orchestrator execute <planfile> [--delegate] [--mcp]
-                                                Execute a saved plan step-by-step
-  swarm-orchestrator swarm <planfile> [--model <name>]
-                                                Execute plan in parallel swarm mode
-  swarm-orchestrator demo <scenario>            Run pre-configured demo scenario
-  swarm-orchestrator demo list                  List available demo scenarios
-  swarm-orchestrator status <execid>            Show execution status
-  swarm-orchestrator dashboard <execid>         Show TUI dashboard for execution
-  swarm-orchestrator share import <runid> <step> <agent> <path>
-                                                Import /share transcript for a step
-  swarm-orchestrator share context <runid> <step> Show prior context for a step
-  swarm-orchestrator --help                     Show this help message
+  swarm bootstrap <path(s)> "Goal"       Deep analysis and plan generation (multi-repo)
+  swarm plan <goal>                      Generate intelligent plan
+  swarm plan --copilot <goal>            Generate Copilot CLI prompt for planning
+  swarm plan import <runid> <transcript> Parse plan from Copilot /share transcript
+  swarm execute <planfile>               Execute a saved plan step-by-step
+  swarm swarm <planfile>                 Execute plan in parallel swarm mode
+  swarm demo <scenario>                  Run pre-configured demo scenario
+  swarm demo list                        List available demo scenarios
+  swarm status <execid>                  Show execution status
+  swarm dashboard <execid>               Show TUI dashboard for execution
+  swarm share import <runid> <step> <agent> <path>
+                                         Import /share transcript for a step
+  swarm share context <runid> <step>     Show prior context for a step
+  swarm --help                           Show this help message
 
 Flags:
-  --delegate    Instruct agents to use /delegate for PR creation
-  --mcp         Require MCP evidence from GitHub context in verification
-  --model       Specify model for sessions (e.g., claude-sonnet-4.5)
+  --delegate     Instruct agents to use /delegate for PR creation
+  --mcp          Require MCP evidence from GitHub context in verification
+  --model        Specify model for sessions (e.g., claude-sonnet-4.5)
   --no-dashboard Disable live dashboard in swarm mode
 
 Examples:
   # Quick demo (recommended for first-time users)
-  swarm-orchestrator demo todo-app
-  
+  swarm demo todo-app
+
   # List available demos
-  swarm-orchestrator demo list
-  
+  swarm demo list
+
   # Generate plan using intelligent fallback
-  swarm-orchestrator plan "Build a REST API for user management"
-  
+  swarm plan "Build a REST API for user management"
+
   # Execute plan in parallel swarm mode with live dashboard
-  swarm-orchestrator swarm plan-2026-01-23T00-07-02-308Z-build-api.json
-  
+  swarm swarm plan.json
+
   # Execute with specific model
-  swarm-orchestrator swarm plan.json --model claude-opus-4.5
-  
+  swarm swarm plan.json --model claude-opus-4.5
+
   # Sequential execution (legacy mode)
-  swarm-orchestrator execute plan.json --delegate --mcp
+  swarm execute plan.json --delegate --mcp
 
 The swarm command:
   - Executes steps in parallel based on dependencies
@@ -90,7 +86,7 @@ function bootstrap(repoPaths: string[], goal: string): void {
     .then(({ evidencePath, plan }: any) => {
       // Save plan
       const planPath = storage.savePlan(plan, runId);
-      
+
       console.log('📋 Bootstrap Results:');
       console.log(`  Evidence: ${evidencePath}`);
       console.log(`  Plan: ${planPath}`);
@@ -128,10 +124,10 @@ function generatePlan(goal: string, copilotMode: boolean = false): void {
     console.log('PROMPT (copy from next line until the marker):');
     console.log('═'.repeat(70));
     console.log();
-    
+
     const prompt = generator.generateCopilotPlanningPrompt(goal);
     console.log(prompt);
-    
+
     console.log();
     console.log('═'.repeat(70));
     console.log('END OF PROMPT');
@@ -146,7 +142,7 @@ function generatePlan(goal: string, copilotMode: boolean = false): void {
   console.log('╚══════════════════════════════════════════════════════════════════════╝\n');
   console.log('📋 Goal:', goal, '\n');
   console.log('💡 Tip: Use --copilot for Copilot CLI-generated plans\n');
-  
+
   console.log(`Loaded ${agents.length} agent profiles:`);
   agents.forEach(agent => {
     console.log(`  ✓ ${agent.name}: ${agent.purpose}`);
@@ -160,7 +156,7 @@ function generatePlan(goal: string, copilotMode: boolean = false): void {
   console.log('Generated Execution Plan:');
   console.log('═'.repeat(70));
   console.log();
-  
+
   plan.steps.forEach(step => {
     console.log(`Step ${step.stepNumber}: ${step.task}`);
     console.log(`  👤 Agent: ${step.agentName}`);
@@ -196,20 +192,20 @@ function importPlanFromTranscript(runId: string, transcriptPath: string): void {
 
   try {
     const fs = require('fs');
-    
+
     if (!fs.existsSync(transcriptPath)) {
       throw new Error(`Transcript file not found: ${transcriptPath}`);
     }
 
     const transcriptContent = fs.readFileSync(transcriptPath, 'utf-8');
-    
+
     const configLoader = new ConfigLoader();
     const agents = configLoader.loadAllAgents();
     const generator = new PlanGenerator(agents);
 
     console.log('🔍 Parsing transcript for JSON plan...');
     const plan = generator.parseCopilotPlanFromTranscript(transcriptContent);
-    
+
     console.log('✅ Plan parsed successfully!\n');
     console.log('Plan details:');
     console.log(`  Goal: ${plan.goal}`);
@@ -257,10 +253,10 @@ function executePlan(planFilename: string, options?: ExecutionOptions): void {
   // Load plan
   const storage = new PlanStorage();
   const plan = storage.loadPlan(planFilename);
-  
+
   console.log(`Plan: ${plan.goal}`);
   console.log(`Steps: ${plan.steps.length}`);
-  
+
   if (options?.delegate || options?.mcp) {
     console.log('\nGitHub Integration:');
     if (options.delegate) console.log('  ✓ /delegate enabled - agents will be instructed to create PRs');
@@ -275,13 +271,13 @@ function executePlan(planFilename: string, options?: ExecutionOptions): void {
   // Initialize execution
   const runner = new StepRunner();
   const context = runner.initializeExecution(plan, planFilename, options);
-  
+
   console.log(`Execution ID: ${context.executionId}\n`);
 
   // Get execution order
   const generator = new PlanGenerator(agents);
   const executionOrder = generator.getExecutionOrder(plan);
-  
+
   console.log(`Execution Order: ${executionOrder.join(' → ')}\n`);
   console.log('='.repeat(70));
   console.log('SEQUENTIAL EXECUTION GUIDE');
@@ -335,7 +331,7 @@ async function executeSwarm(
   // Load plan
   const storage = new PlanStorage();
   const plan = storage.loadPlan(planFilename);
-  
+
   console.log(`Goal: ${plan.goal}`);
   console.log(`Total Steps: ${plan.steps.length}\n`);
 
@@ -348,7 +344,7 @@ async function executeSwarm(
 
   // Initialize orchestrator
   const orchestrator = new SwarmOrchestrator();
-  
+
   // Create run directory
   const runId = `swarm-${new Date().toISOString().replace(/[:.]/g, '-')}`;
   const runDir = path.join(process.cwd(), 'runs', runId);
@@ -372,7 +368,7 @@ async function executeSwarm(
         currentWave: context.results.filter(r => r.status === 'completed').length,
         results: context.results
       });
-      
+
       // Wait a moment for user to see final state
       await new Promise(resolve => setTimeout(resolve, 2000));
       dashboard.stop();
@@ -386,7 +382,7 @@ async function executeSwarm(
     console.log('SWARM EXECUTION COMPLETE');
     console.log('='.repeat(70));
     console.log(`\n✅ Completed: ${completed}/${plan.steps.length}`);
-    
+
     if (failed > 0) {
       console.log(`❌ Failed: ${failed}/${plan.steps.length}`);
       console.log('\nFailed steps:');
@@ -461,13 +457,13 @@ function showStatus(executionId: string): void {
   console.log('Copilot Swarm Orchestrator - Execution Status\n');
 
   const runner = new StepRunner();
-  
+
   try {
     const context = runner.loadExecutionContext(executionId);
     const summary = runner.generateSummary(context);
-    
+
     console.log(summary);
-    
+
     // Show next step if any
     const nextStep = context.stepResults.find(r => r.status === 'pending');
     if (nextStep) {
@@ -693,11 +689,11 @@ async function main(): Promise<void> {
     const planFilename = args[1];
     const hasDelegate = args.includes('--delegate');
     const hasMcp = args.includes('--mcp');
-    
+
     const options: ExecutionOptions = {};
     if (hasDelegate) options.delegate = true;
     if (hasMcp) options.mcp = true;
-    
+
     try {
       executePlan(planFilename, Object.keys(options).length > 0 ? options : undefined);
     } catch (error) {
@@ -756,18 +752,18 @@ async function main(): Promise<void> {
     if (subcommand === 'list') {
       const demoMode = new DemoMode();
       const scenarios = demoMode.getAvailableScenarios();
-      
+
       console.log('\n╔══════════════════════════════════════════════════════════════════════╗');
       console.log('║  Available Demo Scenarios                                            ║');
       console.log('╚══════════════════════════════════════════════════════════════════════╝\n');
-      
+
       scenarios.forEach(scenario => {
         console.log(`📋 ${scenario.name}`);
         console.log(`   ${scenario.description}`);
         console.log(`   Duration: ${scenario.expectedDuration}`);
         console.log(`   Steps: ${scenario.steps.length}\n`);
       });
-      
+
       console.log('To run a demo:');
       console.log('  swarm-orchestrator demo <scenario-name>\n');
       process.exit(0);
@@ -869,4 +865,5 @@ if (require.main === module) {
   main();
 }
 
-export { main, generatePlan };
+export { generatePlan, main };
+
