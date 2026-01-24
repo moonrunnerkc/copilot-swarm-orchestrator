@@ -94,7 +94,7 @@ function bootstrap(repoPaths: string[], goal: string): void {
       console.log();
       console.log('Next steps:');
       console.log(`  1. Review the evidence: cat ${evidencePath}`);
-      console.log(`  2. Execute the plan: swarm-orchestrator swarm ${planPath}`);
+      console.log(`  2. Execute the plan: swarm swarm ${planPath}`);
     })
     .catch((error: Error) => {
       console.error('Bootstrap failed:', error.message);
@@ -119,7 +119,7 @@ function generatePlan(goal: string, copilotMode: boolean = false): void {
     console.log('  3. Paste the prompt and press Enter');
     console.log('  4. When Copilot responds with JSON, run: /share');
     console.log('  5. Save the /share transcript to a file');
-    console.log('  6. Import the plan: swarm-conductor plan import <runid> <transcript-path>\n');
+    console.log('  6. Import the plan: swarm plan import <runid> <transcript-path>\n');
     console.log('═'.repeat(70));
     console.log('PROMPT (copy from next line until the marker):');
     console.log('═'.repeat(70));
@@ -178,7 +178,7 @@ function generatePlan(goal: string, copilotMode: boolean = false): void {
   const storage = new PlanStorage();
   const planPath = storage.savePlan(plan);
   console.log(`✅ Plan saved to: ${planPath}`);
-  console.log(`\n▶  To execute: swarm-conductor execute ${path.basename(planPath)}\n`);
+  console.log(`\n▶  To execute: swarm swarm ${path.basename(planPath)}\n`);
 }
 
 function importPlanFromTranscript(runId: string, transcriptPath: string): void {
@@ -233,7 +233,7 @@ function importPlanFromTranscript(runId: string, transcriptPath: string): void {
     const storage = new PlanStorage();
     const planPath = storage.savePlan(plan);
     console.log(`\n✅ Plan saved to: ${planPath}`);
-    console.log(`\n▶  To execute: swarm-conductor execute ${path.basename(planPath)}\n`);
+    console.log(`\n▶  To execute: swarm swarm ${path.basename(planPath)}\n`);
 
   } catch (error) {
     console.error('\n❌ Error importing plan:');
@@ -319,7 +319,7 @@ function executePlan(planFilename: string, options?: ExecutionOptions): void {
   const contextPath = runner.saveExecutionContext(context);
   console.log(`\n✓ Execution context saved to: ${contextPath}`);
   console.log(`\nTo continue execution after completing this step, run:`);
-  console.log(`  swarm-conductor status ${context.executionId}\n`);
+  console.log(`  swarm status ${context.executionId}\n`);
 }
 
 async function executeSwarm(
@@ -422,7 +422,7 @@ async function runDemo(scenarioName: string): Promise<void> {
     demoMode.getAvailableScenarios().forEach(s => {
       console.log(`  - ${s.name}: ${s.description}`);
     });
-    console.log('\nRun: swarm-orchestrator demo list\n');
+    console.log('\nRun: swarm demo list\n');
     process.exit(1);
   }
 
@@ -602,7 +602,7 @@ async function main(): Promise<void> {
 
   if (command === 'bootstrap') {
     if (args.length < 3) {
-      console.error('Usage: swarm-orchestrator bootstrap <repo-path> [<repo-path2> ...] "Goal description"');
+      console.error('Usage: swarm bootstrap <repo-path> [<repo-path2> ...] "Goal description"');
       process.exit(1);
     }
 
@@ -744,8 +744,8 @@ async function main(): Promise<void> {
       console.log('  api-server      - REST API with auth (10-15 min, 6 steps)');
       console.log('  full-stack-app  - Complete full-stack app (15-20 min, 7 steps)\n');
       console.log('Usage:');
-      console.log('  swarm-orchestrator demo <scenario-name>');
-      console.log('  swarm-orchestrator demo list\n');
+      console.log('  swarm demo <scenario-name>');
+      console.log('  swarm demo list\n');
       process.exit(0);
     }
 
@@ -765,7 +765,7 @@ async function main(): Promise<void> {
       });
 
       console.log('To run a demo:');
-      console.log('  swarm-orchestrator demo <scenario-name>\n');
+      console.log('  swarm demo <scenario-name>\n');
       process.exit(0);
     }
 
