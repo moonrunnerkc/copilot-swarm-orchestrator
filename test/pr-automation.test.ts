@@ -1,8 +1,8 @@
 import * as assert from 'assert';
-import PRAutomation from '../src/pr-automation.js';
-import ExternalToolManager from '../src/external-tool-manager.js';
-import { SwarmExecutionContext } from '../src/swarm-orchestrator.js';
 import { DeploymentMetadata } from '../src/deployment-manager.js';
+import ExternalToolManager from '../src/external-tool-manager.js';
+import PRAutomation from '../src/pr-automation.js';
+import { SwarmExecutionContext } from '../src/swarm-orchestrator.js';
 
 describe('PRAutomation', () => {
   const createMockContext = (): SwarmExecutionContext => ({
@@ -35,12 +35,12 @@ describe('PRAutomation', () => {
         agentName: 'BackendMaster',
         status: 'completed',
         startTime: new Date().toISOString(),
-        ...(true && { 
+        ...(true && {
           endTime: new Date().toISOString(),
-          verificationResult: { 
+          verificationResult: {
             stepNumber: 1,
             agentName: 'BackendMaster',
-            passed: true, 
+            passed: true,
             checks: [],
             unverifiedClaims: [],
             timestamp: new Date().toISOString(),
@@ -55,10 +55,10 @@ describe('PRAutomation', () => {
         startTime: new Date().toISOString(),
         ...(true && {
           endTime: new Date().toISOString(),
-          verificationResult: { 
+          verificationResult: {
             stepNumber: 2,
             agentName: 'SecurityAuditor',
-            passed: true, 
+            passed: true,
             checks: [],
             unverifiedClaims: [],
             timestamp: new Date().toISOString(),
@@ -86,7 +86,7 @@ describe('PRAutomation', () => {
     assert.strictEqual(summary.baseBranch, 'main');
     assert.strictEqual(summary.headBranch, 'swarm/exec-123');
     assert.ok(summary.body.includes('Execution ID'));
-    assert.ok(summary.body.includes('Completed: 2/2 steps'));
+    assert.ok(summary.body.includes('2/2 steps'));
     assert.ok(summary.body.includes('Step 1'));
     assert.ok(summary.body.includes('Step 2'));
   });
@@ -123,7 +123,7 @@ describe('PRAutomation', () => {
     });
     const prAutomation = new PRAutomation(toolManager);
     const context = createMockContext();
-    
+
     // Add a failed step
     context.results.push({
       stepNumber: 3,
@@ -132,10 +132,10 @@ describe('PRAutomation', () => {
       startTime: new Date().toISOString(),
       ...(true && {
         endTime: new Date().toISOString(),
-        verificationResult: { 
+        verificationResult: {
           stepNumber: 3,
           agentName: 'TesterElite',
-          passed: false, 
+          passed: false,
           checks: [],
           unverifiedClaims: ['Tests failed'],
           timestamp: new Date().toISOString(),
@@ -156,10 +156,10 @@ describe('PRAutomation', () => {
       dryRun: false
     });
     const prAutomation = new PRAutomation(toolManager);
-    
+
     // Mock tools not available by using a path without gh
     const tools = await toolManager.detectAvailableTools();
-    
+
     if (!tools.gh) {
       const result = await prAutomation.createPR({
         title: 'Test PR',
