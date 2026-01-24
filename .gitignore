@@ -6,6 +6,7 @@ plans/
 test-plans/
 test-runs/
 test-proof/
+runs/
 
-# Allow demo run for judges
-!runs/demo-*/
+# Copilot instructions contain internal prompts, not for public
+.github/copilot-instructions.md
