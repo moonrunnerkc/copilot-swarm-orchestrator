@@ -1,22 +1,21 @@
 /**
  * Quick-Fix Mode
- * 
+ *
  * Bypasses full swarm orchestration for simple, single-agent tasks.
  * Provides faster execution for:
  * - Single file changes
  * - Documentation updates
  * - Bug fixes
  * - Simple refactoring
- * 
+ *
  * Uses heuristics to determine if a task is "quick-fix eligible"
  */
 
-import { AgentProfile, ConfigLoader } from './config-loader';
-import SessionExecutor, { SessionOptions, SessionResult } from './session-executor';
-import ShareParser from './share-parser';
-import VerifierEngine from './verifier-engine';
 import * as fs from 'fs';
 import * as path from 'path';
+import { AgentProfile, ConfigLoader } from './config-loader';
+import SessionExecutor, { SessionOptions, SessionResult } from './session-executor';
+import VerifierEngine from './verifier-engine';
 
 export interface QuickFixOptions {
   model?: string;
@@ -98,23 +97,23 @@ export class QuickFixMode {
           // Otherwise, 1-2 "and"s is ok, continue checking other patterns
           continue;
         }
-        
+
         return { eligible: false, reason };
       }
     }
 
     // Default: if task is short and simple, allow quick-fix
     if (task.length < 100 && task.split(' ').length < 15) {
-      return { 
-        eligible: true, 
+      return {
+        eligible: true,
         reason: 'Task is short and simple',
         suggestedAgent: 'backend_master' // default agent
       };
     }
 
-    return { 
-      eligible: false, 
-      reason: 'Task complexity suggests full swarm orchestration' 
+    return {
+      eligible: false,
+      reason: 'Task complexity suggests full swarm orchestration'
     };
   }
 
@@ -126,7 +125,7 @@ export class QuickFixMode {
 
     // Check eligibility
     const eligibility = this.isQuickFixEligible(task);
-    
+
     if (!eligibility.eligible) {
       return {
         success: false,
@@ -140,12 +139,12 @@ export class QuickFixMode {
 
     // Determine which agent to use
     const agentName = options.agent || eligibility.suggestedAgent || 'backend_master';
-    
+
     let agentProfile: AgentProfile | undefined;
     try {
       const agents = await this.configLoader.loadAllAgents();
       agentProfile = agents.find((a: AgentProfile) => a.name.toLowerCase() === agentName.toLowerCase());
-      
+
       if (!agentProfile) {
         return {
           success: false,
@@ -177,20 +176,29 @@ export class QuickFixMode {
     // Set up session options
     const workingDir = options.workingDir || process.cwd();
     const transcriptPath = path.join(workingDir, '.quickfix', `quickfix-${Date.now()}.md`);
-    
+
     // Ensure .quickfix directory exists
     const quickfixDir = path.dirname(transcriptPath);
     if (!fs.existsSync(quickfixDir)) {
       fs.mkdirSync(quickfixDir, { recursive: true });
     }
 
+    // Only use --agent flag if the agent file exists in the target repo
+    const agentSlug = agentProfile.name.toLowerCase().replace(/\s+/g, '_');
+    const agentFilePath = path.join(workingDir, '.github', 'agents', `${agentSlug}.agent.md`);
+    const agentFileExists = fs.existsSync(agentFilePath);
+
     const sessionOptions: SessionOptions = {
-      agent: agentProfile.name.toLowerCase().replace(/\s+/g, '_'),
       shareToFile: transcriptPath,
       allowAllTools: true,
       silent: false
     };
-    
+
+    // Only pass --agent if the file exists (copilot CLI requires it)
+    if (agentFileExists) {
+      sessionOptions.agent = agentSlug;
+    }
+
     if (options.model) {
       sessionOptions.model = options.model;
     }
@@ -237,7 +245,7 @@ export class QuickFixMode {
             requireCommits: true // Do require commits
           }
         );
-        
+
         verificationPassed = verificationResult.passed;
       } catch (error: any) {
         // Verification error - don't fail hard in quick-fix mode

@@ -6,11 +6,11 @@ import { ConfigLoader } from './config-loader';
 import { DemoMode } from './demo-mode';
 import { PlanGenerator } from './plan-generator';
 import { PlanStorage } from './plan-storage';
+import QuickFixMode from './quick-fix-mode';
 import { SessionManager } from './session-manager';
 import { StepRunner } from './step-runner';
 import { SwarmOrchestrator } from './swarm-orchestrator';
 import { ExecutionOptions } from './types';
-import QuickFixMode from './quick-fix-mode';
 
 function showUsage(): void {
   console.log(`
@@ -623,17 +623,17 @@ async function main(): Promise<void> {
       agent: args.includes('--agent') ? args[args.indexOf('--agent') + 1] : undefined,
       skipVerify: args.includes('--skip-verify')
     };
-    
+
     const quickFix = new QuickFixMode();
-    
+
     console.log('⚡ Quick-Fix Mode\n');
-    
+
     const quickOpts: any = {
       skipVerification: flags.skipVerify
     };
     if (flags.model) quickOpts.model = flags.model;
     if (flags.agent) quickOpts.agent = flags.agent;
-    
+
     const result = await quickFix.execute(task, quickOpts);
 
     if (!result.wasQuickFixEligible) {
@@ -641,18 +641,22 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    console.log(`\n✅ Quick-fix completed in ${(result.duration / 1000).toFixed(1)}s`);
-    console.log(`   Agent: ${result.agentUsed}`);
-    
-    if (result.verificationPassed !== undefined) {
-      console.log(`   Verification: ${result.verificationPassed ? '✓ Passed' : '✗ Failed'}`);
-    }
-    
-    if (!result.success) {
-      console.error(`\n❌ Quick-fix failed. See output above.`);
+    if (result.success) {
+      console.log(`\n✅ Quick-fix completed in ${(result.duration / 1000).toFixed(1)}s`);
+      console.log(`   Agent: ${result.agentUsed}`);
+
+      if (result.verificationPassed !== undefined) {
+        console.log(`   Verification: ${result.verificationPassed ? '✓ Passed' : '✗ Failed'}`);
+      }
+    } else {
+      console.error(`\n❌ Quick-fix failed (${(result.duration / 1000).toFixed(1)}s)`);
+      console.error(`   Agent: ${result.agentUsed}`);
+      if (result.reason) {
+        console.error(`   Reason: ${result.reason}`);
+      }
       process.exit(1);
     }
-    
+
     return;
   }
 
@@ -843,7 +847,13 @@ async function main(): Promise<void> {
       const { renderDashboard } = require('./dashboard');
       renderDashboard(executionId);
     } catch (error) {
-      console.error('Error showing dashboard:', error instanceof Error ? error.message : error);
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('ESM') || msg.includes('top-level await')) {
+        console.error('❌ Dashboard unavailable: ink requires ESM which is incompatible with CommonJS build.');
+        console.error('   Use `swarm status <execid>` to check execution status instead.');
+      } else {
+        console.error('Error showing dashboard:', msg);
+      }
       process.exit(1);
     }
   } else if (command === '--help' || command === '-h') {
