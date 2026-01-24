@@ -22,7 +22,7 @@ export const TodoApp: React.FC<TodoAppProps> = ({ initialTodos = [] }) => {
     setTimeout(() => setStatusMessage(''), duration);
   };
 
-  useInput((input, key) => {
+  useInput((input: string, key: any) => {
     if (mode === 'add' || mode === 'edit') {
       // Handle input modes
       if (key.return) {
