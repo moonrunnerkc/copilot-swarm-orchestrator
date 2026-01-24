@@ -8,7 +8,7 @@
     "swarm-orchestrator": "dist/src/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node -e \"require('fs').chmodSync('dist/src/cli.js', 0o755)\"",
     "test": "npm run build && mocha dist/test/**/*.test.js",
     "start": "node dist/src/cli.js"
   },
