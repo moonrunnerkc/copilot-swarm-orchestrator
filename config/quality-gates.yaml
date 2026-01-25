@@ -1,0 +1,31 @@
+# Quality gates for generated projects.
+# Keep this deterministic. If you relax a gate, do it intentionally.
+
+enabled: true
+failOnIssues: true
+
+# When true, swarm can auto-add follow-up steps to fix gate failures.
+# The final gates still run as hard checks.
+autoAddRefactorStepOnDuplicateBlocks: true
+autoAddReadmeTruthStepOnReadmeClaims: true
+autoAddScaffoldFixStepOnScaffoldDefaults: true
+autoAddConfigFixStepOnHardcodedConfig: true
+
+gates:
+  scaffoldDefaults:
+    enabled: true
+
+  duplicateBlocks:
+    enabled: true
+    minLines: 12
+    maxOccurrences: 2
+    maxFindings: 20
+
+  hardcodedConfig:
+    enabled: true
+
+  readmeClaims:
+    enabled: true
+
+  testIsolation:
+    enabled: true

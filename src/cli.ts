@@ -26,6 +26,7 @@ Usage:
   swarm quick "task"                     Quick-fix mode for simple single-agent tasks
   swarm demo <scenario>                  Run pre-configured demo scenario
   swarm demo list                        List available demo scenarios
+  swarm gates [path]                     Run quality gates on a repo (default: cwd)
   swarm status <execid>                  Show execution status
   swarm dashboard <execid>               Show TUI dashboard (currently unavailable)
   swarm share import <runid> <step> <agent> <path>
@@ -41,6 +42,9 @@ Flags:
   --agent          Specify agent for quick-fix mode
   --skip-verify    Skip verification in quick-fix mode (faster)
   --confirm-deploy Enable opt-in deployment for DevOpsPro (vercel, netlify)
+  --no-quality-gates Disable quality gates (swarm mode)
+  --quality-gates-config <path> Path to quality gates YAML (default: config/quality-gates.yaml)
+  --quality-gates-out <dir>    Where to write gate reports (default: <runDir>/quality-gates)
 
 Examples:
   # Quick demo (recommended for first-time users)
@@ -72,6 +76,37 @@ The swarm command:
   - Auto-rollback on verification failure
   - Preserves human-like git commit history
 `);
+}
+
+async function runQualityGatesCli(args: string[]): Promise<void> {
+  const { load_quality_gates_config, run_quality_gates } = require('./quality-gates');
+
+  // optional positional: `swarm gates [path]` (must come before flags)
+  const positional = args[0] && !args[0].startsWith('-') ? args[0] : undefined;
+  const projectRoot = positional ? path.resolve(process.cwd(), positional) : process.cwd();
+
+  const configIndex = args.indexOf('--quality-gates-config');
+  const configPath = configIndex !== -1 && args[configIndex + 1] ? args[configIndex + 1] : undefined;
+
+  const outIndex = args.indexOf('--quality-gates-out');
+  const outDir = outIndex !== -1 && args[outIndex + 1]
+    ? path.resolve(process.cwd(), args[outIndex + 1])
+    : undefined;
+
+  const config = load_quality_gates_config(projectRoot, configPath);
+  const result = await run_quality_gates(projectRoot, config, outDir);
+
+  // human-readable summary
+  const icon = result.passed ? '✅' : '❌';
+  console.log(`${icon} quality gates ${result.passed ? 'passed' : 'failed'} (${result.totalDurationMs}ms)`);
+  for (const gate of result.results) {
+    const g = gate.status === 'pass' ? '✅' : gate.status === 'skip' ? '⏭️' : '❌';
+    console.log(`  ${g} ${gate.id}: ${gate.issues.length} issue(s)`);
+  }
+
+  if (!result.passed) {
+    process.exit(1);
+  }
 }
 
 function bootstrap(repoPaths: string[], goal: string): void {
@@ -333,7 +368,7 @@ function executePlan(planFilename: string, options?: ExecutionOptions): void {
 
 async function executeSwarm(
   planFilename: string,
-  options?: { model?: string; noDashboard?: boolean; confirmDeploy?: boolean }
+  options?: { model?: string; noDashboard?: boolean; confirmDeploy?: boolean; noQualityGates?: boolean }
 ): Promise<void> {
   console.log('🐝 Copilot Swarm Orchestrator - Parallel Execution\n');
 
@@ -369,7 +404,15 @@ async function executeSwarm(
 
   try {
     // Execute swarm
-    const context = await orchestrator.executeSwarm(plan, agentMap, runDir, options);
+    const swarmOptions: {
+      model?: string;
+      confirmDeploy?: boolean;
+      qualityGates?: boolean;
+    } = { ...options };
+    if (options?.noQualityGates) {
+      swarmOptions.qualityGates = false;
+    }
+    const context = await orchestrator.executeSwarm(plan, agentMap, runDir, swarmOptions);
 
     // Final dashboard update
     if (dashboard) {
@@ -458,8 +501,9 @@ async function runDemo(scenarioName: string): Promise<void> {
 
   console.log(`✅ Demo plan saved to: ${planPath}\n`);
 
-  // Execute in swarm mode
-  await executeSwarm(path.basename(planPath));
+  // Execute in swarm mode with quality gates disabled to keep within time estimate
+  // (demos are meant to be quick showcases, not production runs)
+  await executeSwarm(path.basename(planPath), { noQualityGates: true });
 }
 
 function showStatus(executionId: string): void {
@@ -608,6 +652,11 @@ async function main(): Promise<void> {
   }
 
   const command = args[0];
+
+  if (command === 'gates') {
+    await runQualityGatesCli(args.slice(1));
+    return;
+  }
 
   if (command === 'quick') {
     // Quick-fix mode
@@ -788,11 +837,20 @@ async function main(): Promise<void> {
     const noDashboard = args.includes('--no-dashboard');
     const confirmDeploy = args.includes('--confirm-deploy');
 
+    const noQualityGates = args.includes('--no-quality-gates');
+    const qgConfigIndex = args.indexOf('--quality-gates-config');
+    const qgConfigPath = qgConfigIndex !== -1 && args[qgConfigIndex + 1] ? args[qgConfigIndex + 1] : undefined;
+    const qgOutIndex = args.indexOf('--quality-gates-out');
+    const qgOutDir = qgOutIndex !== -1 && args[qgOutIndex + 1] ? args[qgOutIndex + 1] : undefined;
+
     try {
-      const options: { model?: string; noDashboard?: boolean; confirmDeploy?: boolean } = {};
+      const options: { model?: string; noDashboard?: boolean; confirmDeploy?: boolean; qualityGates?: boolean; qualityGatesConfigPath?: string; qualityGatesOutDir?: string } = {};
       if (model) options.model = model;
       if (noDashboard) options.noDashboard = noDashboard;
       if (confirmDeploy) options.confirmDeploy = confirmDeploy;
+      if (noQualityGates) options.qualityGates = false;
+      if (qgConfigPath) options.qualityGatesConfigPath = qgConfigPath;
+      if (qgOutDir) options.qualityGatesOutDir = qgOutDir;
       await executeSwarm(planFilename, options);
     } catch (error) {
       console.error('Error executing swarm:', error instanceof Error ? error.message : error);

@@ -48,7 +48,7 @@ export class DemoMode {
       name: 'todo-app',
       description: 'Simple todo app with React frontend and Express backend',
       goal: 'Build a todo app with React frontend, Express backend, and basic tests',
-      expectedDuration: '5-8 minutes',
+      expectedDuration: '12-18 minutes',
       steps: [
         {
           stepNumber: 1,
@@ -106,7 +106,7 @@ export class DemoMode {
       name: 'api-server',
       description: 'RESTful API server with auth, database, and deployment',
       goal: 'Build a production-ready REST API with authentication, PostgreSQL database, and Docker deployment',
-      expectedDuration: '10-15 minutes',
+      expectedDuration: '20-30 minutes',
       steps: [
         {
           stepNumber: 1,
@@ -190,7 +190,7 @@ export class DemoMode {
       name: 'full-stack-app',
       description: 'Full-stack application with auth, testing, and deployment (showcase all agents)',
       goal: 'Build a complete full-stack todo app with user authentication, comprehensive tests, security, and deployment',
-      expectedDuration: '15-20 minutes',
+      expectedDuration: '25-35 minutes',
       steps: [
         {
           stepNumber: 1,
@@ -287,7 +287,7 @@ export class DemoMode {
       name: 'saas-mvp',
       description: 'Full SaaS todo app MVP with auth, Stripe payments, analytics dashboard, and deployment',
       goal: 'Build and deploy a complete SaaS todo app MVP with user authentication, Stripe subscription payments, analytics dashboard, comprehensive tests, security audit, and cloud deployment',
-      expectedDuration: '20-30 minutes',
+      expectedDuration: '30-45 minutes',
       steps: [
         {
           stepNumber: 1,

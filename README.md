@@ -43,7 +43,7 @@ git clone https://github.com/moonrunnerkc/copilot-swarm-orchestrator.git
 cd copilot-swarm-orchestrator
 npm install
 npm run build
-npm test          # 310 passing
+npm test          # 313 passing
 ```
 
 ### Running Commands
@@ -83,6 +83,7 @@ To unlink later: `npm unlink -g copilot-swarm-orchestrator`
 | `npm start swarm plan.json` | Execute plan in parallel swarm mode |
 | `npm start swarm plan.json --confirm-deploy` | Execute with opt-in deployment for DevOpsPro |
 | `npm start quick "task"` | Quick single-agent task (no plan needed) |
+| `npm start gates [path]` | Run quality gates on a project (default: cwd) |
 | `npm start -- --help` | Show all options |
 
 ---
@@ -91,10 +92,12 @@ To unlink later: `npm unlink -g copilot-swarm-orchestrator`
 
 | Scenario | Steps | Duration | Description |
 |---|---:|---:|---|
-| `todo-app` | 4 | 5-8 min | React + Express todo app |
-| `api-server` | 6 | 10-15 min | REST API with auth and DB |
-| `full-stack-app` | 7 | 15-20 min | Full-stack with deployment |
-| `saas-mvp` | 8 | 20-30 min | SaaS with Stripe, analytics |
+| `todo-app` | 4 | 12-18 min | React + Express todo app |
+| `api-server` | 6 | 20-30 min | REST API with auth and DB |
+| `full-stack-app` | 7 | 25-35 min | Full-stack with deployment |
+| `saas-mvp` | 8 | 30-45 min | SaaS with Stripe, analytics |
+
+> **Note:** Duration depends on model latency and task complexity. Each step runs a real Copilot CLI session.
 
 ---
 
@@ -199,7 +202,7 @@ Use these commands and outputs to verify the claims in this README.
 
 ```bash
 npm test
-# Output: 310 passing (7s)
+# Output: 313 passing (7s)
 ```
 
 ### CLI Help
@@ -237,7 +240,7 @@ Proof anchors in code:
 
 ```bash
 ls src/*.ts | wc -l    # 41 source files
-ls test/*.test.ts | wc -l  # 27 test files
+ls test/*.test.ts | wc -l  # 28 test files
 ```
 
 ---
@@ -286,13 +289,13 @@ Key modules and their current line counts:
 
 | File | Purpose | Lines |
 |---|---|---:|
-| `src/cli.ts` | CLI entry point | 938 |
-| `src/swarm-orchestrator.ts` | parallel execution engine | 1168 |
+| `src/cli.ts` | CLI entry point | 996 |
+| `src/swarm-orchestrator.ts` | parallel execution engine | 1491 |
 | `src/plan-generator.ts` | plan creation and validation | 732 |
-| `src/session-executor.ts` | Copilot CLI invocation | 421 |
-| `src/verifier-engine.ts` | transcript verification | 464 |
+| `src/session-executor.ts` | Copilot CLI invocation | 430 |
+| `src/verifier-engine.ts` | transcript verification | 476 |
 | `src/share-parser.ts` | `/share` output parsing | 629 |
-| `src/config-loader.ts` | agent YAML loading | 300 |
+| `src/config-loader.ts` | agent YAML loading | 350 |
 
 Compact view:
 
@@ -308,7 +311,7 @@ src/
   ... (34 more modules)
 
 test/
-  27 test files, 310 tests
+  28 test files, 313 tests
 
 config/
   default-agents.yaml
@@ -323,9 +326,9 @@ config/
 
 | Claim | Evidence |
 |---|---|
-| 310 tests passing | `npm test` output |
+| 313 tests passing | `npm test` output |
 | 41 source files | `ls src/*.ts \| wc -l` |
-| 27 test files | `ls test/*.test.ts \| wc -l` |
+| 28 test files | `ls test/*.test.ts \| wc -l` |
 | 7 custom agents | `ls .github/agents/*.agent.md` |
 | 4 demo scenarios | `npm start demo list` |
 | Parallel wave execution | `src/swarm-orchestrator.ts:identifyExecutionWaves()` |

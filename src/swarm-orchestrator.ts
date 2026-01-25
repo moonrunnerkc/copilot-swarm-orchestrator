@@ -12,6 +12,7 @@ import { KnowledgeBaseManager } from './knowledge-base';
 import { MetaAnalyzer, MetaReviewResult } from './meta-analyzer';
 import MetricsCollector from './metrics-collector';
 import { ExecutionPlan, PlanStep, ReplanPayload } from './plan-generator';
+import { load_quality_gates_config, run_quality_gates } from './quality-gates';
 import SessionExecutor, { SessionOptions, SessionResult } from './session-executor';
 import ShareParser from './share-parser';
 import { Spinner } from './spinner';
@@ -57,6 +58,12 @@ export interface SwarmExecutionContext {
   waveAnalyses?: MetaReviewResult[];
   replanState?: ReplanState;
   agents?: Map<string, AgentProfile>;
+  qualityGatesTriggered?: {
+    duplicateRefactorAdded: boolean;
+    readmeTruthAdded: boolean;
+    scaffoldFixAdded: boolean;
+    configFixAdded: boolean;
+  };
 }
 
 /**
@@ -168,9 +175,19 @@ export class SwarmOrchestrator {
       confirmDeploy?: boolean;
       dryRun?: boolean;
       autoPR?: boolean;
+      qualityGates?: boolean;
+      qualityGatesConfigPath?: string;
+      qualityGatesOutDir?: string;
     }
   ): Promise<SwarmExecutionContext> {
     const context = this.initializeSwarmExecution(plan, runDir, options?.maxConcurrency);
+    context.agents = agents;
+    context.qualityGatesTriggered = {
+      duplicateRefactorAdded: false,
+      readmeTruthAdded: false,
+      scaffoldFixAdded: false,
+      configFixAdded: false
+    };
 
     console.log('\n🚀 Starting Parallel Swarm Execution');
     console.log(`Execution ID: ${context.executionId}`);
@@ -378,6 +395,91 @@ export class SwarmOrchestrator {
       }
     }
 
+    // final quality gates run on the merged state (hard gate)
+    // this happens before auto-PR so we don't create a PR for a failing run
+    const gatesEnabled = options?.qualityGates !== false;
+    if (gatesEnabled) {
+      console.log('\n🧪 Running final quality gates...');
+      const gatesOut = options?.qualityGatesOutDir
+        ? path.isAbsolute(options.qualityGatesOutDir)
+          ? options.qualityGatesOutDir
+          : path.join(runDir, options.qualityGatesOutDir)
+        : path.join(runDir, 'quality-gates');
+
+      const gatesConfig = load_quality_gates_config(this.workingDir, options?.qualityGatesConfigPath);
+      let gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut);
+
+      if (!gatesResult.passed && gatesConfig.failOnIssues) {
+        const failedIds = new Set(gatesResult.results.filter(r => r.status === 'fail').map(r => r.id));
+        const agentMap = context.agents || agents;
+
+        const canAutoFix = !!context.qualityGatesTriggered && (
+          (failedIds.has('duplicate-blocks') && gatesConfig.autoAddRefactorStepOnDuplicateBlocks && !context.qualityGatesTriggered.duplicateRefactorAdded) ||
+          (failedIds.has('readme-claims') && gatesConfig.autoAddReadmeTruthStepOnReadmeClaims && !context.qualityGatesTriggered.readmeTruthAdded) ||
+          (failedIds.has('scaffold-defaults') && gatesConfig.autoAddScaffoldFixStepOnScaffoldDefaults && !context.qualityGatesTriggered.scaffoldFixAdded) ||
+          (failedIds.has('hardcoded-config') && gatesConfig.autoAddConfigFixStepOnHardcodedConfig && !context.qualityGatesTriggered.configFixAdded)
+        );
+
+        if (canAutoFix) {
+          const maxStep = Math.max(...context.plan.steps.map(s => s.stepNumber));
+          const preferredAgent = agentMap.get('integrator_finalizer')
+            ? 'integrator_finalizer'
+            : agentMap.get('IntegratorFinalizer')
+            ? 'IntegratorFinalizer'
+            : context.plan.steps[context.plan.steps.length - 1]?.agentName || 'integrator_finalizer';
+
+          const addSteps: Array<{ agent: string; task: string; afterStep?: number }> = [];
+
+          if (failedIds.has('duplicate-blocks') && gatesConfig.autoAddRefactorStepOnDuplicateBlocks && context.qualityGatesTriggered && !context.qualityGatesTriggered.duplicateRefactorAdded) {
+            context.qualityGatesTriggered.duplicateRefactorAdded = true;
+            addSteps.push({
+              agent: preferredAgent,
+              task: 'Quality gates flagged repeated code blocks. Extract shared utilities/hooks/middleware and refactor duplicates away. Use the gate report as the source of truth. Re-run tests and ensure quality gates pass.',
+              afterStep: maxStep
+            });
+          }
+
+          if (failedIds.has('readme-claims') && gatesConfig.autoAddReadmeTruthStepOnReadmeClaims && context.qualityGatesTriggered && !context.qualityGatesTriggered.readmeTruthAdded) {
+            context.qualityGatesTriggered.readmeTruthAdded = true;
+            addSteps.push({
+              agent: preferredAgent,
+              task: 'Quality gates flagged README claims that are not backed by code. Either implement the missing features or downgrade/remove the claims. Use the gate report as the source of truth. Re-run tests and ensure quality gates pass.',
+              afterStep: maxStep
+            });
+          }
+
+          if (failedIds.has('scaffold-defaults') && gatesConfig.autoAddScaffoldFixStepOnScaffoldDefaults && context.qualityGatesTriggered && !context.qualityGatesTriggered.scaffoldFixAdded) {
+            context.qualityGatesTriggered.scaffoldFixAdded = true;
+            addSteps.push({
+              agent: preferredAgent,
+              task: 'Quality gates flagged scaffold defaults. Remove placeholder assets and generic scaffold README sections, and ensure HTML title/app metadata are meaningful. Use the gate report as the source of truth. Re-run tests and ensure quality gates pass.',
+              afterStep: maxStep
+            });
+          }
+
+          if (failedIds.has('hardcoded-config') && gatesConfig.autoAddConfigFixStepOnHardcodedConfig && context.qualityGatesTriggered && !context.qualityGatesTriggered.configFixAdded) {
+            context.qualityGatesTriggered.configFixAdded = true;
+            addSteps.push({
+              agent: preferredAgent,
+              task: 'Quality gates flagged hardcoded config values. Move API base URLs, ports, retry counts, timeouts, and environment-specific values into env/typed config. For Vite proxy targets, prefer import.meta.env with a safe default. Use the gate report as the source of truth. Re-run tests and ensure quality gates pass.',
+              afterStep: maxStep
+            });
+          }
+
+          if (addSteps.length > 0) {
+            console.warn('⚠️  Final quality gates failed; attempting one remediation pass...');
+            await this.executeReplan(context, { retrySteps: [], addSteps }, agentMap, options);
+            gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut);
+          }
+        }
+
+        if (!gatesResult.passed) {
+          console.error('❌ Quality gates failed. See report in:', gatesOut);
+          throw new Error('Quality gates failed');
+        }
+      }
+    }
+
     // merge all agent branches back to main
     console.log('\n🔀 Merging agent branches to main...');
     await this.mergeAllBranches(context);
@@ -447,7 +549,15 @@ export class SwarmOrchestrator {
     context: SwarmExecutionContext,
     replanPayload: ReplanPayload,
     agents: Map<string, AgentProfile>,
-    options?: { model?: string }
+    options?: {
+      model?: string;
+      confirmDeploy?: boolean;
+      enableExternal?: boolean;
+      dryRun?: boolean;
+      qualityGates?: boolean;
+      qualityGatesConfigPath?: string;
+      qualityGatesOutDir?: string;
+    }
   ): Promise<void> {
     console.log('\n🔄 Executing replan...');
 
@@ -531,6 +641,40 @@ export class SwarmOrchestrator {
       }
     }
 
+    // append and execute any new steps
+    if (replanPayload.addSteps && replanPayload.addSteps.length > 0) {
+      const PlanGenerator = require('./plan-generator').PlanGenerator;
+      const generator = new PlanGenerator(Array.from(agents.values()));
+
+      const completed = context.results.filter(r => r.status === 'completed').map(r => r.stepNumber);
+      const revised = generator.revisePlan(context.plan, replanPayload, completed);
+
+      const oldMax = Math.max(...context.plan.steps.map(s => s.stepNumber));
+      const newSteps = revised.steps.filter((s: PlanStep) => s.stepNumber > oldMax);
+
+      context.plan = revised;
+      for (const s of newSteps) {
+        context.results.push({
+          stepNumber: s.stepNumber,
+          agentName: s.agentName,
+          status: 'pending'
+        });
+      }
+
+      console.log(`  ➕ Replan added ${newSteps.length} new step(s)`);
+
+      for (const added of newSteps) {
+        const agent = agents.get(added.agentName);
+        if (!agent) {
+          console.warn(`  replan: agent ${added.agentName} not found for step ${added.stepNumber}, skipping`);
+          continue;
+        }
+
+        console.log(`  🧩 Executing added step ${added.stepNumber} (${agent.name})`);
+        await this.executeStepInSwarm(added, agent, context, options);
+      }
+    }
+
     // save replan state to run directory
     const replanPath = path.join(context.runDir, 'replan-state.json');
     fs.writeFileSync(replanPath, JSON.stringify({
@@ -548,7 +692,15 @@ export class SwarmOrchestrator {
     step: PlanStep,
     agent: AgentProfile,
     context: SwarmExecutionContext,
-    options?: { model?: string; confirmDeploy?: boolean; enableExternal?: boolean; dryRun?: boolean }
+    options?: {
+      model?: string;
+      confirmDeploy?: boolean;
+      enableExternal?: boolean;
+      dryRun?: boolean;
+      qualityGates?: boolean;
+      qualityGatesConfigPath?: string;
+      qualityGatesOutDir?: string;
+    }
   ): Promise<void> {
     // delegate to original implementation
     return this.executeStepInSwarm(step, agent, context, options);
@@ -561,7 +713,15 @@ export class SwarmOrchestrator {
     step: PlanStep,
     agent: AgentProfile,
     context: SwarmExecutionContext,
-    options?: { model?: string; confirmDeploy?: boolean; enableExternal?: boolean; dryRun?: boolean }
+    options?: {
+      model?: string;
+      confirmDeploy?: boolean;
+      enableExternal?: boolean;
+      dryRun?: boolean;
+      qualityGates?: boolean;
+      qualityGatesConfigPath?: string;
+      qualityGatesOutDir?: string;
+    }
   ): Promise<void> {
     const resultIndex = context.results.findIndex(r => r.stepNumber === step.stepNumber);
     const result = context.results[resultIndex];
@@ -695,12 +855,182 @@ export class SwarmOrchestrator {
 
       if (verificationResult.passed) {
         verifySpinner.succeed(`Step ${step.stepNumber} (${agent.name}) verified ✓`);
+
+        // add to shared context BEFORE advisory gates so replan steps can depend on this step
+        const contextEntry: ContextEntry = {
+          stepNumber: step.stepNumber,
+          agentName: agent.name,
+          timestamp: new Date().toISOString(),
+          data: {
+            filesChanged: shareIndex.changedFiles,
+            outputsSummary: step.expectedOutputs.join(', '),
+            branchName,
+            commitShas: shareIndex.gitCommits.map(c => c.sha || 'unknown'),
+            verificationPassed: verificationResult.passed
+          }
+        };
+        context.contextBroker.addStepContext(contextEntry);
+
         await this.verifier.commitVerificationReport(
           reportPath,
           step.stepNumber,
           agent.name,
           true
         );
+
+        // advisory per-step quality gates (can auto-add a follow-up step)
+        if (options?.qualityGates === false) {
+          // explicitly disabled
+        } else if (options?.dryRun) {
+          // skip gates in dry-run; no code changes expected
+        } else {
+          const agentMap = context.agents || new Map<string, AgentProfile>();
+          const gatesConfig = load_quality_gates_config(this.workingDir, options?.qualityGatesConfigPath);
+          const baseOut = options?.qualityGatesOutDir
+            ? path.isAbsolute(options.qualityGatesOutDir)
+              ? options.qualityGatesOutDir
+              : path.join(context.runDir, options.qualityGatesOutDir)
+            : path.join(context.runDir, 'quality-gates');
+          const outDir = path.join(baseOut, `step-${step.stepNumber}`);
+          const gatesResult = await run_quality_gates(this.workingDir, gatesConfig, outDir);
+
+          const scaffold = gatesResult.results.find(r => r.id === 'scaffold-defaults');
+          const dup = gatesResult.results.find(r => r.id === 'duplicate-blocks');
+          const hardcoded = gatesResult.results.find(r => r.id === 'hardcoded-config');
+          const readme = gatesResult.results.find(r => r.id === 'readme-claims');
+
+          // auto-add refactor step once
+          if (
+            gatesConfig.autoAddRefactorStepOnDuplicateBlocks &&
+            dup && dup.status === 'fail' &&
+            context.qualityGatesTriggered &&
+            !context.qualityGatesTriggered.duplicateRefactorAdded
+          ) {
+            const preferredAgent = agentMap.get('integrator_finalizer')
+              ? 'integrator_finalizer'
+              : agentMap.get('IntegratorFinalizer')
+              ? 'IntegratorFinalizer'
+              : agent.name;
+
+            console.warn('  ⚠️  Duplicate blocks detected; scheduling refactor follow-up step');
+            context.qualityGatesTriggered.duplicateRefactorAdded = true;
+
+            await this.executeReplan(
+              context,
+              {
+                retrySteps: [],
+                addSteps: [
+                  {
+                    agent: preferredAgent,
+                    task: 'Refactor duplicated code blocks into shared utilities/hooks/middleware. Use the latest quality gates report as the source of truth. After refactor: re-run project tests/lints if available and ensure quality gates pass.',
+                    afterStep: step.stepNumber
+                  }
+                ]
+              },
+              agentMap,
+              options
+            );
+          }
+
+          // auto-add scaffold cleanup step once
+          if (
+            gatesConfig.autoAddScaffoldFixStepOnScaffoldDefaults &&
+            scaffold && scaffold.status === 'fail' &&
+            context.qualityGatesTriggered &&
+            !context.qualityGatesTriggered.scaffoldFixAdded
+          ) {
+            const preferredAgent = agentMap.get('integrator_finalizer')
+              ? 'integrator_finalizer'
+              : agentMap.get('IntegratorFinalizer')
+              ? 'IntegratorFinalizer'
+              : agent.name;
+
+            console.warn('  ⚠️  Scaffold defaults detected; scheduling cleanup follow-up step');
+            context.qualityGatesTriggered.scaffoldFixAdded = true;
+
+            await this.executeReplan(
+              context,
+              {
+                retrySteps: [],
+                addSteps: [
+                  {
+                    agent: preferredAgent,
+                    task: 'Remove scaffold defaults and placeholders. Use the latest quality gates report as the source of truth. Replace generic scaffold README sections and update any default app metadata (HTML title, favicon, etc.). Re-run project tests/lints if available and ensure quality gates pass.',
+                    afterStep: step.stepNumber
+                  }
+                ]
+              },
+              agentMap,
+              options
+            );
+          }
+
+          // auto-add config hardcode cleanup step once
+          if (
+            gatesConfig.autoAddConfigFixStepOnHardcodedConfig &&
+            hardcoded && hardcoded.status === 'fail' &&
+            context.qualityGatesTriggered &&
+            !context.qualityGatesTriggered.configFixAdded
+          ) {
+            const preferredAgent = agentMap.get('integrator_finalizer')
+              ? 'integrator_finalizer'
+              : agentMap.get('IntegratorFinalizer')
+              ? 'IntegratorFinalizer'
+              : agent.name;
+
+            console.warn('  ⚠️  Hardcoded config detected; scheduling config cleanup follow-up step');
+            context.qualityGatesTriggered.configFixAdded = true;
+
+            await this.executeReplan(
+              context,
+              {
+                retrySteps: [],
+                addSteps: [
+                  {
+                    agent: preferredAgent,
+                    task: 'Remove hardcoded config values (API base URLs, ports, retry counts, timeouts, theme constants) and move them into env/typed config. For Vite proxy targets, prefer import.meta.env with a safe default. Use the latest quality gates report as the source of truth. Re-run tests and ensure quality gates pass.',
+                    afterStep: step.stepNumber
+                  }
+                ]
+              },
+              agentMap,
+              options
+            );
+          }
+
+          // auto-add README truth step once
+          if (
+            gatesConfig.autoAddReadmeTruthStepOnReadmeClaims &&
+            readme && readme.status === 'fail' &&
+            context.qualityGatesTriggered &&
+            !context.qualityGatesTriggered.readmeTruthAdded
+          ) {
+            const preferredAgent = agentMap.get('integrator_finalizer')
+              ? 'integrator_finalizer'
+              : agentMap.get('IntegratorFinalizer')
+              ? 'IntegratorFinalizer'
+              : agent.name;
+
+            console.warn('  ⚠️  README claims mismatch detected; scheduling README truth follow-up step');
+            context.qualityGatesTriggered.readmeTruthAdded = true;
+
+            await this.executeReplan(
+              context,
+              {
+                retrySteps: [],
+                addSteps: [
+                  {
+                    agent: preferredAgent,
+                    task: 'Make README claims strictly match implementation. If a feature is claimed but not implemented, either implement it or remove/downgrade the claim. Re-run quality gates after changes.',
+                    afterStep: step.stepNumber
+                  }
+                ]
+              },
+              agentMap,
+              options
+            );
+          }
+        }
 
         // optional deployment for devops_pro when --confirm-deploy is set
         if (agent.name === 'DevOpsPro' && options?.confirmDeploy) {
@@ -723,21 +1053,7 @@ export class SwarmOrchestrator {
         throw new Error('Step failed verification - see verification report');
       }
 
-      // add to shared context
-      const contextEntry: ContextEntry = {
-        stepNumber: step.stepNumber,
-        agentName: agent.name,
-        timestamp: new Date().toISOString(),
-        data: {
-          filesChanged: shareIndex.changedFiles,
-          outputsSummary: step.expectedOutputs.join(', '),
-          branchName,
-          commitShas: shareIndex.gitCommits.map(c => c.sha || 'unknown'),
-          verificationPassed: verificationResult.passed
-        }
-      };
-
-      context.contextBroker.addStepContext(contextEntry);
+      // context was already added before advisory gates block
 
       result.status = 'completed';
       result.endTime = new Date().toISOString();
@@ -802,6 +1118,13 @@ export class SwarmOrchestrator {
     sections.push('  "fix: handle null case in parser"');
     sections.push('  "update config and deps"');
     sections.push('  "implement todo API with tests"\n');
+
+    sections.push('QUALITY BAR (apply when relevant to your scope):');
+    sections.push('- Extract-before-repeat: if you copy the same logic more than twice, refactor into a shared util/hook/middleware.');
+    sections.push('- Config-first: do not hardcode API base URLs, timeouts, retry counts, or environment-specific values. Prefer env vars or a typed config module.');
+    sections.push('- README truth: do not claim features that are not implemented. If unsure, downgrade the claim and list how to verify.');
+    sections.push('- Keep it verifiable: request logging, correlation id propagation, and consistent error responses for HTTP APIs.');
+    sections.push('- For frontends: real HTML title, responsive meta viewport, centralized fetch error handling (retry/backoff only if actually implemented).\n');
 
     sections.push('CODE COMMENTS (Required):');
     sections.push('- Add a 1-2 line purpose comment at the top of each new file');

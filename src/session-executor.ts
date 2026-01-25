@@ -216,6 +216,15 @@ export class SessionExecutor {
     sections.push('6. Make multiple small commits with varied, natural messages.');
     sections.push('7. ALWAYS verify your branch before committing: git branch --show-current\n');
 
+    sections.push('Quality bar (applies when relevant to your scope)');
+    sections.push('-----------------------------------------------');
+    sections.push('- Extract-before-repeat: if you copy the same logic more than twice, stop and refactor into a shared util/hook/middleware.');
+    sections.push('- Config-first: do not hardcode API base URLs, timeouts, retry counts, or environment-specific values. Prefer env vars or a typed config module.');
+    sections.push('- README truth: do not claim features that are not implemented. If you are unsure, downgrade the claim and include how to verify.');
+    sections.push('- Keep it boring and verifiable: request logging, correlation id propagation, and consistent error responses when building HTTP APIs.');
+    sections.push('- For frontends: use a real HTML title, include responsive meta viewport, and centralize fetch error handling (retry/backoff only if implemented).');
+    sections.push('');
+
     sections.push('Code comments (Required)');
     sections.push('------------------------');
     sections.push('- Add a 1-2 line purpose comment at top of each new file');
