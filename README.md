@@ -105,13 +105,6 @@ To unlink later: `npm unlink -g copilot-swarm-orchestrator`
 
 **Screenshots (existing project run):**
 
-Add these files to `docs/media/` and commit them:
-
-- `docs/media/existing-project-01.png`
-- `docs/media/existing-project-02.png`
-
-Once added, they will render here:
-
 ![Existing project run - screenshot 1](docs/media/existing-project-01.png)
 
 ![Existing project run - screenshot 2](docs/media/existing-project-02.png)
