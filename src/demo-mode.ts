@@ -53,44 +53,45 @@ export class DemoMode {
         {
           stepNumber: 1,
           agentName: 'backend_master',
-          task: 'Create Express server with todo CRUD endpoints (GET, POST, PUT, DELETE /api/todos)',
+          task: 'Create Express server with todo CRUD endpoints (GET, POST, PUT, DELETE /api/todos). Use "title" as the field name for todo text. Add input validation (trim whitespace, require title). Enable CORS. Add comment at top of server.js. Export app for testing. Set author in package.json.',
           dependencies: [],
           expectedOutputs: [
-            'src/server/index.ts',
-            'src/server/routes/todos.ts',
-            'src/server/models/todo.ts'
+            'server.js with CRUD endpoints',
+            'package.json with scripts and author',
+            'Input validation for title field'
           ]
         },
         {
           stepNumber: 2,
           agentName: 'frontend_expert',
-          task: 'Create React todo UI with list, add, edit, delete functionality',
+          task: 'Create React todo UI that calls the backend API via fetch(). Use "title" field (matching backend). Add loading states during API calls. Add error handling with user feedback. Configure vite proxy for /api. Add comment at top of each component file.',
           dependencies: [],
           expectedOutputs: [
-            'src/client/App.tsx',
-            'src/client/components/TodoList.tsx',
-            'src/client/components/TodoItem.tsx'
+            'src/App.jsx with fetch() calls to /api/todos',
+            'vite.config.js with proxy config',
+            'Loading and error states in UI'
           ]
         },
         {
           stepNumber: 3,
           agentName: 'tester_elite',
-          task: 'Add unit tests for backend API and frontend components',
+          task: 'Add unit tests for backend API and frontend components. Use "title" field in all tests (matching backend). Include at least one real integration test with supertest. Add comment at top of each test file.',
           dependencies: [1, 2],
           expectedOutputs: [
-            'test/server/todos.test.ts',
-            'test/client/TodoList.test.tsx'
+            'API tests using supertest',
+            'Component tests with React Testing Library',
+            'Tests use correct field names'
           ]
         },
         {
           stepNumber: 4,
           agentName: 'integrator_finalizer',
-          task: 'Integrate frontend and backend, add E2E tests, finalize docs',
+          task: 'Verify frontend actually calls backend (check for fetch calls). Fix any field name mismatches (title vs text). Ensure vite proxy is configured. Add troubleshooting section to README. Add E2E tests. Verify README accurately describes the app.',
           dependencies: [1, 2, 3],
           expectedOutputs: [
-            'test/e2e/todo-workflow.test.ts',
-            'README.md',
-            'docs/API.md'
+            'E2E integration tests',
+            'README with troubleshooting section',
+            'Verified frontend-backend integration'
           ]
         }
       ]
@@ -413,7 +414,7 @@ export class DemoMode {
    */
   loadScenarioFromFile(name: string): DemoScenario | undefined {
     const filePath = path.join(this.scenariosDir, `${name}.json`);
-    
+
     if (!fs.existsSync(filePath)) {
       return undefined;
     }

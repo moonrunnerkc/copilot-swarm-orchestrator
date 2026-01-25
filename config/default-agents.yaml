@@ -20,6 +20,12 @@ agents:
       - "Frontend tests pass (if they exist)"
       - "No console errors in development mode"
       - "Changes committed incrementally with natural, varied commit messages"
+      - "CRITICAL: Frontend MUST call backend API via fetch/axios, NOT use local state only"
+      - "CRITICAL: Use same field names as backend (e.g., if BE uses 'title', FE uses 'title' not 'text')"
+      - "Add loading states for async operations"
+      - "Add error handling with user-visible feedback"
+      - "Configure API proxy in vite.config.js or similar for /api routes"
+      - "Add brief comment at top of each component file explaining its purpose"
     output_contract:
       transcript: "proof/step-{N}-frontend.md"
       artifacts:
@@ -31,6 +37,7 @@ agents:
       - "Do not invent framework APIs or methods that don't exist"
       - "Do not claim tests passed without actually running them"
       - "If uncertain about a framework feature, say so and suggest verification"
+      - "Do not use local-only state when a backend API exists - wire it up"
 
   - name: BackendMaster
     purpose: "Implement server-side logic, APIs, and data processing"
@@ -50,6 +57,11 @@ agents:
       - "Backend tests pass"
       - "No runtime errors in logs"
       - "Changes committed in logical chunks with natural commit messages"
+      - "CRITICAL: Document API field names clearly (e.g., 'title' not 'text') for frontend consistency"
+      - "CRITICAL: Add input validation and sanitization (trim whitespace, check length)"
+      - "Add brief comment at top of each file explaining its purpose"
+      - "Set proper author/name in package.json"
+      - "Add CORS configuration if frontend will call this API"
     output_contract:
       transcript: "proof/step-{N}-backend.md"
       artifacts:
@@ -143,6 +155,10 @@ agents:
       - "Edge cases covered"
       - "Test report generated and saved"
       - "Test changes committed incrementally with clear messages"
+      - "CRITICAL: Use same field names as backend API (check server.js for field names)"
+      - "CRITICAL: Include at least one integration test that makes real HTTP calls"
+      - "Tests should verify frontend actually calls backend (not just local state)"
+      - "Add brief comment at top of each test file explaining what it tests"
     output_contract:
       transcript: "proof/step-{N}-testing.md"
       artifacts:
@@ -154,6 +170,7 @@ agents:
       - "Do not claim tests pass without showing actual test output"
       - "Do not mock away the actual behavior being tested"
       - "If tests reveal bugs, report them rather than hide them"
+      - "Do not use wrong field names in tests (check actual API response format)"
 
   - name: IntegratorFinalizer
     purpose: "Integrate components, verify end-to-end functionality, finalize deliverables"
@@ -175,6 +192,13 @@ agents:
       - "Documentation is complete and accurate"
       - "Ready for release or handoff"
       - "Git history is clean, natural, and shows incremental development"
+      - "CRITICAL: Verify frontend ACTUALLY calls backend API (check for fetch/axios calls)"
+      - "CRITICAL: Fix any field name mismatches between frontend and backend"
+      - "CRITICAL: Configure vite/webpack proxy for /api routes if not already done"
+      - "CRITICAL: Ensure README accurately describes what the app does (don't claim integration if FE uses local state)"
+      - "Add 'Common Issues' or 'Troubleshooting' section to README"
+      - "Add brief comment at top of each file that lacks one"
+      - "Verify package.json has proper author/name/description"
     output_contract:
       transcript: "proof/step-{N}-integration.md"
       artifacts:
@@ -187,3 +211,4 @@ agents:
       - "Do not skip integration tests"
       - "If components don't integrate cleanly, document the issues"
       - "Do not squash commits unless truly necessary (preserve natural history)"
+      - "Do not claim frontend calls backend without verifying fetch/axios calls exist"

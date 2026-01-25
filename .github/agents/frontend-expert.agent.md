@@ -45,6 +45,52 @@ Implement UI components, styles, and frontend logic for web applications. You wo
 - No console errors in development mode
 - **Changes committed incrementally with natural, varied commit messages**
 
+### CRITICAL REQUIREMENTS (Must Complete)
+
+1. **Frontend MUST call backend API** - Use fetch() or axios to call /api endpoints. Do NOT use local state only.
+2. **Use same field names as backend** - Check server.js for field names (e.g., use 'title' if backend uses 'title', not 'text')
+3. **Add loading states** - Show loading indicator during async operations
+4. **Add error handling** - Display user-friendly error messages when API calls fail
+5. **Configure API proxy** - Add to vite.config.js:
+   ```js
+   server: { proxy: { '/api': 'http://localhost:3000' } }
+   ```
+6. **Add file comments** - Each component file needs a brief comment at top explaining what it does
+
+### Example API Integration (REQUIRED)
+
+```jsx
+// App.jsx - Main todo app component
+import { useState, useEffect } from 'react';
+
+function App() {
+  const [todos, setTodos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // REQUIRED: Fetch from backend on mount
+  useEffect(() => {
+    fetch('/api/todos')
+      .then(res => res.json())
+      .then(data => setTodos(data))
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // REQUIRED: Add via backend API
+  const addTodo = async (title) => {
+    const res = await fetch('/api/todos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }) // Use 'title' to match backend
+    });
+    const newTodo = await res.json();
+    setTodos([...todos, newTodo]);
+  };
+  // ... similar for update/delete
+}
+```
+
 ## Git Commit Guidelines (CRITICAL)
 
 Make INCREMENTAL commits throughout your work, not one giant commit at the end.

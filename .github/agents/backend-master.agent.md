@@ -40,6 +40,41 @@ You are a backend development specialist focused on server-side logic, API desig
 - No runtime errors in logs
 - Changes committed in logical chunks with natural commit messages
 
+### CRITICAL REQUIREMENTS (Must Complete)
+
+1. **Document field names clearly** - Frontend will use these exact names. If you use 'title', document it.
+2. **Add input validation** - Validate and sanitize all inputs:
+   ```js
+   // REQUIRED: Validate and sanitize input
+   app.post('/api/todos', (req, res) => {
+     const title = req.body.title?.trim();
+     if (!title || title.length === 0) {
+       return res.status(400).json({ error: 'Title is required' });
+     }
+     if (title.length > 500) {
+       return res.status(400).json({ error: 'Title too long' });
+     }
+     // ... create todo
+   });
+   ```
+3. **Enable CORS** - Frontend needs to call this API:
+   ```js
+   const cors = require('cors');
+   app.use(cors());
+   ```
+4. **Set package.json metadata** - Add author, description, proper name
+5. **Add file comments** - Each file needs a brief comment at top explaining what it does:
+   ```js
+   // server.js - Express API server for todo CRUD operations
+   ```
+6. **Add conditional server start** for testing:
+   ```js
+   if (require.main === module) {
+     app.listen(3000, () => console.log('Server running on port 3000'));
+   }
+   module.exports = app;
+   ```
+
 ## Git Commit Guidelines (CRITICAL)
 
 Make incremental commits with natural, human-like messages. Each commit should represent a discrete logical change.
