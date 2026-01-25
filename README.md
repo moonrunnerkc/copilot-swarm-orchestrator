@@ -101,7 +101,7 @@ To unlink later: `npm unlink -g copilot-swarm-orchestrator`
 
 ## Demo Media
 
-**Screencast (fresh project run):** YouTube link TBD
+**Screencast (fresh project run):** https://youtu.be/TKSlRksNLUA
 
 **Screenshots (existing project run):**
 
