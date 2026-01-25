@@ -34,12 +34,13 @@ Usage:
   swarm --help                           Show this help message
 
 Flags:
-  --delegate     Instruct agents to use /delegate for PR creation
-  --mcp          Require MCP evidence from GitHub context in verification
-  --model        Specify model for sessions (e.g., claude-sonnet-4.5)
-  --no-dashboard Disable live dashboard in swarm mode
-  --agent        Specify agent for quick-fix mode
-  --skip-verify  Skip verification in quick-fix mode (faster)
+  --delegate       Instruct agents to use /delegate for PR creation
+  --mcp            Require MCP evidence from GitHub context in verification
+  --model          Specify model for sessions (e.g., claude-sonnet-4.5)
+  --no-dashboard   Disable live dashboard in swarm mode
+  --agent          Specify agent for quick-fix mode
+  --skip-verify    Skip verification in quick-fix mode (faster)
+  --confirm-deploy Enable opt-in deployment for DevOpsPro (vercel, netlify)
 
 Examples:
   # Quick demo (recommended for first-time users)
@@ -332,7 +333,7 @@ function executePlan(planFilename: string, options?: ExecutionOptions): void {
 
 async function executeSwarm(
   planFilename: string,
-  options?: { model?: string; noDashboard?: boolean }
+  options?: { model?: string; noDashboard?: boolean; confirmDeploy?: boolean }
 ): Promise<void> {
   console.log('🐝 Copilot Swarm Orchestrator - Parallel Execution\n');
 
@@ -785,11 +786,13 @@ async function main(): Promise<void> {
     const modelIndex = args.indexOf('--model');
     const model = modelIndex !== -1 && args[modelIndex + 1] ? args[modelIndex + 1] : undefined;
     const noDashboard = args.includes('--no-dashboard');
+    const confirmDeploy = args.includes('--confirm-deploy');
 
     try {
-      const options: { model?: string; noDashboard?: boolean } = {};
+      const options: { model?: string; noDashboard?: boolean; confirmDeploy?: boolean } = {};
       if (model) options.model = model;
       if (noDashboard) options.noDashboard = noDashboard;
+      if (confirmDeploy) options.confirmDeploy = confirmDeploy;
       await executeSwarm(planFilename, options);
     } catch (error) {
       console.error('Error executing swarm:', error instanceof Error ? error.message : error);

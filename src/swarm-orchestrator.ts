@@ -5,12 +5,13 @@ import AnalyticsLog from './analytics-log';
 import CommitPatternDetector, { CommitMessage } from './commit-pattern-detector';
 import { AgentProfile } from './config-loader';
 import ContextBroker, { ContextEntry } from './context-broker';
-import { DeploymentMetadata } from './deployment-manager';
+import DeploymentManager, { DeploymentMetadata } from './deployment-manager';
 import { ExecutionQueue, QueueStats } from './execution-queue';
+import ExternalToolManager from './external-tool-manager';
 import { KnowledgeBaseManager } from './knowledge-base';
 import { MetaAnalyzer, MetaReviewResult } from './meta-analyzer';
 import MetricsCollector from './metrics-collector';
-import { ExecutionPlan, PlanStep } from './plan-generator';
+import { ExecutionPlan, PlanStep, ReplanPayload } from './plan-generator';
 import SessionExecutor, { SessionOptions, SessionResult } from './session-executor';
 import ShareParser from './share-parser';
 import { Spinner } from './spinner';
@@ -27,6 +28,14 @@ export interface ParallelStepResult {
   error?: string;
   startTime?: string;
   endTime?: string;
+  retryCount?: number;
+}
+
+// tracks replan execution state
+export interface ReplanState {
+  triggeredAt: string;
+  payload: ReplanPayload;
+  retryBranches: Map<number, string[]>;
 }
 
 export interface SwarmExecutionContext {
@@ -46,6 +55,8 @@ export interface SwarmExecutionContext {
   knowledgeBase?: KnowledgeBaseManager;
   metaAnalyzer?: MetaAnalyzer;
   waveAnalyses?: MetaReviewResult[];
+  replanState?: ReplanState;
+  agents?: Map<string, AgentProfile>;
 }
 
 /**
@@ -154,6 +165,7 @@ export class SwarmOrchestrator {
       model?: string;
       maxConcurrency?: number;
       enableExternal?: boolean;
+      confirmDeploy?: boolean;
       dryRun?: boolean;
       autoPR?: boolean;
     }
@@ -164,7 +176,11 @@ export class SwarmOrchestrator {
     console.log(`Execution ID: ${context.executionId}`);
     console.log(`Main branch: ${context.mainBranch}`);
     console.log(`Steps: ${plan.steps.length}`);
-    console.log(`Max concurrency: ${options?.maxConcurrency || 'unlimited'}\n`);
+    console.log(`Max concurrency: ${options?.maxConcurrency || 'unlimited'}`);
+    if (options?.confirmDeploy) {
+      console.log('⚠️  Deployment enabled (--confirm-deploy)');
+    }
+    console.log('');
 
     // build dependency graph
     const dependencyGraph = this.buildDependencyGraph(plan);
@@ -265,6 +281,23 @@ export class SwarmOrchestrator {
         }
       }
 
+      // wave timing summary
+      const waveStepResults = context.results.filter(r => wave.includes(r.stepNumber));
+      const completedInWave = waveStepResults.filter(r => r.status === 'completed');
+      const failedInWave = waveStepResults.filter(r => r.status === 'failed');
+
+      console.log(`\n📊 Wave ${waveIndex + 1} Summary:`);
+      completedInWave.forEach(r => {
+        const durationMs = r.startTime && r.endTime
+          ? new Date(r.endTime).getTime() - new Date(r.startTime).getTime()
+          : 0;
+        const durationSec = Math.round(durationMs / 1000);
+        console.log(`  ✅ ${r.agentName}:${r.stepNumber} (${durationSec}s)`);
+      });
+      failedInWave.forEach(r => {
+        console.log(`  ❌ ${r.agentName}:${r.stepNumber} - ${r.error || 'unknown error'}`);
+      });
+
       // post-wave meta-analysis
       if (context.metaAnalyzer && context.knowledgeBase) {
         console.log(`\n🔍 Analyzing wave ${waveIndex + 1} quality...`);
@@ -324,9 +357,22 @@ export class SwarmOrchestrator {
           );
 
           if (replanDecision.stepsToRetry && replanDecision.stepsToRetry.length > 0) {
-            console.log(`  🔁 Will retry step(s): ${replanDecision.stepsToRetry.join(', ')}`);
-            // note: actual retry implementation would go here
-            // for now we just log and continue
+            console.log(`  🔁 Retrying step(s): ${replanDecision.stepsToRetry.join(', ')}`);
+
+            // build replan payload
+            const addSteps = replanDecision.newSteps?.map(s => ({
+              agent: s.agentName,
+              task: s.task,
+              afterStep: s.dependencies[0]
+            }));
+
+            const replanPayload: ReplanPayload = {
+              retrySteps: replanDecision.stepsToRetry,
+              ...(addSteps && { addSteps })
+            };
+
+            // execute replan with retry branches
+            await this.executeReplan(context, replanPayload, agents, options);
           }
         }
       }
@@ -394,13 +440,115 @@ export class SwarmOrchestrator {
   }
 
   /**
+   * execute replan: retry failed steps on new branches with suffix
+   * preserves completed work, only re-runs what failed
+   */
+  private async executeReplan(
+    context: SwarmExecutionContext,
+    replanPayload: ReplanPayload,
+    agents: Map<string, AgentProfile>,
+    options?: { model?: string }
+  ): Promise<void> {
+    console.log('\n🔄 Executing replan...');
+
+    // initialize replan state
+    context.replanState = {
+      triggeredAt: new Date().toISOString(),
+      payload: replanPayload,
+      retryBranches: new Map()
+    };
+
+    // update knowledge base with replan event
+    context.knowledgeBase?.addOrUpdatePattern({
+      category: 'failure_mode',
+      insight: `replan triggered for steps: ${replanPayload.retrySteps.join(', ')}`,
+      confidence: 'high',
+      evidence: [`replan at ${context.replanState.triggeredAt}`],
+      impact: 'medium'
+    });
+
+    // execute retries for each failed step
+    for (const stepNumber of replanPayload.retrySteps) {
+      const step = context.plan.steps.find(s => s.stepNumber === stepNumber);
+      if (!step) {
+        console.warn(`  replan: step ${stepNumber} not found, skipping`);
+        continue;
+      }
+
+      const agent = agents.get(step.agentName);
+      if (!agent) {
+        console.warn(`  replan: agent ${step.agentName} not found, skipping`);
+        continue;
+      }
+
+      // get current retry count
+      const resultIndex = context.results.findIndex(r => r.stepNumber === stepNumber);
+      const result = context.results[resultIndex];
+      const retryCount = (result?.retryCount || 0) + 1;
+
+      // max 3 retries to avoid infinite loops
+      if (retryCount > 3) {
+        console.error(`  step ${stepNumber} exceeded max retries (3), skipping`);
+        continue;
+      }
+
+      console.log(`  🔁 Retrying step ${stepNumber} (${agent.name}) - attempt ${retryCount}`);
+
+      // create retry branch with suffix
+      const retryBranchName = `swarm/${context.executionId}/step-${stepNumber}-${agent.name.toLowerCase()}-retry${retryCount}`;
+
+      // track retry branch
+      if (!context.replanState.retryBranches.has(stepNumber)) {
+        context.replanState.retryBranches.set(stepNumber, []);
+      }
+      context.replanState.retryBranches.get(stepNumber)!.push(retryBranchName);
+
+      // reset result status
+      if (result) {
+        result.status = 'pending';
+        result.retryCount = retryCount;
+        result.branchName = retryBranchName;
+        delete result.error;
+        delete result.sessionResult;
+        delete result.verificationResult;
+      }
+
+      try {
+        // switch to main branch before creating retry branch
+        await this.switchBranch(context.mainBranch);
+        await this.createAgentBranch(retryBranchName, context.mainBranch);
+
+        // update step task to indicate retry
+        const retryStep = { ...step, task: `[RETRY ${retryCount}] ${step.task}` };
+
+        // execute retry
+        await this.executeStepInSwarm(retryStep, agent, context, options);
+
+        console.log(`  ✅ Retry ${retryCount} succeeded for step ${stepNumber}`);
+      } catch (error: unknown) {
+        const err = error as Error;
+        console.error(`  ❌ Retry ${retryCount} failed for step ${stepNumber}: ${err.message}`);
+      }
+    }
+
+    // save replan state to run directory
+    const replanPath = path.join(context.runDir, 'replan-state.json');
+    fs.writeFileSync(replanPath, JSON.stringify({
+      ...context.replanState,
+      retryBranches: Object.fromEntries(context.replanState.retryBranches)
+    }, null, 2), 'utf8');
+
+    console.log('  📝 Replan state saved');
+  }
+
+  /**
    * Execute a single step within the swarm (queued version with retry support)
    */
   private async executeStepInSwarmQueued(
     step: PlanStep,
     agent: AgentProfile,
     context: SwarmExecutionContext,
-    options?: { model?: string }
+    options?: { model?: string; confirmDeploy?: boolean; enableExternal?: boolean; dryRun?: boolean }
   ): Promise<void> {
     // delegate to original implementation
     return this.executeStepInSwarm(step, agent, context, options);
@@ -413,7 +561,7 @@ export class SwarmOrchestrator {
     step: PlanStep,
     agent: AgentProfile,
     context: SwarmExecutionContext,
-    options?: { model?: string }
+    options?: { model?: string; confirmDeploy?: boolean; enableExternal?: boolean; dryRun?: boolean }
   ): Promise<void> {
     const resultIndex = context.results.findIndex(r => r.stepNumber === step.stepNumber);
     const result = context.results[resultIndex];
@@ -553,6 +701,11 @@ export class SwarmOrchestrator {
           agent.name,
           true
         );
+
+        // optional deployment for devops_pro when --confirm-deploy is set
+        if (agent.name === 'DevOpsPro' && options?.confirmDeploy) {
+          await this.executeOptionalDeployment(step, agent, context, options);
+        }
       } else {
         // verification failed - attempt rollback
         verifySpinner.warn(`Step ${step.stepNumber} verification failed, rolling back...`);
@@ -953,6 +1106,61 @@ node_modules/
     } else if (result.score >= 90) {
       // Acknowledge good commit practices
       console.log(`  ✨ Excellent commit quality: ${result.score}/100 (${commitMessages.length} commits)`);
+    }
+  }
+
+  /**
+   * execute optional deployment for devops_pro when --confirm-deploy is set
+   * captures preview URL and stores in context
+   */
+  private async executeOptionalDeployment(
+    step: PlanStep,
+    agent: AgentProfile,
+    context: SwarmExecutionContext,
+    options: { confirmDeploy?: boolean; enableExternal?: boolean; dryRun?: boolean }
+  ): Promise<void> {
+    console.log(`  🚀 Deploying preview (--confirm-deploy)...`);
+
+    const toolManager = new ExternalToolManager({
+      enableExternal: options.enableExternal || true,
+      dryRun: options.dryRun || false,
+      logFile: path.join(context.runDir, 'deployment-commands.log')
+    });
+
+    const deploymentManager = new DeploymentManager(toolManager, this.workingDir);
+
+    try {
+      const branchName = context.results.find(r => r.stepNumber === step.stepNumber)?.branchName || 'unknown';
+      const deployResult = await deploymentManager.deployPreview(branchName);
+
+      if (deployResult.success && deployResult.previewUrl) {
+        console.log(`  ✅ Preview deployed: ${deployResult.previewUrl}`);
+
+        // store deployment metadata
+        const metadata: DeploymentMetadata = {
+          stepNumber: step.stepNumber,
+          agentName: agent.name,
+          timestamp: new Date().toISOString(),
+          platform: deployResult.platform,
+          previewUrl: deployResult.previewUrl,
+          branchName
+        };
+
+        deploymentManager.saveDeploymentMetadata(context.runDir, metadata);
+
+        // add to context deployments
+        if (!context.deployments) {
+          context.deployments = [];
+        }
+        context.deployments.push(metadata);
+      } else if (deployResult.platform === 'none') {
+        console.log(`  ℹ️  No deployment platform detected (vercel/netlify), skipping`);
+      } else {
+        console.warn(`  ⚠️  Deployment failed: ${deployResult.error}`);
+      }
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.warn(`  ⚠️  Deployment error: ${err.message}`);
     }
   }
 }

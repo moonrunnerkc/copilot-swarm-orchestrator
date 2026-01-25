@@ -43,7 +43,7 @@ git clone https://github.com/moonrunnerkc/copilot-swarm-conductor.git
 cd copilot-swarm-conductor
 npm install
 npm run build
-npm test          # 305 passing
+npm test          # 310 passing
 npm start demo todo-app
 ```
 
@@ -60,6 +60,7 @@ npm start demo todo-app
 | `npm start demo list` | List available demo scenarios |
 | `npm start plan "goal"` | Generate execution plan for a goal |
 | `npm start swarm plan.json` | Execute plan in parallel swarm mode |
+| `npm start swarm plan.json --confirm-deploy` | Execute with opt-in deployment for DevOpsPro |
 | `npm start quick "task"` | Quick single-agent task (no plan needed) |
 | `npm start -- --help` | Show all options |
 
@@ -177,7 +178,7 @@ Use these commands and outputs to verify the claims in this README.
 
 ```bash
 npm test
-# Output: 303 passing (7s)
+# Output: 310 passing (7s)
 ```
 
 ### CLI Help
@@ -201,10 +202,12 @@ To validate that steps in a wave run concurrently, use the live console logs:
 - `swarm-orchestrator.ts` prints the wave header (for example: `Wave 1: 2 step(s) in parallel`).
 - `session-executor.ts` supports a per-step `logPrefix`, which is used to prefix live output lines from each Copilot subprocess.
 - When a wave contains multiple independent steps, you can see interleaved output lines from different prefixes.
+- After each wave completes, a timing summary shows per-agent duration (for example: `BackendMaster:1 (45s)`).
 
 Proof anchors in code:
 
 - `src/swarm-orchestrator.ts:identifyExecutionWaves()`
+- `src/swarm-orchestrator.ts` (wave timing summary)
 - `src/session-executor.ts` (`SessionOptions.logPrefix`)
 
 ### Source Structure
@@ -224,15 +227,20 @@ ls test/*.test.ts | wc -l  # 27 test files
 - Does not guarantee Copilot will complete tasks correctly; it orchestrates and verifies
 - Verification is evidence-based (transcript parsing), not semantic understanding
 
-What “adaptive” means here (today):
+What "adaptive" means here:
 
 - The swarm execution uses a concurrency-limited queue and retries tasks that fail with rate-limit-like errors (see `src/execution-queue.ts`).
 - After each wave, the orchestrator writes a wave analysis JSON file and can update `knowledge-base.json` (see `src/meta-analyzer.ts`, `src/knowledge-base.ts`, and `src/swarm-orchestrator.ts`).
-- If a wave is unhealthy, the orchestrator can log a suggested replan decision.
+- If a wave is unhealthy (over 50% failure rate), the orchestrator will automatically retry failed steps on new branches with suffix like `step-3-retry1`. This preserves completed work and only re-runs what failed.
+- Failed steps can be retried up to 3 times before being marked as permanently failed.
+- Replan state is saved to `runs/<run-id>/replan-state.json` for audit purposes.
 
-What it does not do (today):
+Optional deployment execution:
 
-- It does not automatically re-run steps based on replan decisions. The replan block logs suggested retries but does not execute them (`src/swarm-orchestrator.ts`).
+- Use `--confirm-deploy` flag to enable deployment for DevOpsPro agent steps.
+- When enabled, the orchestrator will execute `vercel deploy` or `netlify deploy` if the platform is detected.
+- Preview URLs are captured and stored in `runs/<run-id>/deployments/`.
+- Deployment is opt-in only; no external CLI is executed without explicit user confirmation.
 
 ---
 
@@ -242,10 +250,10 @@ Key modules and their current line counts:
 
 | File | Purpose | Lines |
 |---|---|---:|
-| `src/cli.ts` | CLI entry point | 925 |
-| `src/swarm-orchestrator.ts` | parallel execution engine | 878 |
-| `src/plan-generator.ts` | plan creation and validation | 655 |
-| `src/session-executor.ts` | Copilot CLI invocation | 411 |
+| `src/cli.ts` | CLI entry point | 938 |
+| `src/swarm-orchestrator.ts` | parallel execution engine | 1168 |
+| `src/plan-generator.ts` | plan creation and validation | 732 |
+| `src/session-executor.ts` | Copilot CLI invocation | 421 |
 | `src/verifier-engine.ts` | transcript verification | 464 |
 | `src/share-parser.ts` | `/share` output parsing | 629 |
 | `src/config-loader.ts` | agent YAML loading | 300 |
@@ -264,7 +272,7 @@ src/
   ... (34 more modules)
 
 test/
-  27 test files, 303 tests
+  27 test files, 310 tests
 
 config/
   default-agents.yaml
@@ -279,7 +287,7 @@ config/
 
 | Claim | Evidence |
 |---|---|
-| 303 tests passing | `npm test` output |
+| 310 tests passing | `npm test` output |
 | 41 source files | `ls src/*.ts \| wc -l` |
 | 27 test files | `ls test/*.test.ts \| wc -l` |
 | 7 custom agents | `ls .github/agents/*.agent.md` |
@@ -289,6 +297,10 @@ config/
 | Transcript verification | `src/verifier-engine.ts:verifyStep()` |
 | Copilot CLI invocation | `src/session-executor.ts:executeSession()` |
 | Dependency graph | `src/swarm-orchestrator.ts:buildDependencyGraph()` |
+| Adaptive replanning | `src/swarm-orchestrator.ts:executeReplan()` |
+| Plan revision | `src/plan-generator.ts:revisePlan()` |
+| Opt-in deployment | `src/swarm-orchestrator.ts:executeOptionalDeployment()` |
+| Wave timing summary | `src/swarm-orchestrator.ts` (wave summary block) |
 | Bootstrap repo analysis | `src/bootstrap-orchestrator.ts:bootstrap()` |
 | GitHub issue ingestion (if `gh` installed) | `src/github-issues-ingester.ts:fetchIssues()` |
 

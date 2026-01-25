@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { ConfigLoader } from '../src/config-loader';
-import { PlanGenerator, PlanStep, ExecutionPlan } from '../src/plan-generator';
+import { ExecutionPlan, PlanGenerator, PlanStep } from '../src/plan-generator';
 
 describe('PlanGenerator', () => {
   let generator: PlanGenerator;
@@ -287,6 +287,105 @@ describe('PlanGenerator', () => {
       assert.throws(() => {
         generator.getExecutionOrder(plan);
       }, /Circular dependency detected/);
+    });
+  });
+
+  describe('revisePlan', () => {
+    it('should mark retry steps with [RETRY] prefix', () => {
+      const basePlan: ExecutionPlan = {
+        goal: 'Build API',
+        createdAt: new Date().toISOString(),
+        steps: [
+          { stepNumber: 1, agentName: 'BackendMaster', task: 'Create API', dependencies: [], expectedOutputs: ['api.ts'] },
+          { stepNumber: 2, agentName: 'TesterElite', task: 'Write tests', dependencies: [1], expectedOutputs: ['tests'] }
+        ],
+        metadata: { totalSteps: 2 }
+      };
+
+      const revised = generator.revisePlan(basePlan, { retrySteps: [2] }, [1]);
+
+      assert.strictEqual(revised.steps.length, 2);
+      assert.ok(revised.steps[1].task.startsWith('[RETRY]'));
+      // completed step 1 should not be marked
+      assert.ok(!revised.steps[0].task.startsWith('[RETRY]'));
+    });
+
+    it('should not mark completed steps for retry', () => {
+      const basePlan: ExecutionPlan = {
+        goal: 'Build API',
+        createdAt: new Date().toISOString(),
+        steps: [
+          { stepNumber: 1, agentName: 'BackendMaster', task: 'Create API', dependencies: [], expectedOutputs: ['api.ts'] },
+          { stepNumber: 2, agentName: 'TesterElite', task: 'Write tests', dependencies: [1], expectedOutputs: ['tests'] }
+        ],
+        metadata: { totalSteps: 2 }
+      };
+
+      // both steps marked for retry but step 1 is completed
+      const revised = generator.revisePlan(basePlan, { retrySteps: [1, 2] }, [1]);
+
+      // step 1 completed, should not have retry prefix
+      assert.ok(!revised.steps[0].task.startsWith('[RETRY]'));
+      // step 2 not completed, should have retry prefix
+      assert.ok(revised.steps[1].task.startsWith('[RETRY]'));
+    });
+
+    it('should append new steps from replan', () => {
+      const basePlan: ExecutionPlan = {
+        goal: 'Build API',
+        createdAt: new Date().toISOString(),
+        steps: [
+          { stepNumber: 1, agentName: 'BackendMaster', task: 'Create API', dependencies: [], expectedOutputs: ['api.ts'] }
+        ],
+        metadata: { totalSteps: 1 }
+      };
+
+      const revised = generator.revisePlan(basePlan, {
+        retrySteps: [],
+        addSteps: [{ agent: 'SecurityAuditor', task: 'Audit security', afterStep: 1 }]
+      }, []);
+
+      assert.strictEqual(revised.steps.length, 2);
+      assert.strictEqual(revised.steps[1].agentName, 'SecurityAuditor');
+      assert.strictEqual(revised.steps[1].stepNumber, 2);
+      assert.deepStrictEqual(revised.steps[1].dependencies, [1]);
+    });
+
+    it('should skip unknown agents in addSteps', () => {
+      const basePlan: ExecutionPlan = {
+        goal: 'Build API',
+        createdAt: new Date().toISOString(),
+        steps: [
+          { stepNumber: 1, agentName: 'BackendMaster', task: 'Create API', dependencies: [], expectedOutputs: ['api.ts'] }
+        ],
+        metadata: { totalSteps: 1 }
+      };
+
+      const revised = generator.revisePlan(basePlan, {
+        retrySteps: [],
+        addSteps: [{ agent: 'FakeAgent', task: 'Fake task' }]
+      }, []);
+
+      // should not add step for unknown agent
+      assert.strictEqual(revised.steps.length, 1);
+    });
+
+    it('should update metadata after revision', () => {
+      const basePlan: ExecutionPlan = {
+        goal: 'Build API',
+        createdAt: new Date().toISOString(),
+        steps: [
+          { stepNumber: 1, agentName: 'BackendMaster', task: 'Create API', dependencies: [], expectedOutputs: ['api.ts'] }
+        ],
+        metadata: { totalSteps: 1 }
+      };
+
+      const revised = generator.revisePlan(basePlan, {
+        retrySteps: [],
+        addSteps: [{ agent: 'TesterElite', task: 'Add tests' }]
+      }, []);
+
+      assert.strictEqual(revised.metadata?.totalSteps, 2);
     });
   });
 });

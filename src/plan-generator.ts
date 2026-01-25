@@ -18,6 +18,12 @@ export interface ExecutionPlan {
   };
 }
 
+// replan structure returned by meta_reviewer analysis
+export interface ReplanPayload {
+  retrySteps: number[];
+  addSteps?: { agent: string; task: string; afterStep?: number }[];
+}
+
 export type GoalType = 'api' | 'web-app' | 'cli-tool' | 'library' | 'infrastructure' | 'data-pipeline' | 'mobile-app' | 'generic';
 
 export class PlanGenerator {
@@ -649,6 +655,77 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
     }
 
     return order;
+  }
+
+  /**
+   * revise plan based on replan payload from meta_reviewer
+   * preserves completed steps, marks retries with suffix, appends new steps
+   */
+  revisePlan(
+    plan: ExecutionPlan,
+    replanPayload: ReplanPayload,
+    completedSteps: number[]
+  ): ExecutionPlan {
+    const revisedSteps: PlanStep[] = [];
+
+    // copy all existing steps (completed ones stay as-is)
+    for (const step of plan.steps) {
+      revisedSteps.push({ ...step });
+    }
+
+    // track highest step number
+    let maxStepNumber = Math.max(...plan.steps.map(s => s.stepNumber));
+
+    // mark retry steps with updated task description
+    // actual retry branches use suffix like step-3-retry1
+    for (const retryStepNum of replanPayload.retrySteps) {
+      const existing = revisedSteps.find(s => s.stepNumber === retryStepNum);
+      if (existing && !completedSteps.includes(retryStepNum)) {
+        // prepend retry indicator to task
+        if (!existing.task.startsWith('[RETRY]')) {
+          existing.task = `[RETRY] ${existing.task}`;
+        }
+      }
+    }
+
+    // append new steps if any
+    if (replanPayload.addSteps && replanPayload.addSteps.length > 0) {
+      for (const addReq of replanPayload.addSteps) {
+        // validate agent exists
+        const agentNames = new Set(this.availableAgents.map(a => a.name));
+        if (!agentNames.has(addReq.agent)) {
+          console.warn(`replan: unknown agent "${addReq.agent}", skipping`);
+          continue;
+        }
+
+        maxStepNumber++;
+        const newStep: PlanStep = {
+          stepNumber: maxStepNumber,
+          agentName: addReq.agent,
+          task: addReq.task,
+          // depend on afterStep if provided, else last existing step
+          dependencies: addReq.afterStep
+            ? [addReq.afterStep]
+            : plan.steps.length > 0 ? [plan.steps[plan.steps.length - 1].stepNumber] : [],
+          expectedOutputs: ['Replan-generated output']
+        };
+        revisedSteps.push(newStep);
+      }
+    }
+
+    const metadata: { totalSteps: number; estimatedDuration?: string } = {
+      totalSteps: revisedSteps.length
+    };
+    if (plan.metadata?.estimatedDuration) {
+      metadata.estimatedDuration = plan.metadata.estimatedDuration;
+    }
+
+    return {
+      ...plan,
+      createdAt: new Date().toISOString(),
+      steps: revisedSteps,
+      metadata
+    };
   }
 }
 
