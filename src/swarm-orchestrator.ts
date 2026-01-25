@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import AnalyticsLog from './analytics-log';
@@ -114,7 +114,8 @@ export class SwarmOrchestrator {
     const adaptiveConcurrency = new AdaptiveConcurrencyManager(concurrencyLimit, 10);
 
     // initialize adaptive intelligence components
-    const knowledgeBase = new KnowledgeBaseManager(this.workingDir);
+    // save knowledge base in run dir, not target repo (avoids git checkout conflicts)
+    const knowledgeBase = new KnowledgeBaseManager(runDir);
     const metaAnalyzer = new MetaAnalyzer();
 
     const context: SwarmExecutionContext = {
@@ -701,6 +702,13 @@ export class SwarmOrchestrator {
    * Create a new git branch for an agent
    */
   private async createAgentBranch(branchName: string, fromBranch: string): Promise<void> {
+    // stash any uncommitted changes before switching (avoids conflicts from parallel agents)
+    try {
+      execSync('git stash --include-untracked', { cwd: this.workingDir, stdio: 'pipe' });
+    } catch {
+      // stash might fail if nothing to stash, that's fine
+    }
+
     return new Promise((resolve, reject) => {
       const proc = spawn('git', ['checkout', '-b', branchName, fromBranch], {
         cwd: this.workingDir
