@@ -23,6 +23,9 @@ Running multiple Copilot CLI sessions for a project (backend, frontend, tests, i
 - Verifies each step by parsing the transcript for evidence (tests passed, files created, commits made)
 - Auto-merges verified branches back to main
 
+When you run this tool inside a repo, it writes a small set of **execution artifacts** into that repo
+(`runs/`, `plans/`, `proof/`, etc.) so you have an auditable record of what happened.
+
 **What it does not do**
 
 > - Does not embed or simulate Copilot
@@ -40,7 +43,7 @@ git clone https://github.com/moonrunnerkc/copilot-swarm-conductor.git
 cd copilot-swarm-conductor
 npm install
 npm run build
-npm test          # 303 tests passing
+npm test          # 305 passing
 npm start demo todo-app
 ```
 
@@ -94,6 +97,59 @@ cli.ts
 4. **Session execution**: `SessionExecutor.executeSession()` invokes `copilot -p` with prompt
 5. **Verification**: `VerifierEngine.verifyStep()` checks transcript for evidence
 6. **Merge**: verified branches merge to main via git
+
+---
+
+## What You Should Expect In Your Repo
+
+This tool is an orchestrator with verification. That means it produces two kinds of output:
+
+1. **Your actual project changes** (the thing you wanted)
+   - Normal repo files: `src/`, `server.js`, `package.json`, tests, etc.
+   - These land on per-step branches during execution and are merged back to your current branch when verified.
+
+2. **Swarm execution artifacts** (the audit trail)
+   - These are not “your app”. They are evidence and coordination state.
+   - By default they are created in the repo you ran `swarm` from.
+
+### Artifact folders
+
+- `plans/`
+  - Saved execution plans (`plan-*.json`, `bootstrap-*`).
+- `runs/<run-id>/`
+  - One folder per run.
+  - `steps/step-N/share.md` is the Copilot `/share` transcript captured via `copilot -p --share ...`.
+  - `steps/step-N/verification.md` is the verifier output (what was checked and what evidence was found).
+  - `.locks/` and `.context/` are coordination state for parallel execution.
+- `proof/`
+  - Primarily used by sequential mode (`swarm execute`) to store “save your /share transcript here” paths.
+- `.quickfix/`
+  - Quick-fix transcripts and logs.
+
+### Practical workflow
+
+- To see what an agent actually did:
+  - Open `runs/<run-id>/steps/step-1/share.md` and look for commands, diffs, and test output.
+- To see what was verified:
+  - Open `runs/<run-id>/steps/step-1/verification.md`.
+- To see the final code:
+  - Check your current branch after merges, or review git history (`git log`, `git show --name-only`).
+
+### Keeping git history clean (recommended)
+
+Most users keep these artifacts locally but do not commit them.
+Add this to your repo’s `.gitignore` before running swarm:
+
+```gitignore
+plans/
+runs/
+proof/
+.quickfix/
+.context/
+.locks/
+```
+
+If you want a completely clean repo during experimentation, run swarm in a disposable repo or scratch workspace.
 
 ---
 
