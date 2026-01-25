@@ -101,6 +101,9 @@ export class SwarmOrchestrator {
     const contextBroker = new ContextBroker(runDir);
     const metricsCollector = new MetricsCollector(executionId, plan.goal);
 
+    // ensure repo has at least one commit (required for branch creation)
+    this.ensureInitialCommit();
+
     // get current git branch
     const mainBranch = this.getCurrentBranch();
 
@@ -819,7 +822,62 @@ export class SwarmOrchestrator {
       cwd: this.workingDir,
       encoding: 'utf8'
     });
-    return result.trim();
+    return result.trim() || 'main';
+  }
+
+  /**
+   * Ensure repo has at least one commit (required for branch creation)
+   * Creates an initial commit if repo is empty
+   */
+  private ensureInitialCommit(): void {
+    const execSync = require('child_process').execSync;
+
+    // check if repo has any commits
+    try {
+      execSync('git rev-parse HEAD', {
+        cwd: this.workingDir,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      // repo has commits, nothing to do
+      return;
+    } catch {
+      // no commits yet, create initial commit
+    }
+
+    console.log('  📝 Empty repo detected, creating initial commit...');
+
+    // create a minimal .gitignore so there's something to commit
+    const fs = require('fs');
+    const path = require('path');
+    const gitignorePath = path.join(this.workingDir, '.gitignore');
+
+    if (!fs.existsSync(gitignorePath)) {
+      fs.writeFileSync(gitignorePath, `# Swarm orchestrator artifacts
+plans/
+runs/
+proof/
+.quickfix/
+.context/
+.locks/
+node_modules/
+`);
+    }
+
+    try {
+      execSync('git add .gitignore', { cwd: this.workingDir, stdio: 'pipe' });
+      execSync('git commit -m "chore: initialize repository"', { cwd: this.workingDir, stdio: 'pipe' });
+      console.log('  ✅ Initial commit created');
+    } catch (err: unknown) {
+      // if commit fails (maybe .gitignore already staged), try committing anything
+      try {
+        execSync('git add -A', { cwd: this.workingDir, stdio: 'pipe' });
+        execSync('git commit --allow-empty -m "chore: initialize repository"', { cwd: this.workingDir, stdio: 'pipe' });
+        console.log('  ✅ Initial commit created (empty)');
+      } catch {
+        // ignore if still fails
+      }
+    }
   }
 
   private generateExecutionId(): string {

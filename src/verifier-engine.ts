@@ -113,7 +113,7 @@ export class VerifierEngine {
     // Apply graceful degradation if enabled and verification failed
     let gracefulFailure = false;
     let degradationReason: string | undefined;
-    
+
     if (!passed && requirements?.gracefulDegradation) {
       gracefulFailure = true;
       const failedChecks = checks.filter(c => c.required && !c.passed);
@@ -438,6 +438,7 @@ export class VerifierEngine {
 
   /**
    * Commit verification report with natural message
+   * Skips if file is in a gitignored path (e.g., runs/)
    */
   async commitVerificationReport(
     reportPath: string,
@@ -456,8 +457,19 @@ export class VerifierEngine {
     // Pick a random message for variety
     const message = messages[Math.floor(Math.random() * messages.length)];
 
-    await this.runGitCommand(['add', reportPath]);
-    await this.runGitCommand(['commit', '-m', message]);
+    // Use git add -f to force-add files in gitignored paths (like runs/)
+    // This ensures verification reports are committed even when runs/ is gitignored
+    try {
+      await this.runGitCommand(['add', '-f', reportPath]);
+      await this.runGitCommand(['commit', '-m', message]);
+    } catch (err: unknown) {
+      // If commit fails (nothing to commit, or other issue), just log and continue
+      // Verification reports are nice-to-have in git, not required for success
+      const error = err as Error;
+      if (!error.message.includes('nothing to commit')) {
+        console.warn(`  ⚠️  Could not commit verification report: ${error.message.split('\n')[0]}`);
+      }
+    }
   }
 }
 
