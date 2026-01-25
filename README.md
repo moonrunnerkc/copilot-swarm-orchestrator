@@ -8,6 +8,12 @@ Parallel execution of GitHub Copilot CLI sessions with dependency-aware scheduli
 
 ---
 
+## Quick Links
+
+- **Watch demo (fresh project):** https://youtu.be/TKSlRksNLUA
+- **Run demo:** `npm start demo todo-app`
+- **Jump to:** [Commands](#commands) · [Demo Scenarios](#demo-scenarios) · [Verification](#verification)
+
 ## Why This Exists
 
 Running multiple Copilot CLI sessions for a project (backend, frontend, tests, integration) creates coordination overhead. This tool organizes that work into dependency-aware steps, runs independent steps in parallel, and verifies results from transcript evidence.
