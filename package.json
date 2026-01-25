@@ -14,16 +14,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/moonrunnerkc/copilot-swarm-conductor.git"
+    "url": "git+https://github.com/moonrunnerkc/copilot-swarm-orchestrator.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/moonrunnerkc/copilot-swarm-conductor/issues"
+    "url": "https://github.com/moonrunnerkc/copilot-swarm-orchestrator/issues"
   },
-  "homepage": "https://github.com/moonrunnerkc/copilot-swarm-conductor#readme",
+  "homepage": "https://github.com/moonrunnerkc/copilot-swarm-orchestrator#readme",
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

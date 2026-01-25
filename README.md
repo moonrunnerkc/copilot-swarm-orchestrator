@@ -2,7 +2,7 @@
 
 Parallel execution of GitHub Copilot CLI sessions with dependency-aware scheduling, verification, and per-agent git branches.
 
-[![CI](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions/workflows/ci.yml/badge.svg)](https://github.com/moonrunnerkc/copilot-swarm-conductor/actions/workflows/ci.yml)
+[![CI](https://github.com/moonrunnerkc/copilot-swarm-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/moonrunnerkc/copilot-swarm-orchestrator/actions/workflows/ci.yml)
 [![License: ISC](https://img.shields.io/badge/license-ISC-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-blue.svg)](https://www.typescriptlang.org/)
 
@@ -39,13 +39,34 @@ All execution uses real `copilot -p` with documented flags.
 ## Quick Start
 
 ```bash
-git clone https://github.com/moonrunnerkc/copilot-swarm-conductor.git
-cd copilot-swarm-conductor
+git clone https://github.com/moonrunnerkc/copilot-swarm-orchestrator.git
+cd copilot-swarm-orchestrator
 npm install
 npm run build
 npm test          # 310 passing
-npm start demo todo-app
 ```
+
+### Running Commands
+
+**Option A: Use npm start (no setup)**
+
+```bash
+npm start demo todo-app
+npm start plan "Build a REST API"
+npm start quick "Add login route"
+```
+
+**Option B: Link globally (recommended for frequent use)**
+
+```bash
+npm link
+# Now you can use `swarm` from anywhere:
+swarm demo todo-app
+swarm plan "Build a REST API"
+swarm quick "Add login route"
+```
+
+To unlink later: `npm unlink -g copilot-swarm-orchestrator`
 
 **Requirements**: Node.js 18+, GitHub Copilot CLI installed and authenticated.
 
@@ -204,6 +225,8 @@ To validate that steps in a wave run concurrently, use the live console logs:
 - When a wave contains multiple independent steps, you can see interleaved output lines from different prefixes.
 - After each wave completes, a timing summary shows per-agent duration (for example: `BackendMaster:1 (45s)`).
 
+**Note on status display:** All progress is shown via structured console output. There is no graphical TUI dashboard. A React/Ink-based dashboard component exists in `src/dashboard.tsx` but is disabled due to ESM/CommonJS incompatibility.
+
 Proof anchors in code:
 
 - `src/swarm-orchestrator.ts:identifyExecutionWaves()`
@@ -231,9 +254,15 @@ What "adaptive" means here:
 
 - The swarm execution uses a concurrency-limited queue and retries tasks that fail with rate-limit-like errors (see `src/execution-queue.ts`).
 - After each wave, the orchestrator writes a wave analysis JSON file and can update `knowledge-base.json` (see `src/meta-analyzer.ts`, `src/knowledge-base.ts`, and `src/swarm-orchestrator.ts`).
-- If a wave is unhealthy (over 50% failure rate), the orchestrator will automatically retry failed steps on new branches with suffix like `step-3-retry1`. This preserves completed work and only re-runs what failed.
+- If a wave is unhealthy (over 50% failure rate), the orchestrator will retry the same failed steps on new branches with suffix like `step-3-retry1`. This preserves completed work and only re-runs what failed.
 - Failed steps can be retried up to 3 times before being marked as permanently failed.
 - Replan state is saved to `runs/<run-id>/replan-state.json` for audit purposes.
+
+**What this does not do:**
+
+- No autonomous graph modification. Retries apply only to the same step definition; the execution plan is not restructured.
+- No semantic self-correction. If Copilot generates broken code, the orchestrator cannot fix it; it can only retry the step.
+- Replan suggestions from `meta-reviewer` are advisory. They are recorded but not automatically acted upon beyond retries.
 
 Optional deployment execution:
 
@@ -241,6 +270,13 @@ Optional deployment execution:
 - When enabled, the orchestrator will execute `vercel deploy` or `netlify deploy` if the platform is detected.
 - Preview URLs are captured and stored in `runs/<run-id>/deployments/`.
 - Deployment is opt-in only; no external CLI is executed without explicit user confirmation.
+
+**What deployment does not handle:**
+
+- No authentication management. You must be pre-authenticated with `vercel login` or `netlify login`.
+- No deployment retries. If deployment fails, the failure is logged but not retried.
+- No rollback. If a deployment breaks, you must roll back manually.
+- No multi-platform fallback. Only one platform (Vercel or Netlify) is used per run based on detection order.
 
 ---
 
@@ -297,12 +333,13 @@ config/
 | Transcript verification | `src/verifier-engine.ts:verifyStep()` |
 | Copilot CLI invocation | `src/session-executor.ts:executeSession()` |
 | Dependency graph | `src/swarm-orchestrator.ts:buildDependencyGraph()` |
-| Adaptive replanning | `src/swarm-orchestrator.ts:executeReplan()` |
-| Plan revision | `src/plan-generator.ts:revisePlan()` |
+| Same-step retries | `src/swarm-orchestrator.ts:executeReplan()` |
+| Plan revision (advisory) | `src/plan-generator.ts:revisePlan()` |
 | Opt-in deployment | `src/swarm-orchestrator.ts:executeOptionalDeployment()` |
 | Wave timing summary | `src/swarm-orchestrator.ts` (wave summary block) |
 | Bootstrap repo analysis | `src/bootstrap-orchestrator.ts:bootstrap()` |
 | GitHub issue ingestion (if `gh` installed) | `src/github-issues-ingester.ts:fetchIssues()` |
+| Console-based status output | `src/swarm-orchestrator.ts` (wave headers, timing) |
 
 ---
 

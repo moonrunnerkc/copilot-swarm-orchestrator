@@ -27,7 +27,7 @@ Usage:
   swarm demo <scenario>                  Run pre-configured demo scenario
   swarm demo list                        List available demo scenarios
   swarm status <execid>                  Show execution status
-  swarm dashboard <execid>               Show TUI dashboard for execution
+  swarm dashboard <execid>               Show TUI dashboard (currently unavailable)
   swarm share import <runid> <step> <agent> <path>
                                          Import /share transcript for a step
   swarm share context <runid> <step>     Show prior context for a step
@@ -37,7 +37,7 @@ Flags:
   --delegate       Instruct agents to use /delegate for PR creation
   --mcp            Require MCP evidence from GitHub context in verification
   --model          Specify model for sessions (e.g., claude-sonnet-4.5)
-  --no-dashboard   Disable live dashboard in swarm mode
+  --no-dashboard   (no-op: TUI dashboard is currently disabled)
   --agent          Specify agent for quick-fix mode
   --skip-verify    Skip verification in quick-fix mode (faster)
   --confirm-deploy Enable opt-in deployment for DevOpsPro (vercel, netlify)
@@ -56,7 +56,7 @@ Examples:
   # Generate plan using intelligent fallback
   swarm plan "Build a REST API for user management"
 
-  # Execute plan in parallel swarm mode with live dashboard
+  # Execute plan in parallel swarm mode
   swarm swarm plan.json
 
   # Execute with specific model
@@ -67,7 +67,7 @@ Examples:
 
 The swarm command:
   - Executes steps in parallel based on dependencies
-  - Shows live dashboard with commit history, agent status, progress
+  - Shows progress via structured console output (wave headers, per-step timing)
   - Verifies each step with evidence-based checks
   - Auto-rollback on verification failure
   - Preserves human-like git commit history
@@ -442,7 +442,7 @@ async function runDemo(scenarioName: string): Promise<void> {
 
   console.log('This demo will:');
   console.log('  1. Execute all steps in parallel based on dependencies');
-  console.log('  2. Show live dashboard with commit history and progress');
+  console.log('  2. Show progress via structured console output');
   console.log('  3. Verify each step with evidence-based checks');
   console.log('  4. Demonstrate human-like git commit history\n');
 
