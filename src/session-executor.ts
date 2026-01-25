@@ -213,9 +213,19 @@ export class SessionExecutor {
     sections.push('   the command output.');
     sections.push('4. Do not say "done" unless all required artifacts exist.');
     sections.push('5. Prefer small, reviewable changes over large refactors.');
-    sections.push('6. Make multiple small commits with varied, natural messages.\n');
+    sections.push('6. Make multiple small commits with varied, natural messages.');
+    sections.push('7. ALWAYS verify your branch before committing: git branch --show-current\n');
 
-    sections.push('Refusal rules (when to stop and ask)');
+    sections.push('Code comments (Required)');
+    sections.push('------------------------');
+    sections.push('- Add a 1-2 line purpose comment at top of each new file');
+    sections.push('- Add brief inline comments for non-obvious logic');
+    sections.push('- Use natural, casual language - not robotic/formal');
+    sections.push('- Good: "// bail early if no items"');
+    sections.push('- Bad: "// This conditional statement checks if the array is empty..."');
+    sections.push('- For functions: brief docstring explaining purpose\n');
+
+    sections.push('Refusal rules (when to stop and ask)');;
     sections.push('-------------------------------------');
     agent.refusal_rules.forEach(rule => {
       sections.push('- ' + rule);

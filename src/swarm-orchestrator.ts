@@ -629,6 +629,14 @@ export class SwarmOrchestrator {
     sections.push('DEPENDENCY CONTEXT:');
     sections.push(dependencyContext + '\n');
 
+    sections.push('CRITICAL: VERIFY YOUR BRANCH BEFORE ANY WORK');
+    sections.push('-------------------------------------------');
+    sections.push('1. FIRST, run: git branch --show-current');
+    sections.push('2. Confirm you are on your assigned branch (shown above)');
+    sections.push('3. If on wrong branch, run: git checkout <your-branch-name>');
+    sections.push('4. BEFORE every commit, verify branch again with: git status');
+    sections.push('5. Never commit to main directly - always use your agent branch\n');
+
     sections.push('GIT WORKFLOW:');
     sections.push('- You are on your own agent branch');
     sections.push('- Make incremental commits with natural, human-like messages');
@@ -641,6 +649,14 @@ export class SwarmOrchestrator {
     sections.push('  "fix: handle null case in parser"');
     sections.push('  "update config and deps"');
     sections.push('  "implement todo API with tests"\n');
+
+    sections.push('CODE COMMENTS (Required):');
+    sections.push('- Add a 1-2 line purpose comment at the top of each new file');
+    sections.push('- Add brief inline comments for non-obvious logic (not every line)');
+    sections.push('- Use natural, casual language - avoid formal/robotic phrasing');
+    sections.push('- Good: "// handles edge case when user submits empty form"');
+    sections.push('- Bad: "// This function handles the edge case scenario wherein..."');
+    sections.push('- For functions: brief docstring explaining purpose and params\n');
 
     sections.push('SCOPE: ' + agent.scope.join(', '));
     sections.push('BOUNDARIES: ' + agent.boundaries.join(', '));
