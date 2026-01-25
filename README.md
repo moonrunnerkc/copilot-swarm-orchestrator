@@ -43,7 +43,7 @@ git clone https://github.com/moonrunnerkc/copilot-swarm-orchestrator.git
 cd copilot-swarm-orchestrator
 npm install
 npm run build
-npm test          # 313 passing
+npm test          # 313 passing, 1 pending
 ```
 
 ### Running Commands
@@ -202,7 +202,7 @@ Use these commands and outputs to verify the claims in this README.
 
 ```bash
 npm test
-# Output: 313 passing (7s)
+# Output: 313 passing, 1 pending (7s)
 ```
 
 ### CLI Help
@@ -239,8 +239,9 @@ Proof anchors in code:
 ### Source Structure
 
 ```bash
-ls src/*.ts | wc -l    # 41 source files
-ls test/*.test.ts | wc -l  # 28 test files
+ls src/*.ts | wc -l           # 41 top-level source files
+find src -name "*.ts" | wc -l # 55 total (includes subdirectories)
+ls test/*.test.ts | wc -l     # 28 test files
 ```
 
 ---
@@ -327,7 +328,8 @@ config/
 | Claim | Evidence |
 |---|---|
 | 313 tests passing | `npm test` output |
-| 41 source files | `ls src/*.ts \| wc -l` |
+| 41 top-level source files | `ls src/*.ts \| wc -l` |
+| 55 total source files | `find src -name "*.ts" \| wc -l` |
 | 28 test files | `ls test/*.test.ts \| wc -l` |
 | 7 custom agents | `ls .github/agents/*.agent.md` |
 | 4 demo scenarios | `npm start demo list` |
