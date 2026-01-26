@@ -1,6 +1,6 @@
+import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { randomBytes } from 'crypto';
 
 /**
  * Shared context entry for cross-agent communication
@@ -42,7 +42,7 @@ export class ContextBroker {
     this.contextDir = path.join(runDir, '.context');
     this.lockDir = path.join(runDir, '.locks');
     this.contextFile = path.join(this.contextDir, 'shared-context.json');
-    
+
     this.ensureDirectories();
   }
 
@@ -65,7 +65,7 @@ export class ContextBroker {
   ): Promise<string | null> {
     const lockId = randomBytes(16).toString('hex');
     const lockFile = path.join(this.lockDir, 'git.lock');
-    
+
     const lock: GitLock = {
       lockId,
       agentName,
@@ -74,7 +74,7 @@ export class ContextBroker {
     };
 
     const startTime = Date.now();
-    
+
     // spin-wait for lock with timeout
     while (Date.now() - startTime < this.maxLockWaitMs) {
       try {
@@ -88,7 +88,7 @@ export class ContextBroker {
           try {
             const existingLock = JSON.parse(fs.readFileSync(lockFile, 'utf8')) as GitLock;
             const lockAge = Date.now() - new Date(existingLock.acquiredAt).getTime();
-            
+
             if (lockAge > 300000) {
               // stale lock, force remove
               fs.unlinkSync(lockFile);
@@ -99,7 +99,7 @@ export class ContextBroker {
             fs.unlinkSync(lockFile);
             continue;
           }
-          
+
           // wait and retry
           await this.sleep(100);
           continue;
@@ -116,10 +116,10 @@ export class ContextBroker {
    */
   releaseGitLock(lockId: string): void {
     const lockFile = path.join(this.lockDir, 'git.lock');
-    
+
     try {
       const lock = JSON.parse(fs.readFileSync(lockFile, 'utf8')) as GitLock;
-      
+
       if (lock.lockId === lockId) {
         fs.unlinkSync(lockFile);
       } else {
@@ -139,10 +139,10 @@ export class ContextBroker {
   addStepContext(entry: ContextEntry): void {
     // Re-ensure directories exist (may have been deleted by git operations)
     this.ensureDirectories();
-    
+
     const contexts = this.getAllContext();
     contexts.push(entry);
-    
+
     fs.writeFileSync(
       this.contextFile,
       JSON.stringify(contexts, null, 2),
@@ -157,7 +157,7 @@ export class ContextBroker {
     if (!fs.existsSync(this.contextFile)) {
       return [];
     }
-    
+
     try {
       const content = fs.readFileSync(this.contextFile, 'utf8');
       return JSON.parse(content) as ContextEntry[];
@@ -183,26 +183,26 @@ export class ContextBroker {
     }
 
     const entries = this.getContextForSteps(dependencies);
-    
+
     if (entries.length === 0) {
       return `Dependencies: Steps ${dependencies.join(', ')} (context not yet available)`;
     }
 
     const lines: string[] = [];
     lines.push(`Context from ${entries.length} dependent step(s):`);
-    
+
     entries.forEach(entry => {
       lines.push(`\nStep ${entry.stepNumber} (${entry.agentName}):`);
       lines.push(`  - ${entry.data.outputsSummary}`);
-      
+
       if (entry.data.filesChanged.length > 0) {
         lines.push(`  - Files modified: ${entry.data.filesChanged.slice(0, 5).join(', ')}${entry.data.filesChanged.length > 5 ? '...' : ''}`);
       }
-      
+
       if (entry.data.branchName) {
         lines.push(`  - Branch: ${entry.data.branchName}`);
       }
-      
+
       if (entry.data.commitShas && entry.data.commitShas.length > 0) {
         lines.push(`  - Commits: ${entry.data.commitShas.length}`);
       }
@@ -234,12 +234,12 @@ export class ContextBroker {
     timeoutMs: number = 600000 // 10 minutes
   ): Promise<boolean> {
     const startTime = Date.now();
-    
+
     while (Date.now() - startTime < timeoutMs) {
       if (this.areDependenciesSatisfied(dependencies)) {
         return true;
       }
-      
+
       await this.sleep(1000); // check every second
     }
 
@@ -253,7 +253,7 @@ export class ContextBroker {
     if (fs.existsSync(this.contextFile)) {
       fs.unlinkSync(this.contextFile);
     }
-    
+
     // clean up any stale locks
     const lockFiles = fs.readdirSync(this.lockDir);
     lockFiles.forEach(file => {
