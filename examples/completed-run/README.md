@@ -14,5 +14,5 @@ Why this matters:
 
 Run it yourself:
 
-- Quick look: `npm start demo-fast`
+- Quick look: `npm start demo demo-fast`
 - Full run: `npm start demo todo-app`

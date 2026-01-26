@@ -8,11 +8,31 @@ Parallel execution of GitHub Copilot CLI sessions with dependency-aware scheduli
 
 ---
 
+## Quick Start (run demo-fast)
+
+```bash
+git clone https://github.com/moonrunnerkc/copilot-swarm-orchestrator.git
+cd copilot-swarm-orchestrator
+npm install
+npm run build
+
+# Fast demo (2-step, ~2-4 minutes)
+npm start demo demo-fast
+```
+
+If you link globally:
+
+```bash
+npm link
+swarm demo-fast
+```
+
 ## Quick Links
 
 - **Watch demo (fresh project):** [https://youtu.be/TKSlRksNLUA](https://youtu.be/JiuUQfVsPyA)
-- **Run demo:** `npm start demo todo-app`
-- **Fast demo (2-step):** `npm start demo-fast`
+- **Run demo:** `npm start demo demo-fast`
+- **Full demo (4-step):** `npm start demo todo-app`
+- **Fast demo (2-step):** `npm start demo demo-fast` (or `swarm demo-fast`)
 - **Jump to:** [Commands](#commands) · [Demo Scenarios](#demo-scenarios) · [Verification](#verification)
 
 ## Why This Exists
@@ -85,7 +105,7 @@ To unlink later: `npm unlink -g copilot-swarm-orchestrator`
 |---|---|
 | `npm start bootstrap <path(s)> "Goal"` | Analyze repo(s), optionally ingest open issues via `gh`, and generate a plan |
 | `npm start demo todo-app` | Run 4-step demo with parallel execution |
-| `npm start demo-fast` | Run fast 2-step hello-world swarm demo |
+| `npm start demo demo-fast` | Run fast 2-step hello-world swarm demo |
 | `npm start demo list` | List available demo scenarios |
 | `npm start plan "goal"` | Generate execution plan for a goal |
 | `npm start swarm plan.json` | Execute plan in parallel swarm mode |
