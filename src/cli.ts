@@ -49,6 +49,9 @@ Flags:
 
 Examples:
   # Quick demo (recommended for first-time users)
+  swarm demo-fast
+
+  # Full demo (12-18 min)
   swarm demo todo-app
 
   # Quick-fix mode for simple tasks
@@ -469,6 +472,23 @@ async function runDemo(scenarioName: string): Promise<void> {
   const demoMode = new DemoMode();
   const scenario = demoMode.getScenario(scenarioName);
 
+  // Create a temp folder for the demo so we don't pollute the orchestrator repo
+  const os = require('os');
+  const demoDir = fs.mkdtempSync(path.join(os.tmpdir(), `swarm-demo-${scenarioName}-`));
+  console.log(`📂 Demo folder: ${demoDir}\n`);
+
+  // Initialize git in the temp folder (required for branch operations)
+  const { execSync } = require('child_process');
+  execSync('git init', { cwd: demoDir, stdio: 'pipe' });
+  execSync('git config user.email "demo@swarm.local"', { cwd: demoDir, stdio: 'pipe' });
+  execSync('git config user.name "Swarm Demo"', { cwd: demoDir, stdio: 'pipe' });
+  // Create an initial commit so branches can be created
+  fs.writeFileSync(path.join(demoDir, 'README.md'), `# Swarm Demo: ${scenarioName}\n`);
+  execSync('git add . && git commit -m "init demo"', { cwd: demoDir, stdio: 'pipe' });
+
+  // Change to demo directory
+  process.chdir(demoDir);
+
   if (!scenario) {
     console.error(`❌ Demo scenario "${scenarioName}" not found\n`);
     console.log('Available scenarios:');
@@ -490,8 +510,8 @@ async function runDemo(scenarioName: string): Promise<void> {
   console.log('  3. Verify each step with evidence-based checks');
   console.log('  4. Demonstrate human-like git commit history\n');
 
-  console.log('⚠️  NOTE: This will execute real Copilot CLI sessions.');
-  console.log('    Make sure you are in a clean working directory or test repo.\n');
+  console.log('ℹ️  NOTE: This will execute real Copilot CLI sessions.');
+  console.log(`    Running in temp folder: ${process.cwd()}\n`);
 
   // Convert scenario to plan
   const plan = demoMode.scenarioToPlan(scenario);
