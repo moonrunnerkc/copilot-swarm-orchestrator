@@ -754,20 +754,21 @@ export class SwarmOrchestrator {
       // Track step execution
       context.metricsCollector?.trackStep(step.stepNumber, agent.name);
 
-      // create per-agent branch
+      // create per-agent branch and worktree for true parallel isolation
       const branchName = `swarm/${context.executionId}/step-${step.stepNumber}-${agent.name.toLowerCase()}`;
       result.branchName = branchName;
       result.status = 'running';
       result.startTime = new Date().toISOString();
 
-      await this.createAgentBranch(branchName, context.mainBranch);
+      // Use git worktree so each agent has its own isolated working directory
+      const worktreePath = await this.createAgentWorktree(branchName, context.mainBranch, context.runDir, step.stepNumber);
       console.log(`  🌿 Step ${step.stepNumber} (${agent.name}) on branch: ${branchName}`);
 
       // build enhanced prompt with dependency context
       const dependencyContext = context.contextBroker.getDependencyContext(step.dependencies);
       const enhancedPrompt = this.buildSwarmPrompt(step, agent, context, dependencyContext);
 
-      // execute session on agent branch
+      // execute session on agent branch - IN THE WORKTREE DIRECTORY
       const stepDir = path.join(context.runDir, 'steps', `step-${step.stepNumber}`);
       const transcriptPath = path.join(stepDir, 'share.md');
 
@@ -775,6 +776,9 @@ export class SwarmOrchestrator {
       if (!fs.existsSync(stepDir)) {
         fs.mkdirSync(stepDir, { recursive: true });
       }
+
+      // Create a session executor for this worktree
+      const worktreeExecutor = new SessionExecutor(worktreePath);
 
       const sessionOptions: SessionOptions = {
         allowAllTools: true,
@@ -788,7 +792,7 @@ export class SwarmOrchestrator {
       console.log(`  🐝 Step ${step.stepNumber} (${agent.name}) — Agent working...`);
       console.log(`  ${'─'.repeat(60)}`);
 
-      const sessionResult = await this.sessionExecutor.executeSession(enhancedPrompt, sessionOptions);
+      const sessionResult = await worktreeExecutor.executeSession(enhancedPrompt, sessionOptions);
 
       // Print completion with timing
       const durationSec = Math.round(sessionResult.duration / 1000);
@@ -1098,16 +1102,14 @@ export class SwarmOrchestrator {
     sections.push('DEPENDENCY CONTEXT:');
     sections.push(dependencyContext + '\n');
 
-    sections.push('CRITICAL: VERIFY YOUR BRANCH BEFORE ANY WORK');
-    sections.push('-------------------------------------------');
-    sections.push('1. FIRST, run: git branch --show-current');
-    sections.push('2. Confirm you are on your assigned branch (shown above)');
-    sections.push('3. If on wrong branch, run: git checkout <your-branch-name>');
-    sections.push('4. BEFORE every commit, verify branch again with: git status');
-    sections.push('5. Never commit to main directly - always use your agent branch\n');
+    sections.push('BRANCH STATUS: YOU ARE ALREADY ON YOUR CORRECT BRANCH');
+    sections.push('-----------------------------------------------------');
+    sections.push('Your working directory is a dedicated git worktree.');
+    sections.push('You are ALREADY checked out to your assigned branch: ' + `swarm/.../${step.stepNumber}-${agent.name.toLowerCase()}`);
+    sections.push('DO NOT run git checkout or switch branches - just start working.\n');
 
     sections.push('GIT WORKFLOW:');
-    sections.push('- You are on your own agent branch');
+    sections.push('- You are on your own agent branch (already checked out)');
     sections.push('- Make incremental commits with natural, human-like messages');
     sections.push('- Your branch will auto-merge to main when you complete');
     sections.push('- If conflicts arise, they will be flagged for manual resolution\n');
@@ -1191,7 +1193,71 @@ export class SwarmOrchestrator {
   }
 
   /**
-   * Create a new git branch for an agent
+   * Create a git worktree for an agent - enables true parallel execution
+   * Each agent gets its own isolated working directory with its branch checked out
+   */
+  private async createAgentWorktree(
+    branchName: string,
+    fromBranch: string,
+    runDir: string,
+    stepNumber: number
+  ): Promise<string> {
+    const worktreePath = path.join(runDir, 'worktrees', `step-${stepNumber}`);
+
+    // Ensure worktrees directory exists
+    const worktreesDir = path.dirname(worktreePath);
+    if (!fs.existsSync(worktreesDir)) {
+      fs.mkdirSync(worktreesDir, { recursive: true });
+    }
+
+    // Create the branch first (without checkout)
+    try {
+      execSync(`git branch ${branchName} ${fromBranch}`, { cwd: this.workingDir, stdio: 'pipe' });
+    } catch {
+      // Branch might already exist from a retry, that's fine
+    }
+
+    // Create worktree with the branch
+    return new Promise((resolve, reject) => {
+      const proc = spawn('git', ['worktree', 'add', worktreePath, branchName], {
+        cwd: this.workingDir
+      });
+
+      let stderr = '';
+      if (proc.stderr) {
+        proc.stderr.on('data', (data) => {
+          stderr += data.toString();
+        });
+      }
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve(worktreePath);
+        } else {
+          reject(new Error(`Failed to create worktree: ${stderr}`));
+        }
+      });
+    });
+  }
+
+  /**
+   * Remove a git worktree after merge
+   */
+  private async removeAgentWorktree(worktreePath: string): Promise<void> {
+    return new Promise((resolve) => {
+      const proc = spawn('git', ['worktree', 'remove', worktreePath, '--force'], {
+        cwd: this.workingDir
+      });
+
+      proc.on('close', () => {
+        // Don't fail if worktree removal fails - it's cleanup
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Create a new git branch for an agent (legacy - kept for compatibility)
    */
   private async createAgentBranch(branchName: string, fromBranch: string): Promise<void> {
     // stash any uncommitted changes before switching (avoids conflicts from parallel agents)
@@ -1224,9 +1290,20 @@ export class SwarmOrchestrator {
   }
 
   /**
-   * Merge all agent branches back to main
+   * Merge all agent branches back to main and clean up worktrees
    */
   private async mergeAllBranches(context: SwarmExecutionContext): Promise<void> {
+    // First, remove all worktrees (must be done before branch operations)
+    const worktreesDir = path.join(context.runDir, 'worktrees');
+    if (fs.existsSync(worktreesDir)) {
+      for (const result of context.results) {
+        if (result.branchName) {
+          const worktreePath = path.join(worktreesDir, `step-${result.stepNumber}`);
+          await this.removeAgentWorktree(worktreePath);
+        }
+      }
+    }
+
     // switch back to main branch
     await this.switchBranch(context.mainBranch);
 
