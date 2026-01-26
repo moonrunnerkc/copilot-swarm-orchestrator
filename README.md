@@ -10,7 +10,7 @@ Parallel execution of GitHub Copilot CLI sessions with dependency-aware scheduli
 
 ## Quick Links
 
-- **Watch demo (fresh project):** https://youtu.be/TKSlRksNLUA
+- **Watch demo (fresh project):** [https://youtu.be/TKSlRksNLUA](https://youtu.be/JiuUQfVsPyA)
 - **Run demo:** `npm start demo todo-app`
 - **Fast demo (2-step):** `npm start demo-fast`
 - **Jump to:** [Commands](#commands) · [Demo Scenarios](#demo-scenarios) · [Verification](#verification)
@@ -58,7 +58,7 @@ npm test          # 313 passing, 1 pending
 **Option A: Use npm start (no setup)**
 
 ```bash
-npm start demo todo-app
+npm start demo demo-fast
 npm start plan "Build a REST API"
 npm start quick "Add login route"
 ```
@@ -68,7 +68,7 @@ npm start quick "Add login route"
 ```bash
 npm link
 # Now you can use `swarm` from anywhere:
-swarm demo todo-app
+swarm demo demo-fast
 swarm plan "Build a REST API"
 swarm quick "Add login route"
 ```
@@ -112,7 +112,7 @@ If you don't have time to wait for a full run, explore `examples/completed-run/`
 
 ## Demo Media
 
-**Screencast (fresh project run):** https://youtu.be/TKSlRksNLUA
+**Screencast (fresh project run):** [https://youtu.be/TKSlRksNLUA](https://youtu.be/JiuUQfVsPyA)
 
 **Screenshots (existing project run):**
 
