@@ -22,5 +22,9 @@ proof/
 *.p12
 *.pfx
 
+# Allow committed, sanitized sample artifacts for judges
+!examples/completed-run/
+!examples/completed-run/**
+
 # Copilot instructions contain internal prompts, not for public
 .github/copilot-instructions.md

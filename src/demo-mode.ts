@@ -25,11 +25,46 @@ export class DemoMode {
    */
   getAvailableScenarios(): DemoScenario[] {
     return [
+      this.getDemoFastScenario(),
       this.getTodoAppScenario(),
       this.getApiServerScenario(),
       this.getFullStackScenario(),
       this.getSaaSMvpScenario()
     ];
+  }
+
+  /**
+   * Demo Fast - "hello world" swarm
+   * Two agents, one wave, minimal work.
+   */
+  private getDemoFastScenario(): DemoScenario {
+    return {
+      name: 'demo-fast',
+      description: 'Two-step hello-world swarm (math util + test) to prove parallel waves fast',
+      goal: 'Quick swarm hello-world: add a tiny math util + one test, in parallel',
+      expectedDuration: '2-4 minutes',
+      steps: [
+        {
+          stepNumber: 1,
+          agentName: 'backend_master',
+          task: 'Create a tiny TypeScript utility module at src/math-utils.ts that exports a single function add(a: number, b: number): number. Keep it boring. No new deps. Add a short top-of-file comment.',
+          dependencies: [],
+          expectedOutputs: [
+            'src/math-utils.ts with exported add(a,b) function'
+          ]
+        },
+        {
+          stepNumber: 2,
+          agentName: 'tester_elite',
+          task: 'Create a mocha test at test/math-utils.test.ts that imports add() from src/math-utils.ts and asserts add(2, 3) === 5. Run npm test and include the output in the transcript. No extra tests.',
+          dependencies: [],
+          expectedOutputs: [
+            'test/math-utils.test.ts with one passing assertion',
+            'Test run output showing pass'
+          ]
+        }
+      ]
+    };
   }
 
   /**

@@ -25,6 +25,7 @@ Usage:
   swarm swarm <planfile>                 Execute plan in parallel swarm mode
   swarm quick "task"                     Quick-fix mode for simple single-agent tasks
   swarm demo <scenario>                  Run pre-configured demo scenario
+  swarm demo-fast                        Fast 2-step demo (alias for: swarm demo demo-fast)
   swarm demo list                        List available demo scenarios
   swarm gates [path]                     Run quality gates on a repo (default: cwd)
   swarm status <execid>                  Show execution status
@@ -653,6 +654,17 @@ async function main(): Promise<void> {
 
   const command = args[0];
 
+  // convenience alias so `npm start demo-fast` is a thing
+  if (command === 'demo-fast') {
+    try {
+      await runDemo('demo-fast');
+    } catch (error) {
+      console.error('Error running demo:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+    return;
+  }
+
   if (command === 'gates') {
     await runQualityGatesCli(args.slice(1));
     return;
@@ -861,6 +873,7 @@ async function main(): Promise<void> {
 
     if (!subcommand || subcommand === '--help') {
       console.log('\nAvailable demo scenarios:');
+      console.log('  demo-fast      - Hello-world swarm (2-4 min, 2 steps)');
       console.log('  todo-app        - Simple todo app (5-8 min, 4 steps)');
       console.log('  api-server      - REST API with auth (10-15 min, 6 steps)');
       console.log('  full-stack-app  - Complete full-stack app (15-20 min, 7 steps)\n');

@@ -12,6 +12,7 @@ Parallel execution of GitHub Copilot CLI sessions with dependency-aware scheduli
 
 - **Watch demo (fresh project):** https://youtu.be/TKSlRksNLUA
 - **Run demo:** `npm start demo todo-app`
+- **Fast demo (2-step):** `npm start demo-fast`
 - **Jump to:** [Commands](#commands) · [Demo Scenarios](#demo-scenarios) · [Verification](#verification)
 
 ## Why This Exists
@@ -84,6 +85,7 @@ To unlink later: `npm unlink -g copilot-swarm-orchestrator`
 |---|---|
 | `npm start bootstrap <path(s)> "Goal"` | Analyze repo(s), optionally ingest open issues via `gh`, and generate a plan |
 | `npm start demo todo-app` | Run 4-step demo with parallel execution |
+| `npm start demo-fast` | Run fast 2-step hello-world swarm demo |
 | `npm start demo list` | List available demo scenarios |
 | `npm start plan "goal"` | Generate execution plan for a goal |
 | `npm start swarm plan.json` | Execute plan in parallel swarm mode |
@@ -98,10 +100,13 @@ To unlink later: `npm unlink -g copilot-swarm-orchestrator`
 
 | Scenario | Steps | Duration | Description |
 |---|---:|---:|---|
+| `demo-fast` | 2 | 2-4 min | Hello-world swarm: tiny util + test in one wave |
 | `todo-app` | 4 | 12-18 min | React + Express todo app |
 | `api-server` | 6 | 20-30 min | REST API with auth and DB |
 | `full-stack-app` | 7 | 25-35 min | Full-stack with deployment |
 | `saas-mvp` | 8 | 30-45 min | SaaS with Stripe, analytics |
+
+If you don't have time to wait for a full run, explore `examples/completed-run/` for a pre-baked look at what the orchestrator writes.
 
 > **Note:** Duration depends on model latency and task complexity. Each step runs a real Copilot CLI session.
 
