@@ -137,6 +137,9 @@ export class ContextBroker {
    * Add context from a completed step
    */
   addStepContext(entry: ContextEntry): void {
+    // Re-ensure directories exist (may have been deleted by git operations)
+    this.ensureDirectories();
+    
     const contexts = this.getAllContext();
     contexts.push(entry);
     
