@@ -83,12 +83,21 @@ echo "Step 5: Proof Artifacts"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-echo -e "${BLUE}Demo run artifacts:${NC}"
-ls -lh runs/demo-todo-api/proof/
-echo ""
-echo -e "${GREEN}✅ Real Copilot planning transcript${NC}"
-echo -e "${GREEN}✅ Real execution transcript${NC}"
-echo -e "${GREEN}✅ Drift trap verification report${NC}"
+echo -e "${BLUE}Swarm run artifacts (created at runtime):${NC}"
+if [ -d runs ] && [ "$(ls -A runs 2>/dev/null)" ]; then
+	LATEST_RUN=$(ls -1dt runs/*/ 2>/dev/null | head -1)
+	echo "Latest run: ${LATEST_RUN}"
+	ls -lh "${LATEST_RUN}" | head
+	echo ""
+	if [ -d "${LATEST_RUN}steps" ]; then
+		echo "Example transcript: ${LATEST_RUN}steps/step-1/share.md"
+		echo "Example verification: ${LATEST_RUN}verification/step-1-verification.md"
+	fi
+else
+	echo "No runs/ artifacts found in this repo."
+	echo "Run: npm start demo todo-app"
+	echo "Then check: runs/<run-id>/steps/*/share.md"
+fi
 echo ""
 
 # Step 6: Test Coverage
@@ -123,9 +132,7 @@ echo -e "${GREEN}✅ Drift Trap: Evidence verification for 8 claim types${NC}"
 echo -e "${GREEN}✅ Proof Artifacts: Real transcripts + verification reports${NC}"
 echo ""
 echo "📖 For detailed verification:"
-echo "   • Judge Quick-Start: JUDGE-QUICKSTART.md"
-echo "   • Championship Summary: CHAMPIONSHIP-SUMMARY.md"
-echo "   • Submission Checklist: SUBMISSION-CHECKLIST.md"
+echo "   • README: ./README.md"
 echo ""
 echo "🏆 Status: CHAMPIONSHIP READY"
 echo ""
