@@ -1,6 +1,7 @@
 <h1 align="center">
-<img src="docs/media/wasp.svg" alt="Wasp" width="36" height="36" style="vertical-align: middle; margin-right: 8px;">
+<img src="docs/media/wasp.svg" alt="" width="36" height="36" style="vertical-align: middle; margin-right: 8px;">
 Copilot Swarm Orchestrator
+<img src="docs/media/wasp.svg" alt="" width="36" height="36" style="vertical-align: middle; margin-left: 8px;">
 </h1>
 
 <p align="center">
