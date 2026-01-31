@@ -1,19 +1,26 @@
-# Copilot Swarm Orchestrator
-
-Parallel execution of GitHub Copilot CLI sessions with dependency-aware wave scheduling, transcript-based verification, and per-agent git branch isolation.
-
-[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933.svg)](https://nodejs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-317%20passing-brightgreen.svg)](#verification)
+<h1 align="center">Copilot Swarm Orchestrator</h1>
 
 <p align="center">
-<a href="#overview">Overview</a> · 
-<a href="#what-this-is">What This Is</a> · 
-<a href="#usage">Usage</a> · 
-<a href="#architecture">Architecture</a> · 
-<a href="#agents">Agents</a> · 
-<a href="#verification">Verification</a> · 
+Parallel execution of GitHub Copilot CLI sessions with dependency-aware wave scheduling,<br>
+transcript-based verification, and per-agent git branch isolation.
+</p>
+
+<p align="center">
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-ISC-blue.svg" alt="License: ISC"></a>
+<a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-18%2B-339933.svg" alt="Node.js"></a>
+<a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.x-3178C6.svg" alt="TypeScript"></a>
+<a href="#verification"><img src="https://img.shields.io/badge/Tests-317%20passing-brightgreen.svg" alt="Tests"></a>
+</p>
+
+---
+
+<p align="center">
+<a href="#overview">Overview</a> ·
+<a href="#what-this-is">What This Is</a> ·
+<a href="#usage">Usage</a> ·
+<a href="#architecture">Architecture</a> ·
+<a href="#agents">Agents</a> ·
+<a href="#verification">Verification</a> ·
 <a href="#limitations">Limitations</a>
 </p>
 
