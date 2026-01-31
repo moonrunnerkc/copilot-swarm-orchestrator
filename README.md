@@ -7,22 +7,15 @@ Parallel execution of GitHub Copilot CLI sessions with dependency-aware wave sch
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6.svg)](https://www.typescriptlang.org/)
 [![Tests](https://img.shields.io/badge/Tests-317%20passing-brightgreen.svg)](#verification)
 
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [What This Is](#what-this-is)
-- [What This Is Not](#what-this-is-not)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Architecture](#architecture)
-- [Agents](#agents)
-- [Output Artifacts](#output-artifacts)
-- [Verification](#verification)
-- [Limitations](#limitations)
-- [License](#license)
+<p align="center">
+<a href="#overview">Overview</a> · 
+<a href="#what-this-is">What This Is</a> · 
+<a href="#usage">Usage</a> · 
+<a href="#architecture">Architecture</a> · 
+<a href="#agents">Agents</a> · 
+<a href="#verification">Verification</a> · 
+<a href="#limitations">Limitations</a>
+</p>
 
 ---
 
