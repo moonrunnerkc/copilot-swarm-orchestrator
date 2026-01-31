@@ -26,6 +26,7 @@ export class DemoMode {
   getAvailableScenarios(): DemoScenario[] {
     return [
       this.getDemoFastScenario(),
+      this.getDashboardShowcaseScenario(),
       this.getTodoAppScenario(),
       this.getApiServerScenario(),
       this.getFullStackScenario(),
@@ -61,6 +62,124 @@ export class DemoMode {
           dependencies: [],
           expectedOutputs: [
             'src/number-utils.ts with exported double() function'
+          ]
+        }
+      ]
+    };
+  }
+
+  /**
+   * Dashboard Showcase - Impressive visual demo (~5-6 minutes)
+   * Creates an analytics dashboard with charts, animated counters, and live data.
+   * Wave 1: Two agents work in parallel (UI shell + data utils)
+   * Wave 2: API server (needs mockData from Wave 1)
+   * Wave 3: Integration step wires everything together with charts
+   */
+  private getDashboardShowcaseScenario(): DemoScenario {
+    return {
+      name: 'dashboard-showcase',
+      description: 'Analytics dashboard with charts, animated counters, and live data',
+      goal: 'Build a visually impressive analytics dashboard with Chart.js charts, animated stat counters, mock API, and dark theme',
+      expectedDuration: '5-6 minutes',
+      steps: [
+        {
+          stepNumber: 1,
+          agentName: 'frontend_expert',
+          task: `Create a React + Vite dashboard shell. YOU ARE RESPONSIBLE FOR:
+- package.json with vite, react, react-dom, chart.js, react-chartjs-2, express, cors deps
+- vite.config.js with proxy to localhost:3001 for /api
+- index.html with root div and Google Fonts Inter link
+- src/main.jsx entry point
+- src/App.jsx with CSS Grid layout: sidebar (200px, dark #0f0f23), main area with header and 2x2 grid of placeholder cards (background #1a1a2e, card bg #252542)
+- Add "start:server": "node server/index.js" script to package.json for later use
+
+Style it modern and dark. Add author comment "Author: Bradley R. Kinnard" at top of each file. Commit with message "add dashboard shell with dark theme".`,
+          dependencies: [],
+          expectedOutputs: [
+            'package.json with vite, react, chart.js, express, cors deps and start:server script',
+            'vite.config.js with API proxy to localhost:3001',
+            'src/App.jsx with CSS Grid layout and dark theme',
+            'src/main.jsx entry point',
+            'index.html shell with Inter font'
+          ]
+        },
+        {
+          stepNumber: 2,
+          agentName: 'backend_master',
+          task: `Create mock data utilities. YOU ARE RESPONSIBLE FOR ONLY THIS FILE:
+- src/utils/mockData.js
+
+This file should export three pure functions:
+1. generateStats() - returns { users: random 1000-5000, revenue: random 10000-50000, orders: random 100-500, conversion: random 2.5-8.5 }
+2. generateChartData(days=7) - returns { labels: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], datasets: [{label: "Revenue", data: [random values 1000-5000 for each day], borderColor: "#6366f1", backgroundColor: "rgba(99,102,241,0.1)"}] }
+3. generateActivityFeed(count=5) - returns array of { id, user: random name, action: random action like "placed order", timestamp: recent ISO string }
+
+All functions return fresh random data each call. Use module.exports for CommonJS compatibility.
+Add author comment "Author: Bradley R. Kinnard" at top.
+Commit with message "add mock data generators".`,
+          dependencies: [],
+          expectedOutputs: [
+            'src/utils/mockData.js with generateStats, generateChartData, generateActivityFeed',
+            'Pure functions returning randomized mock data',
+            'CommonJS exports for Node.js compatibility'
+          ]
+        },
+        {
+          stepNumber: 3,
+          agentName: 'tester_elite',
+          task: `Create the Express API server. YOU ARE RESPONSIBLE FOR ONLY THIS FILE:
+- server/index.js
+
+IMPORTANT: The mockData functions already exist at src/utils/mockData.js (created by another agent).
+Import them with: const { generateStats, generateChartData, generateActivityFeed } = require('../src/utils/mockData');
+
+Create an Express server that:
+1. Enables CORS
+2. GET /api/stats returns generateStats()
+3. GET /api/chart returns generateChartData(7)
+4. GET /api/activity returns generateActivityFeed(5)
+5. Listens on port 3001
+
+Add author comment "Author: Bradley R. Kinnard" at top.
+Commit with message "add Express API server".`,
+          dependencies: [2],
+          expectedOutputs: [
+            'server/index.js with /api/stats, /api/chart, /api/activity endpoints',
+            'Imports mockData from src/utils/mockData.js',
+            'CORS enabled, port 3001'
+          ]
+        },
+        {
+          stepNumber: 4,
+          agentName: 'integrator_finalizer',
+          task: `Complete the dashboard by UPDATING the existing src/App.jsx file.
+
+CONTEXT: Other agents have already created:
+- src/App.jsx (placeholder dashboard shell with dark theme)
+- src/utils/mockData.js (data generators - not needed in frontend, API uses them)
+- server/index.js (Express API on port 3001)
+- package.json with all deps including chart.js, react-chartjs-2
+
+YOUR JOB: Update src/App.jsx to add:
+1. Import { Line } from 'react-chartjs-2' and Chart.js registration
+2. Add useState for stats, chartData, activity, loading
+3. Add useEffect to fetch from /api/stats, /api/chart, /api/activity on mount
+4. Create a StatCard component with animated count-up effect using requestAnimationFrame
+5. Render 4 stat cards in the grid: Users (icon 👥), Revenue $ (icon 💰), Orders (icon 📦), Conversion % (icon 📈)
+6. Add a Line chart card using react-chartjs-2 with the fetched chartData
+7. Add an activity feed card showing recent actions with relative timestamps
+8. Add a "Refresh Data" button in the header that re-fetches all endpoints
+9. Add subtle hover effects on cards (transform: translateY(-2px), box-shadow)
+
+Make it visually polished. The app should work when running "npm run dev" (frontend) and "npm run start:server" (API) concurrently.
+Commit with message "complete dashboard with charts and live data".`,
+          dependencies: [1, 2, 3],
+          expectedOutputs: [
+            'Complete dashboard with animated stat cards',
+            'Line chart with Chart.js and gradient fill',
+            'Activity feed with timestamps',
+            'Refresh button for live data updates',
+            'Polished dark theme with hover effects'
           ]
         }
       ]

@@ -393,6 +393,17 @@ export class SwarmOrchestrator {
           }
         }
       }
+
+      // CRITICAL: Merge completed wave branches to master BEFORE next wave starts
+      // This ensures dependent steps see all prior work and prevents merge conflicts
+      const completedInThisWave = context.results.filter(
+        r => wave.includes(r.stepNumber) && r.status === 'completed' && r.branchName
+      );
+
+      if (completedInThisWave.length > 0 && waveIndex < executionWaves.length - 1) {
+        console.log(`\n🔀 Merging wave ${waveIndex + 1} branches to main (${completedInThisWave.length} branch(es))...`);
+        await this.mergeWaveBranches(completedInThisWave, context);
+      }
     }
 
     // final quality gates run on the merged state (hard gate)
@@ -1287,6 +1298,47 @@ export class SwarmOrchestrator {
         }
       });
     });
+  }
+
+  /**
+   * Merge wave branches to main incrementally after each wave completes.
+   * This ensures dependent steps in subsequent waves see all prior work.
+   * Worktrees are NOT removed here - only at final cleanup.
+   */
+  private async mergeWaveBranches(
+    completedResults: ParallelStepResult[],
+    context: SwarmExecutionContext
+  ): Promise<void> {
+    // Save current directory and switch to main to perform merges
+    const originalDir = process.cwd();
+
+    try {
+      process.chdir(this.workingDir);
+
+      // Ensure we're on main branch for merging
+      await this.switchBranch(context.mainBranch);
+
+      for (const result of completedResults) {
+        if (result.branchName) {
+          try {
+            await this.mergeBranch(result.branchName, context);
+            console.log(`  ✅ Merged ${result.branchName}`);
+          } catch (error: unknown) {
+            const err = error as Error;
+            // Log but don't fail - conflicts will be handled at final merge
+            console.warn(`  ⚠️  Merge conflict for ${result.branchName}: ${err.message}`);
+            // Abort the failed merge to keep working directory clean
+            try {
+              execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' });
+            } catch {
+              // Already aborted or no merge in progress
+            }
+          }
+        }
+      }
+    } finally {
+      process.chdir(originalDir);
+    }
   }
 
   /**

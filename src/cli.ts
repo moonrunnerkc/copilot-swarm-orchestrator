@@ -525,6 +525,114 @@ async function runDemo(scenarioName: string): Promise<void> {
   // Execute in swarm mode with quality gates disabled to keep within time estimate
   // (demos are meant to be quick showcases, not production runs)
   await executeSwarm(path.basename(planPath), { noQualityGates: true });
+
+  // Post-demo: install dependencies so demo is runnable out of the box
+  await installDemoDependencies(demoDir);
+}
+
+/**
+ * Install npm dependencies for all package.json files in demo output
+ * Makes the demo runnable immediately after completion
+ */
+async function installDemoDependencies(demoDir: string): Promise<void> {
+  const { execSync } = require('child_process');
+
+  console.log('\n📦 Installing dependencies for demo output...\n');
+
+  // Find all package.json files (root and subdirectories)
+  const packageJsonPaths: string[] = [];
+
+  function findPackageJsons(dir: string, depth: number = 0): void {
+    if (depth > 3) return; // Limit depth to avoid node_modules
+
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'runs') continue;
+
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          findPackageJsons(fullPath, depth + 1);
+        } else if (entry.name === 'package.json') {
+          packageJsonPaths.push(dir);
+        }
+      }
+    } catch {
+      // Ignore permission errors
+    }
+  }
+
+  findPackageJsons(demoDir);
+
+  if (packageJsonPaths.length === 0) {
+    console.log('  No package.json files found, skipping dependency install.\n');
+    return;
+  }
+
+  // Sort by path length (install root first, then subdirs)
+  packageJsonPaths.sort((a, b) => a.length - b.length);
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const pkgDir of packageJsonPaths) {
+    const relativePath = path.relative(demoDir, pkgDir) || '.';
+    try {
+      console.log(`  📂 ${relativePath}/`);
+      execSync('npm install --loglevel=error', {
+        cwd: pkgDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 120000 // 2 minute timeout per install
+      });
+      console.log(`     ✅ Dependencies installed\n`);
+      successCount++;
+    } catch (error) {
+      console.log(`     ⚠️  npm install failed (run manually)\n`);
+      failCount++;
+    }
+  }
+
+  console.log('━'.repeat(60));
+  if (failCount === 0) {
+    console.log(`✅ All dependencies installed (${successCount} location${successCount > 1 ? 's' : ''})`);
+  } else {
+    console.log(`⚠️  Installed ${successCount}/${packageJsonPaths.length} - some may need manual install`);
+  }
+
+  // Print run instructions
+  console.log('\n🚀 To run the demo:\n');
+  console.log(`   cd ${demoDir}`);
+
+  // Check for common scripts and provide tailored instructions
+  const rootPkgPath = path.join(demoDir, 'package.json');
+  if (fs.existsSync(rootPkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(rootPkgPath, 'utf8'));
+      if (pkg.scripts?.['start:server']) {
+        console.log('   npm run start:server   # Start backend');
+      } else if (pkg.scripts?.start) {
+        console.log('   npm start              # Start server');
+      }
+      if (pkg.scripts?.dev) {
+        console.log('   npm run dev            # Start dev server');
+      }
+      if (pkg.scripts?.test) {
+        console.log('   npm test               # Run tests');
+      }
+    } catch {
+      // Fallback to generic
+      console.log('   npm start');
+    }
+  }
+
+  // Check for frontend subdirectory
+  const frontendPkgPath = path.join(demoDir, 'frontend', 'package.json');
+  if (fs.existsSync(frontendPkgPath)) {
+    console.log('\n   # Frontend (in separate terminal):');
+    console.log('   cd frontend && npm run dev');
+  }
+
+  console.log('');
 }
 
 function showStatus(executionId: string): void {
