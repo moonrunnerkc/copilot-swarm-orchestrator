@@ -11,7 +11,7 @@ git clone https://github.com/moonrunnerkc/copilot-swarm-orchestrator.git
 cd copilot-swarm-orchestrator
 npm install
 npm run build
-npm start demo demo-fast
+npm start demo-fast
 ```
 
 That's it. You'll see two agents work in parallel, verify their output, and merge to main.
@@ -105,7 +105,7 @@ Goal → Plan Generator → Execution Waves → Agent Branches → Verify → Me
 
 ### Agents
 
-Six specialized agents in `config/default-agents.yaml`:
+Six step-executing agents in `config/default-agents.yaml`:
 
 | Agent | Purpose |
 |-------|---------|
@@ -115,6 +115,8 @@ Six specialized agents in `config/default-agents.yaml`:
 | `security_auditor` | Security hardening |
 | `devops_pro` | CI/CD, deployment |
 | `integrator_finalizer` | Final integration |
+
+There's also a **meta-reviewer** (in `.github/agents/`) that runs internally after each wave to analyze results and trigger retries. It doesn't execute steps—it's the orchestrator's quality analyzer.
 
 ---
 
