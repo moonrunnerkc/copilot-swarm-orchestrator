@@ -1,8 +1,7 @@
-<p align="center">
-<img src="docs/media/wasp.svg" alt="Wasp" width="48" height="48">
-</p>
-
-<h1 align="center">Copilot Swarm Orchestrator</h1>
+<h1 align="center">
+<img src="docs/media/wasp.svg" alt="Wasp" width="36" height="36" style="vertical-align: middle; margin-right: 8px;">
+Copilot Swarm Orchestrator
+</h1>
 
 <p align="center">
 Parallel execution of GitHub Copilot CLI sessions with dependency-aware wave scheduling,<br>
