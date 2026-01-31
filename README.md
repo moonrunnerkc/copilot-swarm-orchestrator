@@ -37,7 +37,7 @@ This tool orchestrates multiple GitHub Copilot CLI sessions to execute a multi-s
 <details>
 <summary><strong>Demo Video</strong></summary>
 
-[Watch on YouTube](https://youtu.be/5m-6yxnDjk4)
+<a href="https://youtu.be/5m-6yxnDjk4" target="_blank">Watch on YouTube</a>
 
 </details>
 
