@@ -1,3 +1,7 @@
+<p align="center">
+<img src="docs/media/wasp.svg" alt="Wasp" width="48" height="48">
+</p>
+
 <h1 align="center">Copilot Swarm Orchestrator</h1>
 
 <p align="center">
