@@ -448,7 +448,7 @@ Before submitting a PR:
 
 [ISC](LICENSE)
 
-Built by [Brad Moon](https://github.com/moonrunnerkc).
+Built by [Bradley R. Kinnard](https://github.com/moonrunnerkc).
 
 <p align="center">
   <img src="docs/media/wasp.svg" alt="" width="32" height="32">

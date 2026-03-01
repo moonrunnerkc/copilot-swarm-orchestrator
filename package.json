@@ -17,7 +17,7 @@
     "url": "git+https://github.com/moonrunnerkc/copilot-swarm-orchestrator.git"
   },
   "keywords": ["copilot", "cli", "orchestrator", "swarm", "parallel", "ai", "workflow"],
-  "author": "Brad Moon <brad@moonrunnerkc.com>",
+  "author": "Bradley R. Kinnard",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
