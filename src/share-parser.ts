@@ -214,8 +214,8 @@ export class ShareParser {
     const cmdIndex = lines.findIndex(line => line.includes(testCommand));
     if (cmdIndex === -1) return false;
 
-    // check next 50 lines for test output
-    const outputLines = lines.slice(cmdIndex + 1, cmdIndex + 51);
+    // check next 80 lines for test output (Node.js test runner can be verbose)
+    const outputLines = lines.slice(cmdIndex + 1, cmdIndex + 81);
 
     for (const line of outputLines) {
       // mocha/jest patterns
@@ -229,8 +229,15 @@ export class ShareParser {
       if (line.match(/PASS/)) return true;
       if (line.match(/ok\s+/)) return true;
 
+      // Node.js built-in test runner patterns (node --test)
+      if (line.match(/tests\s+\d+/)) return true;       // "ℹ tests 10"
+      if (line.match(/pass\s+\d+/)) return true;        // "ℹ pass 10"
+      if (line.match(/fail\s+0/)) return true;           // "ℹ fail 0"
+      if (line.match(/duration_ms/)) return true;        // "ℹ duration_ms 123"
+
       // generic success patterns
       if (line.match(/all tests passed/i)) return true;
+      if (line.match(/all\s+\d+\s+tests?\s+pass/i)) return true;
     }
 
     return false;

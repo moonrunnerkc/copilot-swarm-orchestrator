@@ -1446,11 +1446,13 @@ export class SwarmOrchestrator {
     // switch back to main branch
     await this.switchBranch(context.mainBranch);
 
-    // Stash any uncommitted changes in the working directory
-    // (e.g. from npm install during post-execution setup)
+    // Stash only tracked modifications in the working directory
+    // (e.g. from npm install during post-execution setup).
+    // IMPORTANT: do NOT stash untracked files -- the runs/ directory contains
+    // transcripts, verification reports, and other artifacts that must persist.
     let stashed = false;
     try {
-      const stashResult = execSync('git stash', { cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe' });
+      const stashResult = execSync('git stash push --no-include-untracked', { cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe' });
       stashed = !stashResult.includes('No local changes');
     } catch {
       // No changes to stash

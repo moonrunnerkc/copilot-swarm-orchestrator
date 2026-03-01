@@ -88,13 +88,21 @@ export class DemoMode {
           task: `Create a React + Vite dashboard shell. YOU ARE RESPONSIBLE FOR:
 - package.json with "type": "module", vite, react, react-dom, chart.js, react-chartjs-2, express, cors deps
 - vite.config.js with proxy to localhost:3001 for /api
-- index.html with root div and Google Fonts Inter link
+- index.html with root div, viewport meta, lang="en", and Google Fonts Inter link
 - src/main.jsx entry point that wraps App in a React ErrorBoundary component
-- src/ErrorBoundary.jsx - a class component that catches render errors and shows a styled fallback UI
+- src/ErrorBoundary.jsx - a class component that catches render errors and shows a styled fallback UI with role="alert"
 - src/App.jsx with CSS Grid layout: sidebar (200px, dark #0f0f23), main area with header and 2x2 grid of placeholder cards (background #1a1a2e, card bg #252542)
 - src/App.css with dark theme styles, responsive breakpoints (@media max-width: 1024px collapses sidebar to horizontal nav, @media max-width: 640px stacks to single column)
 - CSS MUST use /* */ comments only (never // comments, those are invalid CSS)
 - Add "start:server": "node server/index.js" and "test": "node --test test/*.test.js" scripts to package.json
+
+ACCESSIBILITY REQUIREMENTS (a11y):
+- Use semantic HTML elements: <nav> for navigation, <main> for main content, <header> for page header, <section> for card groups
+- Add aria-label on the <nav> element (e.g. "Main navigation")
+- Navigation links must be keyboard-focusable with visible focus styles in CSS (:focus-visible outline)
+- Cards should use <article> or have role="region" with aria-label
+- Ensure color contrast: text on dark backgrounds must be at least #a0a0a0 (ratio 4.5:1 minimum)
+- Add aria-live="polite" on the container where dynamic content (stats/chart) will load
 
 IMPORTANT: package.json MUST have "type": "module". ALL .js files in this project use ES module syntax (import/export), never CommonJS (require/module.exports).
 
@@ -105,9 +113,10 @@ Style it modern, dark, and responsive. Add author comment "Author: Bradley R. Ki
             'vite.config.js with API proxy to localhost:3001',
             'src/ErrorBoundary.jsx class component with styled fallback',
             'src/App.jsx with CSS Grid layout and dark theme',
-            'src/App.css with responsive breakpoints at 1024px and 640px',
+            'src/App.css with responsive breakpoints at 1024px and 640px, :focus-visible styles',
             'src/main.jsx entry point wrapping App in ErrorBoundary',
-            'index.html shell with Inter font'
+            'index.html shell with Inter font and lang attribute',
+            'Semantic HTML: nav, main, header, section elements with ARIA labels'
           ]
         },
         {
@@ -201,17 +210,40 @@ Also update src/App.css:
 - Use ONLY /* */ CSS comments, never // comments (those are invalid CSS)
 - Ensure all color hex values are valid (3, 4, 6, or 8 digits only)
 - Ensure responsive breakpoints at 1024px and 640px are present
+- Add :focus-visible outline styles for interactive elements
+
+ACCESSIBILITY:
+- Stat cards should have aria-label describing the stat (e.g. aria-label="Users: 3,421")
+- The refresh button must have aria-label="Refresh data"
+- The error banner must have role="alert" so screen readers announce it
+- Chart container should have role="img" and aria-label describing the chart
+- Activity feed list should use <ul> with <li> items
+
+README: Create or update README.md with:
+- Project title and one-line description
+- Prerequisites (Node.js 18+)
+- Install instructions (npm install)
+- How to run: "npm run start:server" in one terminal, "npm run dev" in another, open http://localhost:5173
+- How to run tests: "npm test"
+- Tech stack list (React 18, Vite 5, Chart.js 4, Express 4)
+- Brief architecture overview (frontend fetches from /api proxy to Express server)
+
+COMPONENT TEST: Create test/App.test.js using node:test and node:assert/strict that:
+- Tests the StatCard component renders (import and call it, verify it returns non-null)
+- Or if direct component testing is not feasible, add integration tests that verify server endpoints return valid JSON shapes (fetch http://localhost:3001/api/stats and check the response has users, revenue, orders, conversion fields)
 
 Make it visually polished. The app should work when running "npm run dev" (frontend) and "npm run start:server" (API) concurrently.
-Commit with message "complete dashboard with charts and live data".`,
+Commit with message "complete dashboard with charts, live data, and docs".`,
           dependencies: [1, 2, 3],
           expectedOutputs: [
             'Complete dashboard with animated stat cards and error handling',
-            'Error banner with retry button for fetch failures',
-            'Line chart with Chart.js and gradient fill',
-            'Activity feed with timestamps',
-            'Refresh button for live data updates',
-            'Polished dark theme with hover effects and responsive layout'
+            'Error banner with retry button and role="alert" for fetch failures',
+            'Line chart with Chart.js and gradient fill, role="img" and aria-label',
+            'Activity feed with timestamps using semantic ul/li',
+            'Refresh button with aria-label for live data updates',
+            'Polished dark theme with hover effects and responsive layout',
+            'README.md with install, run, and test instructions',
+            'test/App.test.js with component or integration tests'
           ]
         }
       ]

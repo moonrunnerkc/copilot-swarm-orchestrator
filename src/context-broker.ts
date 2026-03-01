@@ -77,12 +77,21 @@ export class ContextBroker {
 
     // spin-wait for lock with timeout
     while (Date.now() - startTime < this.maxLockWaitMs) {
+      // Re-ensure lock directory exists (may have been removed by rollback/cleanup)
+      if (!fs.existsSync(this.lockDir)) {
+        fs.mkdirSync(this.lockDir, { recursive: true });
+      }
       try {
         // atomic file creation (fails if exists)
         fs.writeFileSync(lockFile, JSON.stringify(lock, null, 2), { flag: 'wx' });
         return lockId;
       } catch (err: unknown) {
         const error = err as NodeJS.ErrnoException;
+        if (error.code === 'ENOENT') {
+          // Directory was removed between check and write, retry
+          fs.mkdirSync(this.lockDir, { recursive: true });
+          continue;
+        }
         if (error.code === 'EEXIST') {
           // lock exists, check if stale (> 5 minutes old)
           try {
@@ -139,6 +148,10 @@ export class ContextBroker {
    * from cancelled runs.
    */
   forceReleaseStaleLocks(): void {
+    // Re-ensure lock directory exists (may have been removed by rollback/cleanup)
+    if (!fs.existsSync(this.lockDir)) {
+      fs.mkdirSync(this.lockDir, { recursive: true });
+    }
     const lockFile = path.join(this.lockDir, 'git.lock');
     try {
       if (fs.existsSync(lockFile)) {
@@ -271,10 +284,12 @@ export class ContextBroker {
     }
 
     // clean up any stale locks
-    const lockFiles = fs.readdirSync(this.lockDir);
-    lockFiles.forEach(file => {
-      fs.unlinkSync(path.join(this.lockDir, file));
-    });
+    if (fs.existsSync(this.lockDir)) {
+      const lockFiles = fs.readdirSync(this.lockDir);
+      lockFiles.forEach(file => {
+        fs.unlinkSync(path.join(this.lockDir, file));
+      });
+    }
   }
 
   private sleep(ms: number): Promise<void> {
