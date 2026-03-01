@@ -53,9 +53,9 @@ npm start demo dashboard-showcase
 
 ## Usage & Cost
 
-> **Each agent step is a separate Copilot CLI session and consumes a premium request.**
+> **Every agent step consumes its own premium request. A plan with 6 agents uses a minimum of 6 premium requests — one per agent.**
 
-The orchestrator invokes `copilot -p` as a standalone subprocess for every step in your plan. There is no session reuse — parallel agents in the same wave are simultaneous, independent Copilot processes. This means:
+The orchestrator invokes `copilot -p` as a standalone subprocess for every step in your plan. There is no session reuse or batching — each agent is an independent Copilot CLI process. When agents run in parallel within a wave, each one simultaneously consumes a premium request. This means:
 
 | Scenario | Steps | Min requests (happy path) | Max requests (all retries + repairs) |
 |:---------|------:|:-------------------------:|:------------------------------------:|
