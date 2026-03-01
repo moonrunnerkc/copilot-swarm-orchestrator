@@ -290,6 +290,8 @@ export class SessionExecutor {
    * Run a command and capture output.
    * Uses line buffering to prevent mid-word breaks when streaming output.
    * Each complete line gets prefixed with [Agent:Step] for parallelism visibility.
+   * A heartbeat indicator prints during quiet periods so users know the agent
+   * is still working (e.g. reading large files or thinking).
    */
   private runCommand(
     command: string,
@@ -315,10 +317,28 @@ export class SessionExecutor {
       let stdoutBuffer = '';
       let stderrBuffer = '';
 
+      // Heartbeat: print activity status during quiet periods (no output for 10s)
+      let lineCount = 0;
+      let lastOutputTime = Date.now();
+      const cmdStartTime = Date.now();
+      let heartbeatInterval: NodeJS.Timeout | null = null;
+
+      if (logPrefix) {
+        heartbeatInterval = setInterval(() => {
+          const silentMs = Date.now() - lastOutputTime;
+          if (silentMs >= 10000) {
+            const elapsed = Math.round((Date.now() - cmdStartTime) / 1000);
+            console.log(`${logPrefix} ... still working (${elapsed}s, ${lineCount} lines so far)`);
+            lastOutputTime = Date.now(); // reset so we don't spam
+          }
+        }, 5000);
+      }
+
       if (proc.stdout) {
         proc.stdout.on('data', (data) => {
           const text = data.toString();
           stdout += text;
+          lastOutputTime = Date.now();
 
           // buffer partial lines, only print complete ones
           if (logPrefix) {
@@ -329,6 +349,7 @@ export class SessionExecutor {
             // print complete lines with prefix
             for (const line of lines) {
               if (line.trim()) {
+                lineCount++;
                 console.log(`${logPrefix} ${line}`);
               }
             }
@@ -340,6 +361,7 @@ export class SessionExecutor {
         proc.stderr.on('data', (data) => {
           const text = data.toString();
           stderr += text;
+          lastOutputTime = Date.now();
 
           // buffer partial lines, only print complete ones
           if (logPrefix) {
@@ -350,6 +372,7 @@ export class SessionExecutor {
             // print complete lines with prefix
             for (const line of lines) {
               if (line.trim()) {
+                lineCount++;
                 console.error(`${logPrefix} ${line}`);
               }
             }
@@ -358,12 +381,17 @@ export class SessionExecutor {
       }
 
       proc.on('close', (code) => {
+        // stop heartbeat
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+
         // flush any remaining buffered content
         if (logPrefix) {
           if (stdoutBuffer.trim()) {
+            lineCount++;
             console.log(`${logPrefix} ${stdoutBuffer}`);
           }
           if (stderrBuffer.trim()) {
+            lineCount++;
             console.error(`${logPrefix} ${stderrBuffer}`);
           }
         }
@@ -376,6 +404,9 @@ export class SessionExecutor {
       });
 
       proc.on('error', (err) => {
+        // stop heartbeat
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+
         // flush buffers on error too
         if (logPrefix) {
           if (stdoutBuffer.trim()) {

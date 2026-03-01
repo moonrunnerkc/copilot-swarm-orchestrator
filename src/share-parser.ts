@@ -262,28 +262,49 @@ export class ShareParser {
     const commits: ShareIndex['gitCommits'] = [];
     const commitMap = new Map<string, { message?: string; sha?: string; verified?: boolean }>();
 
-    // look for git commit commands
+    // look for git commit commands in extracted commands list
     const commitCommands = commands.filter(cmd => cmd.match(/git\s+commit/));
 
     for (const cmd of commitCommands) {
-      // extract message from command
+      // try single-line quoted message first
       const messageMatch = cmd.match(/git\s+commit\s+-m\s+["']([^"']+)["']/);
       if (messageMatch && messageMatch[1]) {
         const message = messageMatch[1];
         commitMap.set(message, { message, verified: true });
+      } else {
+        // message may span multiple lines or have an unclosed quote;
+        // grab everything after -m " as the first line of the message
+        const partialMatch = cmd.match(/git\s+commit\s+-m\s+["'](.+)/);
+        if (partialMatch && partialMatch[1]) {
+          const message = partialMatch[1].replace(/["']$/, '').trim();
+          if (message) {
+            commitMap.set(message, { message, verified: true });
+          }
+        }
       }
     }
 
-    // also look for commit SHAs in output (format: [branch sha] message)
+    // also scan raw lines for git commit commands that extractCommands may
+    // have missed (e.g. chained commands: cd ... && git commit -m "...")
     for (const line of lines) {
-      const shaMatch = line.match(/\[(?:\w+\s+)?([a-f0-9]{7,40})\]/);
-      if (shaMatch && shaMatch[1]) {
+      const inlineMatch = line.match(/git\s+commit\s+-m\s+["']([^"'\n]+)/);
+      if (inlineMatch && inlineMatch[1]) {
+        const message = inlineMatch[1].trim();
+        if (message && !commitMap.has(message)) {
+          commitMap.set(message, { message, verified: true });
+        }
+      }
+    }
+
+    // look for commit SHAs in git output
+    // format: [branch-name sha] message  (branch can contain / and -)
+    for (const line of lines) {
+      const shaMatch = line.match(/\[[\w/.:-]+\s+([a-f0-9]{7,40})\]\s+(.+)/);
+      if (shaMatch && shaMatch[1] && shaMatch[2]) {
         const sha = shaMatch[1];
-        
-        // try to find associated message in the same line
-        const messageAfterSha = line.substring(line.indexOf(']') + 1).trim();
-        
-        // look for existing commit with this message
+        const messageAfterSha = shaMatch[2].trim();
+
+        // try to match with an already-known commit
         let foundCommit = false;
         for (const [message, commit] of commitMap.entries()) {
           if (messageAfterSha.includes(message) || message.includes(messageAfterSha)) {
@@ -292,9 +313,8 @@ export class ShareParser {
             break;
           }
         }
-        
+
         if (!foundCommit && messageAfterSha) {
-          // new commit found in output
           commitMap.set(messageAfterSha, { message: messageAfterSha, sha, verified: true });
         }
       }
@@ -511,8 +531,25 @@ export class ShareParser {
   private extractClaims(lines: string[], index: ShareIndex): ShareIndex['claims'] {
     const claims: ShareIndex['claims'] = [];
 
+    // skip lines that are part of the agent prompt/instructions rather than actual output
+    const instructionPrefixes = [
+      'scope:', 'done when:', 'role:', 'rules:', 'rule:', 'context:',
+      'you are ', 'your task', 'your job', 'your goal',
+      'important:', 'note:', 'constraints:', 'requirements:',
+    ];
+
     for (const line of lines) {
       const lowerLine = line.toLowerCase();
+      const trimmedLower = lowerLine.trim().toLowerCase();
+
+      // skip agent instruction/profile lines that produce false positive claims
+      if (instructionPrefixes.some(prefix => trimmedLower.startsWith(prefix))) {
+        continue;
+      }
+      // skip lines that look like bullet-point instructions (e.g. "- Ensure all tests pass")
+      if (trimmedLower.match(/^[-*]\s+(ensure|make sure|verify|confirm|must|should)\b/)) {
+        continue;
+      }
 
       // check for test passing claims
       if ((lowerLine.match(/\btests?\b/) && lowerLine.match(/\b(pass|passed|passing)\b/)) ||

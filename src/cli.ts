@@ -481,28 +481,39 @@ async function executeSwarm(
     const completed = context.results.filter(r => r.status === 'completed').length;
     const failed = context.results.filter(r => r.status === 'failed').length;
 
-    console.log('\n' + '='.repeat(70));
-    console.log('SWARM EXECUTION COMPLETE');
-    console.log('='.repeat(70));
-    console.log(`\n✅ Completed: ${completed}/${plan.steps.length}`);
+    console.log('\n' + '═'.repeat(60));
+    console.log('  SWARM EXECUTION COMPLETE');
+    console.log('═'.repeat(60));
+    console.log(`\n  ✅ Completed: ${completed}/${plan.steps.length}`);
 
     if (failed > 0) {
-      console.log(`❌ Failed: ${failed}/${plan.steps.length}`);
-      console.log('\nFailed steps:');
+      console.log(`  ❌ Failed: ${failed}/${plan.steps.length}`);
+      console.log('\n  Failed steps:');
       context.results
         .filter(r => r.status === 'failed')
         .forEach(r => {
-          console.log(`  - Step ${r.stepNumber} (${r.agentName}): ${r.error}`);
+          console.log(`    - Step ${r.stepNumber} (${r.agentName}): ${r.error}`);
         });
     }
 
-    console.log(`\n📁 Results saved to: ${runDir}`);
-    console.log(`📊 Verification reports: ${runDir}/verification/\n`);
+    // Calculate total execution time from first start to last end
+    const starts = context.results.filter(r => r.startTime).map(r => new Date(r.startTime!).getTime());
+    const ends = context.results.filter(r => r.endTime).map(r => new Date(r.endTime!).getTime());
+    if (starts.length > 0 && ends.length > 0) {
+      const totalSec = Math.round((Math.max(...ends) - Math.min(...starts)) / 1000);
+      const min = Math.floor(totalSec / 60);
+      const sec = totalSec % 60;
+      console.log(`  ⏱  Total time: ${min > 0 ? `${min}m ${sec}s` : `${sec}s`}`);
+    }
+
+    console.log(`\n  📁 Results: ${runDir}`);
+    console.log(`  📊 Reports: ${runDir}/verification/`);
+    console.log('═'.repeat(60));
 
     if (completed === plan.steps.length) {
-      console.log('🎉 All steps completed successfully!');
-      console.log('Review the git log to see the natural commit history:\n');
-      console.log('  git log --oneline -20\n');
+      console.log('\n🎉 All steps completed successfully!');
+      console.log('   Review the git log to see the natural commit history:');
+      console.log('   git log --oneline -20\n');
     }
 
   } catch (error) {

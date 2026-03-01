@@ -134,6 +134,22 @@ export class ContextBroker {
   }
 
   /**
+   * Force-remove all lock files regardless of age.
+   * Use before critical phases (e.g. final merge) to clear stale locks
+   * from cancelled runs.
+   */
+  forceReleaseStaleLocks(): void {
+    const lockFile = path.join(this.lockDir, 'git.lock');
+    try {
+      if (fs.existsSync(lockFile)) {
+        fs.unlinkSync(lockFile);
+      }
+    } catch {
+      // Ignore - lock may have been removed concurrently
+    }
+  }
+
+  /**
    * Add context from a completed step
    */
   addStepContext(entry: ContextEntry): void {

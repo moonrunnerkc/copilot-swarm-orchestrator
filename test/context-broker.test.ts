@@ -53,6 +53,22 @@ describe('ContextBroker', () => {
       broker.releaseGitLock(lock1);
     });
 
+    it('should force-release all locks via forceReleaseStaleLocks', async () => {
+      const broker = new ContextBroker(testRunDir);
+
+      // Create a lock
+      const lockId = await broker.acquireGitLock('agent1', 'merge');
+      assert(lockId !== null);
+
+      // Force release it
+      broker.forceReleaseStaleLocks();
+
+      // Should be able to acquire again immediately
+      const lockId2 = await broker.acquireGitLock('agent2', 'merge');
+      assert(lockId2 !== null);
+      broker.releaseGitLock(lockId2);
+    });
+
     it('should remove stale locks', async function() {
       this.timeout(10000);
       

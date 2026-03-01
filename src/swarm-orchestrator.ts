@@ -191,14 +191,15 @@ export class SwarmOrchestrator {
     };
 
     console.log('\n🚀 Starting Parallel Swarm Execution');
-    console.log(`Execution ID: ${context.executionId}`);
-    console.log(`Main branch: ${context.mainBranch}`);
-    console.log(`Steps: ${plan.steps.length}`);
-    console.log(`Max concurrency: ${options?.maxConcurrency || 'unlimited'}`);
+    console.log(`${'─'.repeat(50)}`);
+    console.log(`  Execution ID:    ${context.executionId}`);
+    console.log(`  Main branch:     ${context.mainBranch}`);
+    console.log(`  Steps:           ${plan.steps.length}`);
+    console.log(`  Max concurrency: ${options?.maxConcurrency || 'unlimited'}`);
     if (options?.confirmDeploy) {
-      console.log('⚠️  Deployment enabled (--confirm-deploy)');
+      console.log('  ⚠️  Deployment enabled (--confirm-deploy)');
     }
-    console.log('');
+    console.log(`${'─'.repeat(50)}`);
 
     // build dependency graph
     const dependencyGraph = this.buildDependencyGraph(plan);
@@ -305,6 +306,7 @@ export class SwarmOrchestrator {
       const failedInWave = waveStepResults.filter(r => r.status === 'failed');
 
       console.log(`\n📊 Wave ${waveIndex + 1} Summary:`);
+      console.log(`  ${'─'.repeat(40)}`);
       completedInWave.forEach(r => {
         const durationMs = r.startTime && r.endTime
           ? new Date(r.endTime).getTime() - new Date(r.startTime).getTime()
@@ -315,6 +317,8 @@ export class SwarmOrchestrator {
       failedInWave.forEach(r => {
         console.log(`  ❌ ${r.agentName}:${r.stepNumber} - ${r.error || 'unknown error'}`);
       });
+      console.log(`  ${'─'.repeat(40)}`);
+      console.log(`  ${completedInWave.length} passed, ${failedInWave.length} failed`);
 
       // post-wave meta-analysis
       if (context.metaAnalyzer && context.knowledgeBase) {
@@ -403,6 +407,7 @@ export class SwarmOrchestrator {
 
       if (completedInThisWave.length > 0 && waveIndex < executionWaves.length - 1) {
         console.log(`\n🔀 Merging wave ${waveIndex + 1} branches to main (${completedInThisWave.length} branch(es))...`);
+        context.contextBroker.forceReleaseStaleLocks();
         await this.mergeWaveBranches(completedInThisWave, context);
       }
     }
@@ -494,6 +499,8 @@ export class SwarmOrchestrator {
 
     // merge all agent branches back to main
     console.log('\n🔀 Merging agent branches to main...');
+    // Clean up any stale locks before final merge (e.g. from cancelled runs)
+    context.contextBroker.forceReleaseStaleLocks();
     await this.mergeAllBranches(context);
 
     // Finalize metrics and save to analytics log
@@ -1293,6 +1300,21 @@ export class SwarmOrchestrator {
       // Branch might already exist from a retry, that's fine
     }
 
+    // Clean up existing worktree if present (e.g. from a retry)
+    if (fs.existsSync(worktreePath)) {
+      try {
+        execSync(`git worktree remove "${worktreePath}" --force`, { cwd: this.workingDir, stdio: 'pipe' });
+      } catch {
+        // If remove fails, prune stale worktree entries and delete the directory
+        try {
+          execSync('git worktree prune', { cwd: this.workingDir, stdio: 'pipe' });
+        } catch {
+          // ignore prune failures
+        }
+        fs.rmSync(worktreePath, { recursive: true, force: true });
+      }
+    }
+
     // Create worktree with the branch
     return new Promise((resolve, reject) => {
       const proc = spawn('git', ['worktree', 'add', worktreePath, branchName], {
@@ -1424,16 +1446,59 @@ export class SwarmOrchestrator {
     // switch back to main branch
     await this.switchBranch(context.mainBranch);
 
+    // Stash any uncommitted changes in the working directory
+    // (e.g. from npm install during post-execution setup)
+    let stashed = false;
+    try {
+      const stashResult = execSync('git stash', { cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe' });
+      stashed = !stashResult.includes('No local changes');
+    } catch {
+      // No changes to stash
+    }
+
+    // Determine which branches are already merged to avoid double-merge
+    let mergedBranches: string[] = [];
+    try {
+      const merged = execSync(`git branch --merged ${context.mainBranch}`, {
+        cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe'
+      });
+      mergedBranches = merged.split('\n').map(b => b.trim().replace(/^\* /, ''));
+    } catch {
+      // If this fails, we'll attempt all merges
+    }
+
     for (const result of context.results) {
       if (result.status === 'completed' && result.branchName) {
+        // Skip branches already merged during wave completion
+        if (mergedBranches.includes(result.branchName)) {
+          console.log(`  ✅ ${result.branchName} (already merged)`);
+          continue;
+        }
+        const mergeSpinner = new Spinner(`Merging ${result.branchName}...`, { style: 'dots', prefix: '  ' });
+        mergeSpinner.start();
         try {
           await this.mergeBranch(result.branchName, context);
-          console.log(`  ✅ Merged ${result.branchName}`);
+          mergeSpinner.succeed(`Merged ${result.branchName}`);
         } catch (error: unknown) {
           const err = error as Error;
-          console.error(`  ⚠️  Conflict merging ${result.branchName}: ${err.message}`);
+          mergeSpinner.fail(`Conflict merging ${result.branchName}: ${err.message}`);
           console.error(`     Manual resolution required`);
+          // Abort the failed merge to keep working directory clean
+          try {
+            execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' });
+          } catch {
+            // Already aborted or no merge in progress
+          }
         }
+      }
+    }
+
+    // Restore stashed changes if any
+    if (stashed) {
+      try {
+        execSync('git stash pop', { cwd: this.workingDir, stdio: 'pipe' });
+      } catch {
+        // Stash pop conflict - not critical
       }
     }
   }
@@ -1444,15 +1509,29 @@ export class SwarmOrchestrator {
   private async switchBranch(branchName: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const proc = spawn('git', ['checkout', branchName], {
-        cwd: this.workingDir
+        cwd: this.workingDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
       });
 
+      // timeout: if checkout takes longer than 15s, something is wrong
+      const timeout = setTimeout(() => {
+        proc.kill('SIGKILL');
+        reject(new Error(`Timeout switching to branch ${branchName}`));
+      }, 15000);
+
       proc.on('close', (code) => {
+        clearTimeout(timeout);
         if (code === 0) {
           resolve();
         } else {
           reject(new Error(`Failed to switch to branch ${branchName}`));
         }
+      });
+
+      proc.on('error', (err) => {
+        clearTimeout(timeout);
+        reject(err);
       });
     });
   }
@@ -1485,8 +1564,20 @@ export class SwarmOrchestrator {
     try {
       return await new Promise((resolve, reject) => {
         const proc = spawn('git', ['merge', '--no-ff', branchName, '-m', `Merge ${branchName}`], {
-          cwd: this.workingDir
+          cwd: this.workingDir,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: {
+            ...process.env,
+            GIT_TERMINAL_PROMPT: '0',
+            GIT_MERGE_AUTOEDIT: 'no'
+          }
         });
+
+        // timeout: merges should not take longer than 30s
+        const timeout = setTimeout(() => {
+          proc.kill('SIGKILL');
+          reject(new Error(`Timeout merging ${branchName}`));
+        }, 30000);
 
         let stderr = '';
         if (proc.stderr) {
@@ -1496,11 +1587,17 @@ export class SwarmOrchestrator {
         }
 
         proc.on('close', (code) => {
+          clearTimeout(timeout);
           if (code === 0) {
             resolve();
           } else {
             reject(new Error(`Merge conflict: ${stderr}`));
           }
+        });
+
+        proc.on('error', (err) => {
+          clearTimeout(timeout);
+          reject(err);
         });
       });
     } finally {

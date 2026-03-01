@@ -86,20 +86,27 @@ export class DemoMode {
           stepNumber: 1,
           agentName: 'frontend_expert',
           task: `Create a React + Vite dashboard shell. YOU ARE RESPONSIBLE FOR:
-- package.json with vite, react, react-dom, chart.js, react-chartjs-2, express, cors deps
+- package.json with "type": "module", vite, react, react-dom, chart.js, react-chartjs-2, express, cors deps
 - vite.config.js with proxy to localhost:3001 for /api
 - index.html with root div and Google Fonts Inter link
-- src/main.jsx entry point
+- src/main.jsx entry point that wraps App in a React ErrorBoundary component
+- src/ErrorBoundary.jsx - a class component that catches render errors and shows a styled fallback UI
 - src/App.jsx with CSS Grid layout: sidebar (200px, dark #0f0f23), main area with header and 2x2 grid of placeholder cards (background #1a1a2e, card bg #252542)
-- Add "start:server": "node server/index.js" script to package.json for later use
+- src/App.css with dark theme styles, responsive breakpoints (@media max-width: 1024px collapses sidebar to horizontal nav, @media max-width: 640px stacks to single column)
+- CSS MUST use /* */ comments only (never // comments, those are invalid CSS)
+- Add "start:server": "node server/index.js" and "test": "node --test test/*.test.js" scripts to package.json
 
-Style it modern and dark. Add author comment "Author: Bradley R. Kinnard" at top of each file. Commit with message "add dashboard shell with dark theme".`,
+IMPORTANT: package.json MUST have "type": "module". ALL .js files in this project use ES module syntax (import/export), never CommonJS (require/module.exports).
+
+Style it modern, dark, and responsive. Add author comment "Author: Bradley R. Kinnard" at top of each file. Commit with message "add dashboard shell with dark theme".`,
           dependencies: [],
           expectedOutputs: [
-            'package.json with vite, react, chart.js, express, cors deps and start:server script',
+            'package.json with "type": "module", vite, react, chart.js, express, cors deps, start:server and test scripts',
             'vite.config.js with API proxy to localhost:3001',
+            'src/ErrorBoundary.jsx class component with styled fallback',
             'src/App.jsx with CSS Grid layout and dark theme',
-            'src/main.jsx entry point',
+            'src/App.css with responsive breakpoints at 1024px and 640px',
+            'src/main.jsx entry point wrapping App in ErrorBoundary',
             'index.html shell with Inter font'
           ]
         },
@@ -109,29 +116,35 @@ Style it modern and dark. Add author comment "Author: Bradley R. Kinnard" at top
           task: `Create mock data utilities. YOU ARE RESPONSIBLE FOR ONLY THIS FILE:
 - src/utils/mockData.js
 
+IMPORTANT: This project uses "type": "module" in package.json. You MUST use ES module syntax (export function / export default). NEVER use require() or module.exports.
+
 This file should export three pure functions:
 1. generateStats() - returns { users: random 1000-5000, revenue: random 10000-50000, orders: random 100-500, conversion: random 2.5-8.5 }
 2. generateChartData(days=7) - returns { labels: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], datasets: [{label: "Revenue", data: [random values 1000-5000 for each day], borderColor: "#6366f1", backgroundColor: "rgba(99,102,241,0.1)"}] }
 3. generateActivityFeed(count=5) - returns array of { id, user: random name, action: random action like "placed order", timestamp: recent ISO string }
 
-All functions return fresh random data each call. Use module.exports for CommonJS compatibility.
+All functions return fresh random data each call. Use ES module named exports (export function ...).
 Add author comment "Author: Bradley R. Kinnard" at top.
 Commit with message "add mock data generators".`,
           dependencies: [],
           expectedOutputs: [
             'src/utils/mockData.js with generateStats, generateChartData, generateActivityFeed',
             'Pure functions returning randomized mock data',
-            'CommonJS exports for Node.js compatibility'
+            'ES module named exports (export function)'
           ]
         },
         {
           stepNumber: 3,
           agentName: 'tester_elite',
-          task: `Create the Express API server. YOU ARE RESPONSIBLE FOR ONLY THIS FILE:
+          task: `Create the Express API server AND unit tests. YOU ARE RESPONSIBLE FOR THESE FILES:
 - server/index.js
+- test/mockData.test.js
 
-IMPORTANT: The mockData functions already exist at src/utils/mockData.js (created by another agent).
-Import them with: const { generateStats, generateChartData, generateActivityFeed } = require('../src/utils/mockData');
+IMPORTANT: This project uses "type": "module" in package.json. You MUST use ES module syntax (import/export). NEVER use require() or module.exports.
+
+SERVER (server/index.js):
+The mockData functions already exist at src/utils/mockData.js (created by another agent).
+Import them with: import { generateStats, generateChartData, generateActivityFeed } from '../src/utils/mockData.js';
 
 Create an Express server that:
 1. Enables CORS
@@ -140,12 +153,19 @@ Create an Express server that:
 4. GET /api/activity returns generateActivityFeed(5)
 5. Listens on port 3001
 
-Add author comment "Author: Bradley R. Kinnard" at top.
-Commit with message "add Express API server".`,
+TESTS (test/mockData.test.js):
+Import from node:test and node:assert/strict. Write tests for all three generator functions:
+- generateStats returns object with users, revenue, orders, conversion (all numbers)
+- generateChartData returns object with labels array and datasets array
+- generateActivityFeed returns array of objects with id, user, action, timestamp
+
+Add author comment "Author: Bradley R. Kinnard" at top of each file.
+Commit with message "add Express API server and unit tests".`,
           dependencies: [2],
           expectedOutputs: [
-            'server/index.js with /api/stats, /api/chart, /api/activity endpoints',
-            'Imports mockData from src/utils/mockData.js',
+            'server/index.js with /api/stats, /api/chart, /api/activity endpoints using ES module imports',
+            'test/mockData.test.js with tests for all three generator functions',
+            'Imports mockData using ES module import syntax',
             'CORS enabled, port 3001'
           ]
         },
@@ -156,30 +176,42 @@ Commit with message "add Express API server".`,
 
 CONTEXT: Other agents have already created:
 - src/App.jsx (placeholder dashboard shell with dark theme)
-- src/utils/mockData.js (data generators - not needed in frontend, API uses them)
-- server/index.js (Express API on port 3001)
-- package.json with all deps including chart.js, react-chartjs-2
+- src/App.css (dark theme styles with responsive breakpoints)
+- src/ErrorBoundary.jsx (error boundary component)
+- src/utils/mockData.js (ES module data generators)
+- server/index.js (Express API on port 3001, ES module)
+- test/mockData.test.js (unit tests for data generators)
+- package.json with "type": "module" and all deps including chart.js, react-chartjs-2
+
+IMPORTANT: This project uses "type": "module". Use ES module syntax only (import/export). Never use require() or module.exports.
 
 YOUR JOB: Update src/App.jsx to add:
 1. Import { Line } from 'react-chartjs-2' and Chart.js registration
-2. Add useState for stats, chartData, activity, loading
-3. Add useEffect to fetch from /api/stats, /api/chart, /api/activity on mount
-4. Create a StatCard component with animated count-up effect using requestAnimationFrame
-5. Render 4 stat cards in the grid: Users (icon 👥), Revenue $ (icon 💰), Orders (icon 📦), Conversion % (icon 📈)
-6. Add a Line chart card using react-chartjs-2 with the fetched chartData
-7. Add an activity feed card showing recent actions with relative timestamps
-8. Add a "Refresh Data" button in the header that re-fetches all endpoints
-9. Add subtle hover effects on cards (transform: translateY(-2px), box-shadow)
+2. Add useState for stats, chartData, activity, loading, fetchError
+3. Add useEffect to fetch from /api/stats, /api/chart, /api/activity on mount with try/catch error handling that sets fetchError state
+4. Show an error banner with retry button when fetchError is set
+5. Create a StatCard component with animated count-up effect using requestAnimationFrame
+6. Render 4 stat cards in the grid: Users (icon users), Revenue $ (icon dollar), Orders (icon package), Conversion % (icon chart)
+7. Add a Line chart card using react-chartjs-2 with the fetched chartData
+8. Add an activity feed card showing recent actions with relative timestamps
+9. Add a "Refresh Data" button in the header that re-fetches all endpoints
+10. Add subtle hover effects on cards (transform: translateY(-2px), box-shadow)
+
+Also update src/App.css:
+- Use ONLY /* */ CSS comments, never // comments (those are invalid CSS)
+- Ensure all color hex values are valid (3, 4, 6, or 8 digits only)
+- Ensure responsive breakpoints at 1024px and 640px are present
 
 Make it visually polished. The app should work when running "npm run dev" (frontend) and "npm run start:server" (API) concurrently.
 Commit with message "complete dashboard with charts and live data".`,
           dependencies: [1, 2, 3],
           expectedOutputs: [
-            'Complete dashboard with animated stat cards',
+            'Complete dashboard with animated stat cards and error handling',
+            'Error banner with retry button for fetch failures',
             'Line chart with Chart.js and gradient fill',
             'Activity feed with timestamps',
             'Refresh button for live data updates',
-            'Polished dark theme with hover effects'
+            'Polished dark theme with hover effects and responsive layout'
           ]
         }
       ]
