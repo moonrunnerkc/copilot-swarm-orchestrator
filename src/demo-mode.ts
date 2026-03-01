@@ -44,7 +44,7 @@ export class DemoMode {
       name: 'demo-fast',
       description: 'Two-step hello-world swarm proving parallel execution (one wave)',
       goal: 'Quick swarm hello-world: two independent micro-tasks running in parallel',
-      expectedDuration: '2-4 minutes',
+      expectedDuration: '20-30 seconds',
       steps: [
         {
           stepNumber: 1,

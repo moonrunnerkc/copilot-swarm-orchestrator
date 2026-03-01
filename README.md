@@ -33,7 +33,7 @@ cd copilot-swarm-orchestrator
 npm install && npm run build
 ```
 
-Run a two-step parallel demo in about three minutes:
+Run a two-step parallel demo in under 30 seconds:
 
 ```bash
 npm start demo-fast
@@ -57,8 +57,8 @@ Six built-in scenarios let you see the orchestrator in action without writing a 
 
 | Scenario | Agents | Waves | What gets built | Time |
 |:---------|:------:|:-----:|:----------------|-----:|
-| `demo-fast` | 2 | 1 | Two independent utility modules (parallel proof) | ~3 min |
-| `dashboard-showcase` | 4 | 3 | React + Chart.js analytics dashboard, Express API, dark theme, 14 tests | ~5 min |
+| `demo-fast` | 2 | 1 | Two independent utility modules (parallel proof) | ~30 sec |
+| `dashboard-showcase` | 4 | 3 | React + Chart.js analytics dashboard, Express API, dark theme, 14 tests | ~6 min |
 | `todo-app` | 4 | 3 | React todo app with Express backend and test suite | ~15 min |
 | `api-server` | 6 | 4 | REST API with JWT auth, PostgreSQL/Prisma, Docker, CI/CD | ~25 min |
 | `full-stack-app` | 7 | 5 | Full-stack todo with auth, Playwright E2E, Docker, CI/CD | ~30 min |
@@ -180,7 +180,7 @@ After building (`npm run build`), use `npm start` or the global `swarm` command:
 
 | Command | Description |
 |:--------|:------------|
-| `npm start demo-fast` | Two-step parallel demo (~3 min) |
+| `npm start demo-fast` | Two-step parallel demo (~30 sec) |
 | `npm start demo <scenario>` | Run a named demo scenario |
 | `npm start demo list` | List all 6 demo scenarios |
 | `npm start plan "goal"` | Generate an execution plan from a goal |
