@@ -74,6 +74,20 @@ export interface TestIsolationConfig {
   allowIfAnyTestContainsRegexes: string[];
 }
 
+export interface RuntimeChecksConfig {
+  enabled: boolean;
+  /** Number of retry attempts for each check (0 = no retries) */
+  retries: number;
+  /** Run `npm test` or equivalent */
+  runTests: boolean;
+  /** Run `npx eslint .` if eslint config exists */
+  runLint: boolean;
+  /** Run `npm audit --audit-level=moderate` */
+  runAudit: boolean;
+  /** Timeout per command in ms (default 120000) */
+  timeoutMs: number;
+}
+
 export interface QualityGatesConfig {
   enabled: boolean;
   failOnIssues: boolean;
@@ -89,5 +103,6 @@ export interface QualityGatesConfig {
     hardcodedConfig: HardcodeConfig;
     readmeClaims: ReadmeClaimsConfig;
     testIsolation: TestIsolationConfig;
+    runtimeChecks: RuntimeChecksConfig;
   };
 }

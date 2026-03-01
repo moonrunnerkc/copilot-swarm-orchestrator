@@ -29,3 +29,14 @@ gates:
 
   testIsolation:
     enabled: true
+
+  # Runtime checks run the project's own tests, linter, and security audit.
+  # Disabled by default because they require the target project to have
+  # npm scripts and dependencies installed. Enable for production swarm runs.
+  runtimeChecks:
+    enabled: false
+    retries: 1
+    runTests: true
+    runLint: true
+    runAudit: true
+    timeoutMs: 120000

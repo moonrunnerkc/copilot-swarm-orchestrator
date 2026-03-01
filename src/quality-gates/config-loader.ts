@@ -24,7 +24,8 @@ function merge_config(base: QualityGatesConfig, override: Partial<QualityGatesCo
     duplicateBlocks: { ...base.gates.duplicateBlocks, ...(override.gates?.duplicateBlocks || {}) },
     hardcodedConfig: { ...base.gates.hardcodedConfig, ...(override.gates?.hardcodedConfig || {}) },
     readmeClaims: { ...base.gates.readmeClaims, ...(override.gates?.readmeClaims || {}) },
-    testIsolation: { ...base.gates.testIsolation, ...(override.gates?.testIsolation || {}) }
+    testIsolation: { ...base.gates.testIsolation, ...(override.gates?.testIsolation || {}) },
+    runtimeChecks: { ...base.gates.runtimeChecks, ...(override.gates?.runtimeChecks || {}) }
   };
 
   return merged;

@@ -13,7 +13,7 @@ transcript-based verification, and per-agent git branch isolation.
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-ISC-blue.svg" alt="License: ISC"></a>
 <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-18%2B-339933.svg" alt="Node.js"></a>
 <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.x-3178C6.svg" alt="TypeScript"></a>
-<a href="#verification"><img src="https://img.shields.io/badge/Tests-317%20passing-brightgreen.svg" alt="Tests"></a>
+<a href="#verification"><img src="https://img.shields.io/badge/Tests-396%20passing-brightgreen.svg" alt="Tests"></a>
 </p>
 
 ---
@@ -58,12 +58,16 @@ This tool orchestrates multiple GitHub Copilot CLI sessions to execute a multi-s
 - A scheduler that groups independent steps into parallel waves
 - A verifier that parses Copilot transcripts for evidence (commits, test output, file creation)
 - A branch manager that isolates each agent's work and merges on verification
+- A self-repair loop that retries failed steps with failure context and root-cause analysis
+- A plan reviewer that validates dependency graphs and agent assignments before execution
+- A quality gate runner with six built-in checks (scaffold defaults, duplicate blocks, hardcoded config, README claims, test isolation, runtime checks)
+- A web dashboard for browsing past execution runs
+- A template gallery with starter plans for common project types
 
 ## What This Is Not
 
 - Not an embedded or simulated Copilot
 - Not a guarantee that Copilot will complete tasks correctly
-- Not an auto-fix system (failed steps are retried, not repaired)
 - Not a replacement for human review
 
 ---
@@ -83,6 +87,12 @@ git clone https://github.com/moonrunnerkc/copilot-swarm-orchestrator.git
 cd copilot-swarm-orchestrator
 npm install
 npm run build
+```
+
+One-liner install (requires Node.js 18+ and git):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/moonrunnerkc/copilot-swarm-orchestrator/main/install.sh | bash
 ```
 
 Optional global install:
@@ -113,8 +123,12 @@ Runs a two-step demo with parallel execution. Completes in approximately three m
 | `npm start demo list` | List all available demos |
 | `npm start plan "goal"` | Generate execution plan |
 | `npm start swarm plan.json` | Execute a saved plan |
+| `npm start swarm plan.json --pm` | Execute with PM agent plan review |
 | `npm start quick "task"` | Single-agent quick task |
 | `npm start bootstrap ./repo "goal"` | Analyze repo and generate plan |
+| `npm start gates [path]` | Run quality gates on a repo |
+| `npm start web-dashboard [port]` | Start web dashboard (default: 3002) |
+| `npm start templates` | List plan templates |
 
 With global install, replace `npm start` with `swarm`.
 
@@ -150,12 +164,15 @@ Goal → Plan Generator → Wave Scheduler → Agent Branches → Verifier → M
 
 | File | Lines | Purpose |
 |------|------:|---------|
-| `src/cli.ts` | 1137 | CLI entry point |
-| `src/swarm-orchestrator.ts` | 1620 | Parallel execution engine |
+| `src/cli.ts` | 1217 | CLI entry point |
+| `src/swarm-orchestrator.ts` | 1685 | Parallel execution engine |
 | `src/plan-generator.ts` | 732 | Plan creation and validation |
 | `src/session-executor.ts` | 430 | Copilot CLI invocation |
 | `src/verifier-engine.ts` | 476 | Transcript verification |
 | `src/demo-mode.ts` | 596 | Demo scenario definitions |
+| `src/repair-agent.ts` | 327 | Self-repair loop for failed steps |
+| `src/pm-agent.ts` | 303 | Plan review before execution |
+| `src/web-dashboard.ts` | 158 | Browser-based run viewer |
 
 ---
 
@@ -171,6 +188,13 @@ Six step-executing agents defined in `config/default-agents.yaml`:
 | `security_auditor` | Security hardening |
 | `devops_pro` | CI/CD, deployment |
 | `integrator_finalizer` | Final integration |
+
+Two specialized agents with their own configs in `config/`:
+
+| Agent | Config | Scope |
+|-------|--------|-------|
+| `RepairAgent` | `config/repair-agent.yaml` | Retries failed steps with failure context, transcript diffs, and root-cause analysis |
+| `PMAgent` | `config/pm-agent.yaml` | Reviews plans before execution for circular deps, missing deps, and agent validity |
 
 A meta-reviewer component runs internally after each wave to analyze results and trigger retries. It does not execute plan steps.
 
@@ -208,15 +232,15 @@ Claims in this document can be verified against the repository:
 ```bash
 # Test suite
 npm test
-# Output: 317 passing, 1 pending
+# Output: 396 passing, 1 pending
 
 # Source file count
-find src -name "*.ts" | wc -l
-# Output: 55
+find src -name "*.ts" -o -name "*.tsx" | wc -l
+# Output: 65
 
 # Test file count
 ls test/*.test.ts | wc -l
-# Output: 29
+# Output: 35
 
 # Agent definitions
 grep "name:" config/default-agents.yaml | wc -l
@@ -225,6 +249,10 @@ grep "name:" config/default-agents.yaml | wc -l
 # Demo scenarios
 npm start demo list
 # Output: 6 scenarios listed
+
+# Templates
+ls templates/*.json | wc -l
+# Output: 5
 ```
 
 ---
@@ -234,7 +262,7 @@ npm start demo list
 - Requires GitHub Copilot CLI to be installed and authenticated
 - Executes only documented Copilot CLI flags (`-p`, `--model`, `--share`)
 - Does not guarantee task completion by Copilot
-- Retries failed steps up to three times; does not attempt semantic repair
+- Retries failed steps up to three times via the RepairAgent self-repair loop
 - Deployment execution (`--confirm-deploy`) is opt-in only
 - No rollback mechanism for failed deployments
 

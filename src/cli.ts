@@ -29,7 +29,9 @@ Usage:
   swarm demo list                        List available demo scenarios
   swarm gates [path]                     Run quality gates on a repo (default: cwd)
   swarm status <execid>                  Show execution status
-  swarm dashboard <execid>               Show TUI dashboard (currently unavailable)
+  swarm dashboard <execid>               Show TUI dashboard for a run
+  swarm web-dashboard [port]             Start web dashboard (default port: 3002)
+  swarm templates                        List available plan templates
   swarm share import <runid> <step> <agent> <path>
                                          Import /share transcript for a step
   swarm share context <runid> <step>     Show prior context for a step
@@ -39,11 +41,12 @@ Flags:
   --delegate       Instruct agents to use /delegate for PR creation
   --mcp            Require MCP evidence from GitHub context in verification
   --model          Specify model for sessions (e.g., claude-sonnet-4.5)
-  --no-dashboard   (no-op: TUI dashboard is currently disabled)
+  --no-dashboard   Disable live TUI dashboard during swarm execution
   --agent          Specify agent for quick-fix mode
   --skip-verify    Skip verification in quick-fix mode (faster)
   --confirm-deploy Enable opt-in deployment for DevOpsPro (vercel, netlify)
   --no-quality-gates Disable quality gates (swarm mode)
+  --pm               Run PM agent plan review before swarm execution
   --quality-gates-config <path> Path to quality gates YAML (default: config/quality-gates.yaml)
   --quality-gates-out <dir>    Where to write gate reports (default: <runDir>/quality-gates)
 
@@ -372,13 +375,13 @@ function executePlan(planFilename: string, options?: ExecutionOptions): void {
 
 async function executeSwarm(
   planFilename: string,
-  options?: { model?: string; noDashboard?: boolean; confirmDeploy?: boolean; noQualityGates?: boolean }
+  options?: { model?: string; noDashboard?: boolean; confirmDeploy?: boolean; noQualityGates?: boolean; pm?: boolean }
 ): Promise<void> {
   console.log('🐝 Copilot Swarm Orchestrator - Parallel Execution\n');
 
   // Load plan
   const storage = new PlanStorage();
-  const plan = storage.loadPlan(planFilename);
+  let plan = storage.loadPlan(planFilename);
 
   console.log(`Goal: ${plan.goal}`);
   console.log(`Total Steps: ${plan.steps.length}\n`);
@@ -390,6 +393,29 @@ async function executeSwarm(
   // Create agent map
   const agentMap = new Map(agents.map(a => [a.name, a]));
 
+  // PM agent review (optional, activated with --pm)
+  if (options?.pm) {
+    const { PMAgent } = require('./pm-agent');
+    const pmAgent = new PMAgent(agents);
+    console.log('📋 PM Agent: Reviewing plan...');
+    const pmResult = pmAgent.reviewPlan(plan);
+
+    if (pmResult.reviewNotes.length > 0) {
+      console.log('  Review notes:');
+      pmResult.reviewNotes.forEach((note: string) => console.log(`    - ${note}`));
+    }
+    if (pmResult.changesApplied.length > 0) {
+      console.log('  Changes applied:');
+      pmResult.changesApplied.forEach((change: string) => console.log(`    - ${change}`));
+    }
+    if (pmResult.reviewNotes.length === 0 && pmResult.changesApplied.length === 0) {
+      console.log('  Plan approved with no issues.');
+    }
+
+    plan = pmResult.revisedPlan;
+    console.log('');
+  }
+
   // Initialize orchestrator
   const orchestrator = new SwarmOrchestrator();
 
@@ -400,11 +426,32 @@ async function executeSwarm(
   console.log(`Run ID: ${runId}`);
   console.log(`Run Directory: ${runDir}\n`);
 
-  // Dashboard disabled due to ESM/CommonJS incompatibility
-  // Ink requires ESM with top-level await, which cannot be required from CommonJS
-  // TODO: Re-enable when project migrates to ESM or alternative TUI found
+  // Dashboard: attempt dynamic import of Ink-based dashboard (ESM module)
+  // Ink 4+ is ESM-only and cannot be require()'d from CommonJS.
+  // Using dynamic import() as a bridge.
   let dashboard: { update: (updates: any) => void; stop: () => void } | undefined;
-  console.log('ℹ️  Live dashboard disabled (ESM compatibility issue)\n');
+  if (!options?.noDashboard) {
+    try {
+      const dashboardModule = await import('./dashboard');
+      const startDashboard = dashboardModule.startDashboard;
+      dashboard = startDashboard({
+        executionId: runId,
+        goal: plan.goal,
+        totalSteps: plan.steps.length,
+        currentWave: 0,
+        totalWaves: 0,
+        results: [],
+        recentCommits: [],
+        prLinks: [],
+        startTime: new Date().toISOString()
+      });
+      console.log('📊 Live TUI dashboard started\n');
+    } catch {
+      console.log('ℹ️  Live dashboard unavailable (Ink ESM import failed); continuing without dashboard\n');
+    }
+  } else {
+    console.log('ℹ️  Dashboard disabled via --no-dashboard\n');
+  }
 
   try {
     // Execute swarm
@@ -978,19 +1025,21 @@ async function main(): Promise<void> {
     const confirmDeploy = args.includes('--confirm-deploy');
 
     const noQualityGates = args.includes('--no-quality-gates');
+    const pmEnabled = args.includes('--pm');
     const qgConfigIndex = args.indexOf('--quality-gates-config');
     const qgConfigPath = qgConfigIndex !== -1 && args[qgConfigIndex + 1] ? args[qgConfigIndex + 1] : undefined;
     const qgOutIndex = args.indexOf('--quality-gates-out');
     const qgOutDir = qgOutIndex !== -1 && args[qgOutIndex + 1] ? args[qgOutIndex + 1] : undefined;
 
     try {
-      const options: { model?: string; noDashboard?: boolean; confirmDeploy?: boolean; qualityGates?: boolean; qualityGatesConfigPath?: string; qualityGatesOutDir?: string } = {};
+      const options: { model?: string; noDashboard?: boolean; confirmDeploy?: boolean; qualityGates?: boolean; qualityGatesConfigPath?: string; qualityGatesOutDir?: string; pm?: boolean } = {};
       if (model) options.model = model;
       if (noDashboard) options.noDashboard = noDashboard;
       if (confirmDeploy) options.confirmDeploy = confirmDeploy;
       if (noQualityGates) options.qualityGates = false;
       if (qgConfigPath) options.qualityGatesConfigPath = qgConfigPath;
       if (qgOutDir) options.qualityGatesOutDir = qgOutDir;
+      if (pmEnabled) options.pm = true;
       await executeSwarm(planFilename, options);
     } catch (error) {
       console.error('Error executing swarm:', error instanceof Error ? error.message : error);
@@ -1046,18 +1095,49 @@ async function main(): Promise<void> {
 
     const executionId = args[1];
     try {
-      const { renderDashboard } = require('./dashboard');
-      renderDashboard(executionId);
+      const dashboardModule: any = await import('./dashboard');
+      const renderDashboard = dashboardModule.renderDashboard || dashboardModule.startDashboard;
+      if (typeof renderDashboard === 'function') {
+        renderDashboard(executionId);
+      } else {
+        console.error('Dashboard module loaded but renderDashboard not found.');
+        console.error('Use `swarm status <execid>` to check execution status.');
+        process.exit(1);
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes('ESM') || msg.includes('top-level await')) {
-        console.error('❌ Dashboard unavailable: ink requires ESM which is incompatible with CommonJS build.');
-        console.error('   Use `swarm status <execid>` to check execution status instead.');
-      } else {
-        console.error('Error showing dashboard:', msg);
-      }
+      console.error('Dashboard unavailable:', msg);
+      console.error('Use `swarm status <execid>` to check execution status instead.');
       process.exit(1);
     }
+  } else if (command === 'web-dashboard') {
+    const port = args[1] ? parseInt(args[1], 10) : 3002;
+    const runsDir = path.join(process.cwd(), 'runs');
+    const { startWebDashboard } = require('./web-dashboard');
+    startWebDashboard(runsDir, port);
+  } else if (command === 'templates') {
+    const templatesDir = path.join(__dirname, '..', 'templates');
+    // If running from dist/src, look one more level up
+    const resolvedDir = fs.existsSync(templatesDir) ? templatesDir : path.join(__dirname, '..', '..', 'templates');
+    if (!fs.existsSync(resolvedDir)) {
+      console.error('Templates directory not found.');
+      process.exit(1);
+    }
+    const files = fs.readdirSync(resolvedDir).filter((f: string) => f.endsWith('.json'));
+    console.log('\n  Available Plan Templates\n');
+    console.log('  ' + '-'.repeat(60));
+    for (const file of files) {
+      try {
+        const plan = JSON.parse(fs.readFileSync(path.join(resolvedDir, file), 'utf8'));
+        const steps = plan.steps?.length || 0;
+        const duration = plan.metadata?.estimatedDuration || 'unknown';
+        console.log(`  ${file.padEnd(20)} ${String(steps).padStart(2)} steps   ${duration}`);
+      } catch {
+        console.log(`  ${file.padEnd(20)}  (invalid JSON)`);
+      }
+    }
+    console.log('  ' + '-'.repeat(60));
+    console.log(`\n  Usage: swarm swarm templates/<template>.json\n`);
   } else if (command === '--help' || command === '-h') {
     showUsage();
     process.exit(0);

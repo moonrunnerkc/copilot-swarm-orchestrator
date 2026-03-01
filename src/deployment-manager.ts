@@ -34,20 +34,21 @@ export class DeploymentManager {
   }
 
   /**
-   * Detect which deployment platform is configured
+   * Detect which deployment platform is configured.
+   * Config files take priority over CLI availability (project-specific > global).
    */
   async detectPlatform(): Promise<'vercel' | 'netlify' | 'none'> {
+    // 1. Check config files first (project-specific, most reliable)
+    const hasVercelConfig = fs.existsSync(path.join(this.workingDir, 'vercel.json'));
+    const hasNetlifyConfig = fs.existsSync(path.join(this.workingDir, 'netlify.toml'));
+
+    if (hasVercelConfig) return 'vercel';
+    if (hasNetlifyConfig) return 'netlify';
+
+    // 2. Fall back to CLI availability only when no config files present
     const tools = await this.toolManager.detectAvailableTools();
-
-    // Check for vercel.json or Vercel CLI
-    if (tools.vercel || fs.existsSync(path.join(this.workingDir, 'vercel.json'))) {
-      return 'vercel';
-    }
-
-    // Check for netlify.toml or Netlify CLI
-    if (tools.netlify || fs.existsSync(path.join(this.workingDir, 'netlify.toml'))) {
-      return 'netlify';
-    }
+    if (tools.vercel) return 'vercel';
+    if (tools.netlify) return 'netlify';
 
     return 'none';
   }

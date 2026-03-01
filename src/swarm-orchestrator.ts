@@ -13,6 +13,7 @@ import { MetaAnalyzer, MetaReviewResult } from './meta-analyzer';
 import MetricsCollector from './metrics-collector';
 import { ExecutionPlan, PlanStep, ReplanPayload } from './plan-generator';
 import { load_quality_gates_config, run_quality_gates } from './quality-gates';
+import RepairAgent, { RepairContext, RepairResult } from './repair-agent';
 import SessionExecutor, { SessionOptions, SessionResult } from './session-executor';
 import ShareParser from './share-parser';
 import { Spinner } from './spinner';
@@ -588,7 +589,7 @@ export class SwarmOrchestrator {
       impact: 'medium'
     });
 
-    // execute retries for each failed step
+    // execute retries for each failed step using the repair agent
     for (const stepNumber of replanPayload.retrySteps) {
       const step = context.plan.steps.find(s => s.stepNumber === stepNumber);
       if (!step) {
@@ -613,7 +614,7 @@ export class SwarmOrchestrator {
         continue;
       }
 
-      console.log(`  🔁 Retrying step ${stepNumber} (${agent.name}) - attempt ${retryCount}`);
+      console.log(`  🔧 Spawning repair agent for step ${stepNumber} (${agent.name}) - attempt ${retryCount}`);
 
       // create retry branch with suffix
       const retryBranchName = `swarm/${context.executionId}/step-${stepNumber}-${agent.name.toLowerCase()}-retry${retryCount}`;
@@ -639,13 +640,77 @@ export class SwarmOrchestrator {
         await this.switchBranch(context.mainBranch);
         await this.createAgentBranch(retryBranchName, context.mainBranch);
 
-        // update step task to indicate retry
-        const retryStep = { ...step, task: `[RETRY ${retryCount}] ${step.task}` };
+        // Build repair context from the failed step's results
+        const stepDir = path.join(context.runDir, 'steps', `step-${stepNumber}`);
+        const transcriptPath = path.join(stepDir, 'share.md');
+        const verificationReportPath = path.join(
+          context.runDir, 'verification', `step-${stepNumber}-verification.md`
+        );
 
-        // execute retry
-        await this.executeStepInSwarm(retryStep, agent, context, options);
+        const failedChecks: string[] = [];
+        let rootCause = 'Verification checks failed';
+        if (result?.verificationResult) {
+          const repairAgentHelper = new RepairAgent(this.workingDir);
+          const extracted = repairAgentHelper.extractFailedChecks(result.verificationResult);
+          failedChecks.push(...extracted);
 
-        console.log(`  ✅ Retry ${retryCount} succeeded for step ${stepNumber}`);
+          // Derive root cause from check types
+          const hasTestFailure = result.verificationResult.checks.some(c => !c.passed && c.type === 'test');
+          const hasBuildFailure = result.verificationResult.checks.some(c => !c.passed && c.type === 'build');
+          const hasCommitFailure = result.verificationResult.checks.some(c => !c.passed && c.type === 'commit');
+          if (hasTestFailure) rootCause = 'Tests not executed or failed';
+          else if (hasBuildFailure) rootCause = 'Build not executed or failed';
+          else if (hasCommitFailure) rootCause = 'No commits made';
+        }
+
+        const repairContext: RepairContext = {
+          stepNumber,
+          agentName: agent.name,
+          originalTask: step.task,
+          transcriptPath,
+          verificationReportPath,
+          branchName: retryBranchName,
+          failedChecks,
+          rootCause,
+          retryCount
+        };
+
+        const repairAgent = new RepairAgent(this.workingDir, 3);
+        const sessionOpts: SessionOptions = {
+          allowAllTools: true,
+          ...(options?.model && { model: options.model })
+        };
+
+        const repairResult = await repairAgent.attemptRepair(
+          repairContext,
+          sessionOpts,
+          {
+            requireTests: /\b(test suite|unit test|integration test|e2e test|write tests)\b/i.test(step.task),
+            requireBuild: /\b(npm build|run build|compile|bundle|webpack)\b/i.test(step.task),
+            requireCommits: false
+          }
+        );
+
+        // Log repair cost
+        console.log(`  📊 Repair cost: ~${repairResult.estimatedTokenCost} tokens, ${repairResult.attempts} attempt(s), ${Math.round(repairResult.totalDurationMs / 1000)}s`);
+
+        // Save repair result to run directory
+        const repairResultPath = path.join(context.runDir, `repair-step-${stepNumber}.json`);
+        fs.writeFileSync(repairResultPath, JSON.stringify(repairResult, null, 2), 'utf8');
+
+        if (repairResult.success) {
+          if (result) {
+            result.status = 'completed';
+            result.endTime = new Date().toISOString();
+          }
+          console.log(`  ✅ Repair succeeded for step ${stepNumber} after ${repairResult.attempts} attempt(s)`);
+        } else {
+          // Repair failed - fall back to standard re-execution as last resort
+          console.warn(`  ⚠️  Repair agent failed; falling back to full re-execution for step ${stepNumber}`);
+          const retryStep = { ...step, task: `[RETRY ${retryCount}] ${step.task}` };
+          await this.executeStepInSwarm(retryStep, agent, context, options);
+          console.log(`  ✅ Fallback retry succeeded for step ${stepNumber}`);
+        }
       } catch (error: unknown) {
         const err = error as Error;
         console.error(`  ❌ Retry ${retryCount} failed for step ${stepNumber}: ${err.message}`);

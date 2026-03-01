@@ -142,6 +142,14 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
         'beforeEach\\(',
         'afterEach\\('
       ]
+    },
+    runtimeChecks: {
+      enabled: false,
+      retries: 1,
+      runTests: true,
+      runLint: true,
+      runAudit: true,
+      timeoutMs: 120000
     }
   }
 };

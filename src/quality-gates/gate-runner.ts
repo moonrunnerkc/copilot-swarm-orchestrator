@@ -6,6 +6,7 @@ import { run_hardcoded_config_gate } from './gates/hardcoded-config';
 import { run_readme_claims_gate } from './gates/readme-claims';
 import { run_scaffold_defaults_gate } from './gates/scaffold-defaults';
 import { run_test_isolation_gate } from './gates/test-isolation';
+import { run_runtime_checks_gate } from './gates/runtime-checks';
 import {
     GateContext,
     GateResult,
@@ -80,6 +81,10 @@ export async function run_quality_gates(
 
   if (config.gates.testIsolation.enabled) {
     gateResults.push(await run_test_isolation_gate(ctx, config.gates.testIsolation, config.maxFileSizeBytes));
+  }
+
+  if (config.gates.runtimeChecks.enabled) {
+    gateResults.push(await run_runtime_checks_gate(projectRoot, config.gates.runtimeChecks));
   }
 
   const passed = gateResults.every(r => r.status !== 'fail');
