@@ -51,6 +51,38 @@ npm start demo dashboard-showcase
 
 ---
 
+## Usage & Cost
+
+> **Each agent step is a separate Copilot CLI session and consumes a premium request.**
+
+The orchestrator invokes `copilot -p` as a standalone subprocess for every step in your plan. There is no session reuse — parallel agents in the same wave are simultaneous, independent Copilot processes. This means:
+
+| Scenario | Steps | Min requests (happy path) | Max requests (all retries + repairs) |
+|:---------|------:|:-------------------------:|:------------------------------------:|
+| `demo-fast` | 2 | 2 | ~14 |
+| `dashboard-showcase` | 4 | 4 | ~28 |
+| `api-server` | 6 | 6 | ~42 |
+| `saas-mvp` | 8 | 8 | ~56 |
+
+**Where the multiplier comes from:**
+
+- **Retries on failure:** up to 3 automatic retries per step (exponential backoff).
+- **Repair Agent:** if verification fails, the Repair Agent spawns up to 3 additional Copilot sessions with accumulated context.
+- **Fallback re-execution:** if all repair attempts fail, the step is re-executed from scratch.
+
+In practice, most steps succeed on the first attempt, so actual usage clusters near the minimum. The adaptive concurrency system also backs off when it detects rate-limit (429) responses.
+
+**To minimize usage:**
+
+- Start with `demo-fast` (2 requests) to verify your setup.
+- Use `--skip-verify` to avoid repair loops during experimentation (not recommended for production runs).
+- Review your plan before execution with `--pm` — the PM Agent catches broken dependency graphs that would cause wasted retries.
+- Monitor your [Copilot usage dashboard](https://github.com/settings/copilot) to track consumption.
+
+<br>
+
+---
+
 ## Demos
 
 Six built-in scenarios let you see the orchestrator in action without writing a plan. Each creates a temp directory, runs real Copilot CLI sessions, and produces a working project with a clean git history.
