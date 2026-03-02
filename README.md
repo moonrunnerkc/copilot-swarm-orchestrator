@@ -197,7 +197,20 @@ During execution, operators can issue real-time commands: `pause`, `resume`, `ap
 A persistent JSON store captures execution patterns across runs. High-confidence patterns (dependency ordering, anti-patterns, best practices, failure modes) inform future planning. The knowledge base prunes stale entries and tracks occurrence frequency for confidence scoring.
 
 ### Web Dashboard
-A browser-based viewer (default port 3002) lists past execution runs and shows step-by-step detail including agent assignments, verification results, and raw transcripts. Dark theme. No additional dependencies required.
+A browser-based viewer (default port 3002) for inspecting past execution runs. Dark theme, single self-contained HTML page, no build step or extra dependencies.
+
+- **Metrics panel**: total time, step count, wave count, commit count, pass rate, and agents used, displayed as a stat bar at the top of each run
+- **Step status badges**: each step shows an inline PASS/FAIL badge derived from verification reports and wave analysis
+- **Wave analysis**: per-wave health indicator (healthy/degraded/critical), step-level pass/fail chips, and detected pattern severity
+- **Learned patterns**: knowledge base entries from the run, showing category, confidence, insight text, and supporting evidence
+- **Collapsible sections**: verification reports and transcripts default to collapsed; click to expand
+- **Copy button**: one-click clipboard copy on every transcript and verification report
+- **Auto-refresh**: toggle in the header polls the API every 5 seconds so you can watch a run complete in real time
+
+```bash
+npm start web-dashboard        # http://localhost:3002
+npm start web-dashboard 8080   # custom port
+```
 
 ### Plan Templates
 Five starter plans for common project types (REST API, React app, CLI tool, full-stack app, library) with pre-configured agent assignments and dependency graphs. Run `npm start templates` to browse them.

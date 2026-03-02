@@ -94,10 +94,16 @@ export function createRunsRouter(runsDir: string): Router {
           return {
             step: stepDir,
             transcript: fs.existsSync(sharePath)
-              ? fs.readFileSync(sharePath, 'utf8').slice(0, 5000)
+              ? fs.readFileSync(sharePath, 'utf8')
               : null
           };
         });
+    }
+
+    // Load knowledge base if available
+    const kbPath = path.join(runPath, 'knowledge-base.json');
+    if (fs.existsSync(kbPath)) {
+      try { result.knowledgeBase = JSON.parse(fs.readFileSync(kbPath, 'utf8')); } catch { /* skip */ }
     }
 
     // Load repair results
