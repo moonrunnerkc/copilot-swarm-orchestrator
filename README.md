@@ -1,8 +1,10 @@
 <p align="center">
   <img src="docs/media/wasp.svg" alt="Copilot Swarm Orchestrator" width="72" height="72">
+  <img src="docs/media/wasp.svg" alt="Copilot Swarm Orchestrator" width="72" height="72">
+  <img src="docs/media/wasp.svg" alt="Copilot Swarm Orchestrator" width="72" height="72">
 </p>
 
-<img src="docs/media/wasp.svg" alt="Copilot Swarm Orchestrator" width="72" height="72"><h1 align="center">Copilot Swarm Orchestrator</h1><img src="docs/media/wasp.svg" alt="Copilot Swarm Orchestrator" width="72" height="72">
+<h1 align="center">Copilot Swarm Orchestrator</h1>
 
 <p align="center">
 <strong>Parallel AI workflow engine for GitHub Copilot CLI.</strong><br>
