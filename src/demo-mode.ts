@@ -223,14 +223,14 @@ README: Create or update README.md with:
 - Project title and one-line description
 - Prerequisites (Node.js 18+)
 - Install instructions (npm install)
-- How to run: "npm run start:server" in one terminal, "npm run dev" in another, open http://localhost:5173
+- How to run: "npm run start:server" in one terminal, "npm run dev" in another, open http://localhost:${process.env.DEMO_DEV_PORT || '5173'}
 - How to run tests: "npm test"
 - Tech stack list (React 18, Vite 5, Chart.js 4, Express 4)
 - Brief architecture overview (frontend fetches from /api proxy to Express server)
 
 COMPONENT TEST: Create test/App.test.js using node:test and node:assert/strict that:
 - Tests the StatCard component renders (import and call it, verify it returns non-null)
-- Or if direct component testing is not feasible, add integration tests that verify server endpoints return valid JSON shapes (fetch http://localhost:3001/api/stats and check the response has users, revenue, orders, conversion fields)
+- Or if direct component testing is not feasible, add integration tests that verify server endpoints return valid JSON shapes (fetch http://localhost:\${process.env.DEMO_API_PORT || '3001'}/api/stats and check the response has users, revenue, orders, conversion fields)
 
 Make it visually polished. The app should work when running "npm run dev" (frontend) and "npm run start:server" (API) concurrently.
 Commit with message "complete dashboard with charts, live data, and docs".`,

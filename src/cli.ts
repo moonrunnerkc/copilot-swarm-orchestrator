@@ -23,6 +23,7 @@ Usage:
   swarm plan import <runid> <transcript> Parse plan from Copilot /share transcript
   swarm execute <planfile>               Execute a saved plan step-by-step
   swarm swarm <planfile>                 Execute plan in parallel swarm mode
+  swarm run --goal "description"          Plan + execute in one step (convenience)
   swarm quick "task"                     Quick-fix mode for simple single-agent tasks
   swarm demo <scenario>                  Run pre-configured demo scenario
   swarm demo-fast                        Fast 2-step demo (alias for: swarm demo demo-fast)
@@ -35,6 +36,8 @@ Usage:
   swarm share import <runid> <step> <agent> <path>
                                          Import /share transcript for a step
   swarm share context <runid> <step>     Show prior context for a step
+  swarm audit <session-id>               Generate Markdown audit report for a session
+  swarm metrics <session-id>             Show metrics summary for a session
   swarm --help                           Show this help message
 
 Flags:
@@ -42,11 +45,18 @@ Flags:
   --mcp            Require MCP evidence from GitHub context in verification
   --model          Specify model for sessions (e.g., claude-sonnet-4.5)
   --no-dashboard   Disable live TUI dashboard during swarm execution
+  --resume <id>    Resume a previously paused/failed swarm session
   --agent          Specify agent for quick-fix mode
   --skip-verify    Skip verification in quick-fix mode (faster)
   --confirm-deploy Enable opt-in deployment for DevOpsPro (vercel, netlify)
   --no-quality-gates Disable quality gates (swarm mode)
   --pm               Run PM agent plan review before swarm execution
+  --governance       Enable critic review + governance pause before merge
+  --strict-isolation Force per-task branch isolation, transcript-only context
+  --lean             Enable Delta Context Engine (reuse prior KB patterns)
+  --useInnerFleet    Prefix prompts with /fleet for parallel sub-agent dispatch
+  --plan-cache       Skip planning when a cached plan template matches (>85% similar)
+  --replay           Reuse prior transcript for identical steps (skip Copilot call)
   --quality-gates-config <path> Path to quality gates YAML (default: config/quality-gates.yaml)
   --quality-gates-out <dir>    Where to write gate reports (default: <runDir>/quality-gates)
 
@@ -153,7 +163,7 @@ function bootstrap(repoPaths: string[], goal: string): void {
     });
 }
 
-function generatePlan(goal: string, copilotMode: boolean = false): void {
+function generatePlan(goal: string, copilotMode: boolean = false, opts?: { planCache?: boolean }): void {
   const configLoader = new ConfigLoader();
   const agents = configLoader.loadAllAgents();
   const generator = new PlanGenerator(agents);
@@ -201,7 +211,7 @@ function generatePlan(goal: string, copilotMode: boolean = false): void {
   console.log();
 
   // generate intelligent plan based on goal analysis
-  const plan = generator.createPlan(goal);
+  const plan = generator.createPlan(goal, undefined, opts?.planCache ? { planCache: true } : undefined);
 
   // display plan
   console.log('Generated Execution Plan:');
@@ -375,7 +385,12 @@ function executePlan(planFilename: string, options?: ExecutionOptions): void {
 
 async function executeSwarm(
   planFilename: string,
-  options?: { model?: string; noDashboard?: boolean; confirmDeploy?: boolean; noQualityGates?: boolean; pm?: boolean }
+  options?: {
+    model?: string; noDashboard?: boolean; confirmDeploy?: boolean;
+    noQualityGates?: boolean; pm?: boolean; governance?: boolean;
+    strictIsolation?: boolean; lean?: boolean; useInnerFleet?: boolean;
+    session?: string;
+  }
 ): Promise<void> {
   console.log('🐝 Copilot Swarm Orchestrator - Parallel Execution\n');
 
@@ -434,7 +449,7 @@ async function executeSwarm(
     try {
       const dashboardModule = await import('./dashboard');
       const startDashboard = dashboardModule.startDashboard;
-      dashboard = startDashboard({
+      const result = await startDashboard({
         executionId: runId,
         goal: plan.goal,
         totalSteps: plan.steps.length,
@@ -445,24 +460,63 @@ async function executeSwarm(
         prLinks: [],
         startTime: new Date().toISOString()
       });
-      console.log('📊 Live TUI dashboard started\n');
-    } catch {
-      console.log('ℹ️  Live dashboard unavailable (Ink ESM import failed); continuing without dashboard\n');
+      if (result) {
+        dashboard = result;
+        console.log('📊 Live TUI dashboard started\n');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      if (msg.includes('raw mode') || msg.includes('setRawMode')) {
+        console.log('ℹ️  TUI dashboard unavailable (terminal does not support raw mode); continuing without dashboard\n');
+      } else {
+        console.log('ℹ️  Live dashboard unavailable (Ink ESM import failed); continuing without dashboard\n');
+      }
     }
   } else {
     console.log('ℹ️  Dashboard disabled via --no-dashboard\n');
   }
 
   try {
-    // Execute swarm
+    // Execute swarm - build options with all upgrade flags
     const swarmOptions: {
       model?: string;
       confirmDeploy?: boolean;
       qualityGates?: boolean;
-    } = { ...options };
-    if (options?.noQualityGates) {
-      swarmOptions.qualityGates = false;
+      governance?: boolean;
+      strictIsolation?: boolean;
+      lean?: boolean;
+      useInnerFleet?: boolean;
+      onProgress?: (ctx: any, event: string) => void;
+    } = {};
+    if (options?.model) swarmOptions.model = options.model;
+    if (options?.confirmDeploy) swarmOptions.confirmDeploy = true;
+    if (options?.noQualityGates) swarmOptions.qualityGates = false;
+    if (options?.governance) swarmOptions.governance = true;
+    if (options?.strictIsolation) swarmOptions.strictIsolation = true;
+    if (options?.lean) swarmOptions.lean = true;
+    if (options?.useInnerFleet) swarmOptions.useInnerFleet = true;
+
+    // Wire real-time progress into the TUI dashboard
+    if (dashboard) {
+      swarmOptions.onProgress = (ctx, event) => {
+        // Parse the wave number from wave events
+        const waveMatch = event.match(/^wave-(?:start|done):(\d+)/);
+        const currentWave = waveMatch ? parseInt(waveMatch[1], 10) : undefined;
+
+        // Read live queue stats directly from the queue, not from the stale snapshot
+        const liveQueueStats = ctx.executionQueue?.getStats?.() || ctx.queueStats;
+
+        dashboard!.update({
+          results: ctx.results,
+          ...(currentWave !== undefined && { currentWave }),
+          ...(ctx.totalWaves && { totalWaves: ctx.totalWaves }),
+          ...(ctx.criticResults && { criticResults: ctx.criticResults }),
+          ...(ctx.leanSavedRequests && { leanSavedRequests: ctx.leanSavedRequests }),
+          ...(liveQueueStats && { queueStats: liveQueueStats }),
+        });
+      };
     }
+
     const context = await orchestrator.executeSwarm(plan, agentMap, runDir, swarmOptions);
 
     // Final dashboard update
@@ -582,7 +636,15 @@ async function runDemo(scenarioName: string): Promise<void> {
 
   // Execute in swarm mode with quality gates disabled to keep within time estimate
   // (demos are meant to be quick showcases, not production runs)
-  await executeSwarm(path.basename(planPath), { noQualityGates: true });
+  // Forward any CLI flags the user passed (--pm, --governance, --lean, etc.)
+  const execOpts: Record<string, any> = { noQualityGates: true };
+  const cliArgs = process.argv.slice(2);
+  if (cliArgs.includes('--pm')) execOpts.pm = true;
+  if (cliArgs.includes('--governance')) execOpts.governance = true;
+  if (cliArgs.includes('--strict-isolation')) execOpts.strictIsolation = true;
+  if (cliArgs.includes('--lean')) execOpts.lean = true;
+  if (cliArgs.includes('--no-dashboard')) execOpts.noDashboard = true;
+  await executeSwarm(path.basename(planPath), execOpts);
 
   // Post-demo: install dependencies so demo is runnable out of the box
   await installDemoDependencies(demoDir);
@@ -698,13 +760,13 @@ function showStatus(executionId: string): void {
 
   const runner = new StepRunner();
 
+  // Try legacy sequential execution context first
   try {
     const context = runner.loadExecutionContext(executionId);
     const summary = runner.generateSummary(context);
 
     console.log(summary);
 
-    // Show next step if any
     const nextStep = context.stepResults.find(r => r.status === 'pending');
     if (nextStep) {
       console.log(`\nNext step: ${nextStep.stepNumber} (${nextStep.agentName})`);
@@ -717,10 +779,36 @@ function showStatus(executionId: string): void {
         console.log('\n⚠ Some steps failed or were skipped');
       }
     }
-  } catch (error) {
-    console.error('Error loading execution context:', error instanceof Error ? error.message : error);
-    process.exit(1);
+    return;
+  } catch {
+    // Not a sequential execution -- try swarm session state
   }
+
+  // Fall back to swarm session-state.json
+  const MetricsCollectorClass = require('./metrics-collector').default;
+  const collector = new MetricsCollectorClass(executionId, '');
+  const state = collector.loadSession(executionId);
+  if (state) {
+    const completed = state.lastCompletedStep;
+    const total = state.graph.steps.length;
+    console.log(`  Session:    ${state.sessionId}`);
+    console.log(`  Status:     ${state.status}`);
+    console.log(`  Progress:   ${completed}/${total} steps completed`);
+    console.log(`  Branches:   ${Object.keys(state.branchMap).length}`);
+    console.log(`  Transcripts:${Object.keys(state.transcripts).length}`);
+    if (state.status === 'completed') {
+      console.log('\n✓ All steps completed!');
+    } else if (state.status === 'failed') {
+      console.log('\n⚠ Execution failed. Use --resume to retry.');
+    } else {
+      console.log(`\n⏳ ${state.status} at step ${completed + 1}`);
+    }
+    return;
+  }
+
+  console.error(`Execution not found: ${executionId}`);
+  console.error('Checked both proof/ (sequential) and runs/ (swarm) directories.');
+  process.exit(1);
 }
 
 function importShare(runId: string, stepNumber: string, agentName: string, transcriptPath: string): void {
@@ -914,9 +1002,10 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    // Parse: all args except last are repo paths, last is goal
-    const repoPaths = args.slice(1, -1);
-    const goal = args[args.length - 1];
+    // Strip flags, then last positional arg is the goal, rest are repo paths
+    const positional = args.slice(1).filter(a => !a.startsWith('--'));
+    const repoPaths = positional.slice(0, -1);
+    const goal = positional[positional.length - 1];
 
     // Validate paths
     for (const repoPath of repoPaths) {
@@ -970,7 +1059,7 @@ async function main(): Promise<void> {
         process.exit(1);
       }
 
-      const goal = args.slice(2).join(' ');
+      const goal = args.slice(2).filter(a => !a.startsWith('--')).join(' ');
       try {
         generatePlan(goal, true);  // copilotMode = true
       } catch (error) {
@@ -978,10 +1067,11 @@ async function main(): Promise<void> {
         process.exit(1);
       }
     } else {
-      // plan <goal> (regular mode)
-      const goal = args.slice(1).join(' ');
+      // plan <goal> (regular mode) -- strip flags so --plan-cache etc. aren't swallowed as goal text
+      const usePlanCache = args.includes('--plan-cache');
+      const goal = args.slice(1).filter(a => !a.startsWith('--')).join(' ');
       try {
-        generatePlan(goal, false);  // copilotMode = false
+        generatePlan(goal, false, { planCache: usePlanCache });  // copilotMode = false
       } catch (error) {
         console.error('Error generating plan:', error instanceof Error ? error.message : error);
         process.exit(1);
@@ -1037,13 +1127,24 @@ async function main(): Promise<void> {
 
     const noQualityGates = args.includes('--no-quality-gates');
     const pmEnabled = args.includes('--pm');
+    const governanceEnabled = args.includes('--governance');
+    const strictIsolationEnabled = args.includes('--strict-isolation');
+    const leanEnabled = args.includes('--lean');
+    const useInnerFleetEnabled = args.includes('--useInnerFleet');
+    const resumeIndex = args.indexOf('--resume');
+    const resumeId = resumeIndex !== -1 && args[resumeIndex + 1] ? args[resumeIndex + 1] : undefined;
     const qgConfigIndex = args.indexOf('--quality-gates-config');
     const qgConfigPath = qgConfigIndex !== -1 && args[qgConfigIndex + 1] ? args[qgConfigIndex + 1] : undefined;
     const qgOutIndex = args.indexOf('--quality-gates-out');
     const qgOutDir = qgOutIndex !== -1 && args[qgOutIndex + 1] ? args[qgOutIndex + 1] : undefined;
 
     try {
-      const options: { model?: string; noDashboard?: boolean; confirmDeploy?: boolean; qualityGates?: boolean; qualityGatesConfigPath?: string; qualityGatesOutDir?: string; pm?: boolean } = {};
+      const options: {
+        model?: string; noDashboard?: boolean; confirmDeploy?: boolean;
+        qualityGates?: boolean; qualityGatesConfigPath?: string; qualityGatesOutDir?: string;
+        pm?: boolean; governance?: boolean; strictIsolation?: boolean;
+        lean?: boolean; useInnerFleet?: boolean; session?: string;
+      } = {};
       if (model) options.model = model;
       if (noDashboard) options.noDashboard = noDashboard;
       if (confirmDeploy) options.confirmDeploy = confirmDeploy;
@@ -1051,6 +1152,11 @@ async function main(): Promise<void> {
       if (qgConfigPath) options.qualityGatesConfigPath = qgConfigPath;
       if (qgOutDir) options.qualityGatesOutDir = qgOutDir;
       if (pmEnabled) options.pm = true;
+      if (governanceEnabled) options.governance = true;
+      if (strictIsolationEnabled) options.strictIsolation = true;
+      if (leanEnabled) options.lean = true;
+      if (useInnerFleetEnabled) options.useInnerFleet = true;
+      if (resumeId) options.session = resumeId;
       await executeSwarm(planFilename, options);
     } catch (error) {
       console.error('Error executing swarm:', error instanceof Error ? error.message : error);
@@ -1210,6 +1316,123 @@ async function main(): Promise<void> {
     } else {
       console.error(`Unknown share subcommand: ${subcommand}\n`);
       showUsage();
+      process.exit(1);
+    }
+  } else if (command === 'audit') {
+    const sessionId = args[1];
+    if (!sessionId) {
+      console.error('Error: session ID required\nUsage: swarm audit <session-id>');
+      process.exit(1);
+    }
+    const MetricsCollectorClass = require('./metrics-collector').default;
+    const collector = new MetricsCollectorClass(sessionId, '');
+    const state = collector.loadSession(sessionId);
+    if (!state) {
+      console.error(`Session not found: ${sessionId}`);
+      process.exit(1);
+    }
+    console.log(collector.generateAuditReport(state));
+  } else if (command === 'metrics') {
+    const sessionId = args[1];
+    if (!sessionId) {
+      console.error('Error: session ID required\nUsage: swarm metrics <session-id>');
+      process.exit(1);
+    }
+    const MetricsCollectorClass = require('./metrics-collector').default;
+    const collector = new MetricsCollectorClass(sessionId, '');
+    const state = collector.loadSession(sessionId);
+    if (!state) {
+      console.error(`Session not found: ${sessionId}`);
+      process.exit(1);
+    }
+    // structured metrics summary
+    const steps = state.graph.steps.length;
+    const completed = state.lastCompletedStep;
+    const branches = Object.keys(state.branchMap).length;
+    const transcripts = Object.keys(state.transcripts).length;
+    const gatesPassed = state.gateResults.filter((g: any) => g.status === 'pass').length;
+    const gatesFailed = state.gateResults.filter((g: any) => g.status !== 'pass').length;
+    const premiumReqs = (state.metrics as any).premiumRequests ?? 0;
+    const totalMs = (state.metrics as any).totalTimeMs ?? 0;
+
+    if (args.includes('--json')) {
+      console.log(JSON.stringify({
+        sessionId: state.sessionId,
+        status: state.status,
+        steps, completed, branches, transcripts,
+        gatesPassed, gatesFailed, premiumReqs,
+        totalTimeMs: totalMs
+      }, null, 2));
+    } else {
+      console.log(`\n  Session Metrics: ${state.sessionId}\n  ${'─'.repeat(50)}`);
+      console.log(`  Status:          ${state.status}`);
+      console.log(`  Steps:           ${completed}/${steps} completed`);
+      console.log(`  Branches:        ${branches}`);
+      console.log(`  Transcripts:     ${transcripts}`);
+      console.log(`  Gates:           ${gatesPassed} passed, ${gatesFailed} failed`);
+      console.log(`  Premium requests:${premiumReqs}`);
+      if (totalMs > 0) {
+        const sec = Math.round(totalMs / 1000);
+        console.log(`  Wall time:       ${sec}s`);
+      }
+      console.log(`  ${'─'.repeat(50)}\n`);
+    }
+  } else if (command === 'run') {
+    // Convenience: plan + execute in one step
+    const goalIndex = args.indexOf('--goal');
+    let goal = '';
+    if (goalIndex !== -1) {
+      // Collect tokens after --goal until the next flag
+      const afterGoal = args.slice(goalIndex + 1);
+      const tokens: string[] = [];
+      for (const tok of afterGoal) {
+        if (tok.startsWith('--')) break;
+        tokens.push(tok);
+      }
+      goal = tokens.join(' ');
+    } else {
+      goal = args.slice(1).filter(a => !a.startsWith('--')).join(' ');
+    }
+
+    if (!goal) {
+      console.error('Error: goal required\nUsage: swarm run --goal "Build a REST API"');
+      process.exit(1);
+    }
+
+    console.log('🐝 Copilot Swarm Orchestrator - Plan & Execute\n');
+    console.log(`Goal: ${goal}\n`);
+
+    // Generate plan
+    const configLoader = new ConfigLoader();
+    const agents = configLoader.loadAllAgents();
+    const generator = new PlanGenerator(agents);
+    const usePlanCache = args.includes('--plan-cache');
+    const plan = generator.createPlan(goal, undefined, { planCache: usePlanCache });
+
+    // Save to temp plan file
+    const storage = new PlanStorage();
+    const planFilename = storage.savePlan(plan);
+    console.log(`Plan saved: ${planFilename} (${plan.steps.length} steps)\n`);
+
+    // Parse flags and execute
+    const modelIndex = args.indexOf('--model');
+    const model = modelIndex !== -1 && args[modelIndex + 1] ? args[modelIndex + 1] : undefined;
+    const runOpts: any = {};
+    if (model) runOpts.model = model;
+    if (args.includes('--no-dashboard')) runOpts.noDashboard = true;
+    if (args.includes('--governance')) runOpts.governance = true;
+    if (args.includes('--strict-isolation')) runOpts.strictIsolation = true;
+    if (args.includes('--lean')) runOpts.lean = true;
+    if (args.includes('--useInnerFleet')) runOpts.useInnerFleet = true;
+    if (args.includes('--plan-cache')) runOpts.planCache = true;
+    if (args.includes('--replay')) runOpts.replay = true;
+    if (args.includes('--no-quality-gates')) runOpts.noQualityGates = true;
+    if (args.includes('--pm')) runOpts.pm = true;
+
+    try {
+      await executeSwarm(path.basename(planFilename), runOpts);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
       process.exit(1);
     }
   } else {

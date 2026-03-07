@@ -1,8 +1,8 @@
-import express from 'express';
 import cors from 'cors';
+import express from 'express';
 import * as path from 'path';
-import * as fs from 'fs';
 import { createRunsRouter } from './api/routes/runs';
+import MetricsCollector from './metrics-collector';
 
 const DEFAULT_PORT = 3002;
 const DASHBOARD_HTML = `<!DOCTYPE html>
@@ -358,13 +358,25 @@ export function startWebDashboard(runsDir?: string, port?: number): ReturnType<t
   // API routes
   app.use('/api/runs', createRunsRouter(resolvedRunsDir));
 
+  // Audit report endpoint
+  app.get('/api/audit/:sessionId', (req, res) => {
+    const sessionId = req.params.sessionId;
+    const collector = new MetricsCollector(sessionId, '');
+    const state = collector.loadSession(sessionId);
+    if (!state) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    res.type('text/markdown').send(collector.generateAuditReport(state));
+  });
+
   // Serve the dashboard HTML at root
   app.get('/', (_req, res) => {
     res.type('html').send(DASHBOARD_HTML);
   });
 
   const server = app.listen(resolvedPort, () => {
-    console.log(`Swarm Web Dashboard running at http://localhost:${resolvedPort}`);
+    console.log(`Swarm Web Dashboard running at http://${process.env.DASHBOARD_HOST || 'localhost'}:${resolvedPort}`);
     console.log(`Watching runs directory: ${resolvedRunsDir}`);
   });
 

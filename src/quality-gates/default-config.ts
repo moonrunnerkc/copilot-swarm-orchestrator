@@ -82,6 +82,7 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
         '^runs/',
         '^plans/',
         '^proof/',
+        '^test/fixtures/',
         'vite\\.config\\.(js|ts|mjs|mts)$',
         'webpack\\.config\\.(js|ts)$',
         '\\.env(\\.example|\\.local)?$'

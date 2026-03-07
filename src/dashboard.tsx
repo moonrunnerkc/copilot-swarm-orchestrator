@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
-// @ts-ignore - Ink is ESM, TypeScript module resolution limitation
-import { Box, Text, render, useInput } from 'ink';
-// @ts-ignore - Ink-spinner is ESM, TypeScript module resolution limitation
-import Spinner from 'ink-spinner';
-import { ParallelStepResult } from './swarm-orchestrator';
-import { SteeringCommand, Conflict, OrchestratorState, parseSteeringCommand, formatSteeringCommand } from './steering-types';
-import { MetricsComparison } from './metrics-types';
+import React, { useEffect, useState } from 'react';
 import { QueueStats } from './execution-queue';
+import { MetricsComparison } from './metrics-types';
+import { OrchestratorState, SteeringCommand, formatSteeringCommand, parseSteeringCommand } from './steering-types';
+import { ParallelStepResult } from './swarm-orchestrator';
+
+// Ink 4+ is ESM-only and yoga-wasm-web uses top-level await,
+// which breaks CJS require(). Lazy-load at render time via dynamic import().
+let Box: any, Text: any, inkRender: any, useInput: any;
+let Spinner: any;
 
 interface DashboardProps {
   executionId: string;
@@ -15,6 +16,7 @@ interface DashboardProps {
   currentWave: number;
   totalWaves: number;
   results: ParallelStepResult[];
+  repoGroups?: { repo: string; stepCount: number; completed: number }[];
   recentCommits: Array<{ message: string; sha?: string; agent?: string }>;
   prLinks: string[];
   startTime: string;
@@ -23,6 +25,8 @@ interface DashboardProps {
   readOnly?: boolean;
   metricsComparison?: MetricsComparison | null;
   queueStats?: QueueStats;
+  criticResults?: { score: number; flags: string[]; recommendation: string }[];
+  leanSavedRequests?: number;
 }
 
 interface StatusIconProps {
@@ -75,7 +79,7 @@ interface ProductivitySummaryProps {
 
 const ProductivitySummary: React.FC<ProductivitySummaryProps> = ({ comparison }) => {
   const { current, averageHistorical, delta } = comparison;
-  
+
   const formatTime = (ms: number): string => {
     const seconds = Math.floor(ms / 1000);
     if (seconds < 60) return `${seconds}s`;
@@ -86,11 +90,11 @@ const ProductivitySummary: React.FC<ProductivitySummaryProps> = ({ comparison })
 
   const getChangeIndicator = (value: number, lowerIsBetter: boolean = false): { text: string; color: string } => {
     if (Math.abs(value) < 0.01) return { text: '━', color: 'gray' };
-    
+
     const isGood = lowerIsBetter ? value < 0 : value > 0;
     const symbol = value > 0 ? '▲' : '▼';
     const color = isGood ? 'green' : 'yellow';
-    
+
     return { text: symbol, color };
   };
 
@@ -102,7 +106,7 @@ const ProductivitySummary: React.FC<ProductivitySummaryProps> = ({ comparison })
       <Text bold underline color="cyan">
         📊 Productivity Summary
       </Text>
-      
+
       <Box flexDirection="column" marginTop={1}>
         <Text>
           <Text bold>Time: </Text>
@@ -113,7 +117,7 @@ const ProductivitySummary: React.FC<ProductivitySummaryProps> = ({ comparison })
           </Text>
           <Text color="gray"> vs avg {formatTime(averageHistorical.totalTimeMs)}</Text>
         </Text>
-        
+
         <Text>
           <Text bold>Commits: </Text>
           {current.commitCount}
@@ -125,7 +129,7 @@ const ProductivitySummary: React.FC<ProductivitySummaryProps> = ({ comparison })
           )}
           <Text color="gray"> vs avg {averageHistorical.commitCount.toFixed(1)}</Text>
         </Text>
-        
+
         <Text>
           <Text bold>Verification: </Text>
           {current.verificationsPassed}/{current.verificationsPassed + current.verificationsFailed}
@@ -136,7 +140,7 @@ const ProductivitySummary: React.FC<ProductivitySummaryProps> = ({ comparison })
             {passRateIndicator.text} {Math.abs(delta.passRateDiff * 100).toFixed(1)}%
           </Text>
         </Text>
-        
+
         {current.recoveryEvents.length > 0 && (
           <Text color="yellow">
             <Text bold>Recoveries: </Text>
@@ -162,7 +166,10 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
   onCommand,
   readOnly = false,
   metricsComparison,
-  queueStats
+  queueStats,
+  repoGroups,
+  criticResults,
+  leanSavedRequests
 }) => {
   const [elapsedTime, setElapsedTime] = useState('0s');
   const [input, setInput] = useState('');
@@ -238,16 +245,21 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
       <Box flexDirection="column" marginBottom={1}>
         <Text bold>Overall Progress:</Text>
         <ProgressBar completed={completedSteps} total={totalSteps} />
-        <Text>
-          <Text color="green">{completedSteps} completed</Text>
-          {' / '}
-          <Text color="red">{failedSteps} failed</Text>
-          {' / '}
-          <Text color="blue">{runningSteps} running</Text>
-          {' / '}
-          <Text color="gray">{totalSteps} total</Text>
-        </Text>
       </Box>
+
+      {/* Repo-Level Status (multi-repo orchestration) */}
+      {repoGroups && repoGroups.length > 1 && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold underline>Repositories:</Text>
+          {repoGroups.map((rg, idx) => (
+            <Box key={idx}>
+              <Box width={30}><Text color="cyan">{rg.repo}</Text></Box>
+              <Box width={12}><Text>{rg.completed}/{rg.stepCount} steps</Text></Box>
+              <Box width={8}><Text color="green">{rg.stepCount > 0 ? Math.round(rg.completed / rg.stepCount * 100) : 0}%</Text></Box>
+            </Box>
+          ))}
+        </Box>
+      )}
 
       {/* Metrics Comparison */}
       {metricsComparison && <ProductivitySummary comparison={metricsComparison} />}
@@ -301,10 +313,10 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
             <Box width={3}>
               <StatusIcon status={result.status} />
             </Box>
-            <Box width={6}>
+            <Box width={8}>
               <Text color="gray">Step {result.stepNumber}</Text>
             </Box>
-            <Box width={20}>
+            <Box width={22}>
               <Text color={result.status === 'completed' ? 'green' : 'white'}>
                 {result.agentName}
               </Text>
@@ -325,6 +337,23 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
           </Box>
         ))}
       </Box>
+
+      {/* Critic Scores (governance mode) */}
+      {criticResults && criticResults.length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold underline>Critic Review:</Text>
+          {criticResults.map((cr, idx) => (
+            <Box key={idx} flexDirection="column">
+              <Text color={cr.score >= 80 ? 'green' : cr.score >= 60 ? 'yellow' : 'red'}>
+                Wave {idx + 1}: {cr.score}/100 ({cr.recommendation}) {cr.flags.length > 0 ? `- ${cr.flags.length} flag(s)` : ''}
+              </Text>
+              {cr.flags.length > 0 && cr.flags.map((flag, fi) => (
+                <Text key={fi} color="gray">  {flag}</Text>
+              ))}
+            </Box>
+          ))}
+        </Box>
+      )}
 
       {/* Recent Commits */}
       {recentCommits.length > 0 && (
@@ -419,6 +448,13 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
         <ProductivitySummary comparison={metricsComparison} />
       )}
 
+      {/* Lean Mode Savings */}
+      {leanSavedRequests != null && leanSavedRequests > 0 && (
+        <Box marginBottom={1}>
+          <Text color="green" bold>Saved: {leanSavedRequests} request(s), ~${(leanSavedRequests * 0.03).toFixed(2)}</Text>
+        </Box>
+      )}
+
       {/* Footer */}
       <Box marginTop={1}>
         {readOnly ? (
@@ -459,21 +495,37 @@ export interface DashboardManager {
 }
 
 /**
- * Start the live dashboard
+ * Start the live dashboard. Falls back gracefully in non-TTY environments.
  */
-export function startDashboard(
+export async function startDashboard(
   initialProps: DashboardProps,
   commandHandler?: (command: SteeringCommand) => void
-): DashboardManager {
+): Promise<DashboardManager | null> {
+  // Guard: Ink requires a TTY with raw mode support. Bail out early in CI / piped output.
+  if (!process.stdout.isTTY || !process.stdin.isTTY) {
+    return null;
+  }
+
+  // Use native import() that TypeScript won't transform to require().
+  // CJS require() can't load ESM-only ink (yoga-wasm-web uses top-level await).
+  const nativeImport = new Function('specifier', 'return import(specifier)') as (s: string) => Promise<any>;
+  const ink = await nativeImport('ink');
+  const inkSpinner = await nativeImport('ink-spinner');
+  Box = ink.Box;
+  Text = ink.Text;
+  inkRender = ink.render;
+  useInput = ink.useInput;
+  Spinner = inkSpinner.default;
+
   let currentProps = { ...initialProps };
   let currentCommandHandler = commandHandler;
-  
+
   const getProps = () => ({
     ...currentProps,
     ...(currentCommandHandler ? { onCommand: currentCommandHandler } : {})
   });
-  
-  const { rerender, unmount, waitUntilExit } = render(
+
+  const { rerender, unmount, waitUntilExit } = inkRender(
     <SwarmDashboard {...getProps()} />
   );
 

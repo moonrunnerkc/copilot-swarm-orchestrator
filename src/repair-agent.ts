@@ -48,6 +48,18 @@ export interface RepairAttemptDetail {
 const CHARS_PER_TOKEN = 4;
 
 /**
+ * Failure classification for targeted repair strategies.
+ * Drives prompt selection so the repair agent gets focused instructions.
+ */
+export type FailureClass =
+  | 'build-failure'
+  | 'test-failure'
+  | 'missing-artifact'
+  | 'dependency-error'
+  | 'timeout'
+  | 'general';
+
+/**
  * RepairAgent - spawns a dedicated Copilot CLI session with failure context
  * to fix issues detected by the verifier, then re-verifies.
  *
@@ -125,9 +137,31 @@ export class RepairAgent {
     }
 
     sections.push('--- REPAIR INSTRUCTIONS ---');
-    sections.push('1. Read the failed checks and root cause above carefully.');
-    sections.push('2. Fix the specific issues identified. Do not redo unrelated work.');
-    sections.push('3. Run tests if the task requires tests.');
+
+    // classify failure and inject targeted strategy (Upgrade 9)
+    const failureClass = this.classifyFailure(context.failedChecks, context.rootCause);
+    const strategy = this.getRepairStrategy(failureClass);
+    sections.push(`--- FAILURE CLASSIFICATION: ${failureClass} ---`);
+    sections.push(strategy);
+    sections.push('');
+
+    // inject focused evidence for specific failure types
+    if (failureClass === 'test-failure') {
+      const testChecks = context.failedChecks.filter(c => c.startsWith('[test]'));
+      if (testChecks.length > 0) {
+        sections.push('Failing test checks:');
+        testChecks.forEach(t => sections.push(`  - ${t}`));
+        sections.push('');
+      }
+    } else if (failureClass === 'build-failure') {
+      const buildChecks = context.failedChecks.filter(c => c.startsWith('[build]'));
+      if (buildChecks.length > 0) {
+        sections.push('Build errors:');
+        buildChecks.forEach(b => sections.push(`  - ${b}`));
+        sections.push('');
+      }
+    }
+
     sections.push('4. Commit your fixes with a clear message starting with "repair:".');
     sections.push('5. Do not claim work is done without evidence in the transcript.');
     sections.push('');
@@ -279,6 +313,51 @@ export class RepairAgent {
       attemptDetails,
       error: `Repair failed after ${this.maxRetries} attempt(s)`
     };
+  }
+
+  /**
+   * Classify failure type from tagged check strings and root cause.
+   * Uses frequency count on [type] prefixes from extractFailedChecks output.
+   */
+  classifyFailure(failedChecks: string[], rootCause: string): FailureClass {
+    const lower = [...failedChecks.map(c => c.toLowerCase()), rootCause.toLowerCase()].join(' ');
+
+    // priority: timeout > dependency > missing artifact > majority tag
+    if (/timeout|timed out/.test(lower)) return 'timeout';
+    if (/\bpackage\b|\bdependency\b|\bmodule not found\b/.test(lower)) return 'dependency-error';
+    if (/not found|not created|missing/.test(lower)) return 'missing-artifact';
+
+    // count tagged prefixes
+    let buildCount = 0, testCount = 0;
+    for (const check of failedChecks) {
+      if (check.startsWith('[build]')) buildCount++;
+      else if (check.startsWith('[test]')) testCount++;
+    }
+
+    if (buildCount > 0 && buildCount >= testCount) return 'build-failure';
+    if (testCount > 0) return 'test-failure';
+    return 'general';
+  }
+
+  /**
+   * Return targeted repair instructions for the given failure class.
+   * Replaces the generic one-size-fits-all instructions.
+   */
+  getRepairStrategy(failureClass: FailureClass): string {
+    switch (failureClass) {
+      case 'build-failure':
+        return 'Focus on the compiler/bundler errors below. Fix the specific file and line mentioned. Do not change unrelated code.';
+      case 'test-failure':
+        return 'The failing test names and assertions are listed below. Fix the implementation to make these tests pass. Do not modify the tests.';
+      case 'missing-artifact':
+        return 'The following expected files were not created. Create them now.';
+      case 'dependency-error':
+        return 'Install or fix the missing dependencies listed below.';
+      case 'timeout':
+        return 'The previous session timed out. Simplify the task: focus on the minimum viable deliverable, skip optional steps.';
+      case 'general':
+        return '1. Read the failed checks and root cause above carefully.\n2. Fix the specific issues identified. Do not redo unrelated work.\n3. Run tests if the task requires tests.';
+    }
   }
 
   /**

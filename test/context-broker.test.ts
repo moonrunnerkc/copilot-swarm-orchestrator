@@ -24,7 +24,7 @@ describe('ContextBroker', () => {
       const broker = new ContextBroker(testRunDir);
 
       const lockId = await broker.acquireGitLock('agent1', 'commit');
-      
+
       assert(lockId !== null, 'should acquire lock');
       assert(typeof lockId === 'string', 'lock ID should be string');
 
@@ -33,7 +33,7 @@ describe('ContextBroker', () => {
       // should be able to acquire again after release
       const lockId2 = await broker.acquireGitLock('agent2', 'merge');
       assert(lockId2 !== null, 'should acquire lock after release');
-      
+
       broker.releaseGitLock(lockId2);
     });
 
@@ -71,13 +71,13 @@ describe('ContextBroker', () => {
 
     it('should remove stale locks', async function() {
       this.timeout(10000);
-      
+
       const broker = new ContextBroker(testRunDir);
 
       // create a stale lock manually
       const lockDir = path.join(testRunDir, '.locks');
       const lockFile = path.join(lockDir, 'git.lock');
-      
+
       const staleLock = {
         lockId: 'stale-123',
         agentName: 'old-agent',
@@ -172,7 +172,7 @@ describe('ContextBroker', () => {
       });
 
       const summary = broker.getDependencyContext([1]);
-      
+
       assert(summary.includes('Step 1'), 'should mention step number');
       assert(summary.includes('BackendMaster'), 'should mention agent');
       assert(summary.includes('User API endpoints created'), 'should include summary');
@@ -200,7 +200,7 @@ describe('ContextBroker', () => {
 
     it('should wait for dependencies', async function() {
       this.timeout(5000);
-      
+
       const broker = new ContextBroker(testRunDir);
 
       // simulate async dependency completion
@@ -222,7 +222,7 @@ describe('ContextBroker', () => {
 
     it('should timeout waiting for dependencies', async function() {
       this.timeout(3000);
-      
+
       const broker = new ContextBroker(testRunDir);
 
       const satisfied = await broker.waitForDependencies([1], 1000);
@@ -247,6 +247,113 @@ describe('ContextBroker', () => {
       broker.clearContext();
 
       assert.strictEqual(broker.getAllContext().length, 0);
+    });
+  });
+
+  describe('strict isolation', () => {
+    it('should return all entries when strictIsolation is false', () => {
+      const broker = new ContextBroker(testRunDir);
+
+      broker.addStepContext({
+        stepNumber: 1,
+        agentName: 'Agent1',
+        timestamp: new Date().toISOString(),
+        data: {
+          filesChanged: ['a.ts'],
+          outputsSummary: 'done'
+        }
+      });
+
+      broker.addStepContext({
+        stepNumber: 2,
+        agentName: 'Agent2',
+        timestamp: new Date().toISOString(),
+        data: {
+          filesChanged: ['b.ts'],
+          outputsSummary: 'done',
+          transcript: '/runs/123/steps/step-2/share.md'
+        }
+      });
+
+      const result = broker.getContextForSteps([1, 2], false);
+      assert.strictEqual(result.length, 2, 'non-strict mode returns all entries');
+    });
+
+    it('should filter entries without transcript in strict mode', () => {
+      const broker = new ContextBroker(testRunDir);
+
+      // entry WITHOUT transcript (should be rejected in strict mode)
+      broker.addStepContext({
+        stepNumber: 1,
+        agentName: 'Agent1',
+        timestamp: new Date().toISOString(),
+        data: {
+          filesChanged: ['a.ts'],
+          outputsSummary: 'done'
+        }
+      });
+
+      // entry WITH transcript (should pass)
+      broker.addStepContext({
+        stepNumber: 2,
+        agentName: 'Agent2',
+        timestamp: new Date().toISOString(),
+        data: {
+          filesChanged: ['b.ts'],
+          outputsSummary: 'done',
+          transcript: '/runs/123/steps/step-2/share.md'
+        }
+      });
+
+      const result = broker.getContextForSteps([1, 2], true);
+      assert.strictEqual(result.length, 1, 'strict mode rejects non-transcript entries');
+      assert.strictEqual(result[0]?.stepNumber, 2);
+    });
+
+    it('should reject entries with empty transcript string in strict mode', () => {
+      const broker = new ContextBroker(testRunDir);
+
+      broker.addStepContext({
+        stepNumber: 1,
+        agentName: 'Agent1',
+        timestamp: new Date().toISOString(),
+        data: {
+          filesChanged: ['a.ts'],
+          outputsSummary: 'done',
+          transcript: ''
+        }
+      });
+
+      const result = broker.getContextForSteps([1], true);
+      assert.strictEqual(result.length, 0, 'empty transcript string is rejected');
+    });
+
+    it('should propagate strict isolation through getDependencyContext', () => {
+      const broker = new ContextBroker(testRunDir);
+
+      // entry without transcript
+      broker.addStepContext({
+        stepNumber: 1,
+        agentName: 'Agent1',
+        timestamp: new Date().toISOString(),
+        data: {
+          filesChanged: ['file.ts'],
+          outputsSummary: 'API created',
+          branchName: 'swarm/exec-1/step-1',
+          commitShas: ['abc123']
+        }
+      });
+
+      // strict mode: no transcript-backed entries for step 1
+      const strictSummary = broker.getDependencyContext([1], true);
+      assert(
+        strictSummary.includes('context not yet available'),
+        'strict mode should show no context for non-transcript entries'
+      );
+
+      // non-strict mode: returns normal context
+      const normalSummary = broker.getDependencyContext([1], false);
+      assert(normalSummary.includes('API created'), 'non-strict returns full context');
     });
   });
 });

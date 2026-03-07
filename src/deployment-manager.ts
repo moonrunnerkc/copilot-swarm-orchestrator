@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import ExternalToolManager, { CommandExecution } from './external-tool-manager';
+import ExternalToolManager from './external-tool-manager';
 
 export interface DeploymentResult {
   success: boolean;
@@ -185,7 +185,7 @@ export class DeploymentManager {
    */
   loadDeploymentMetadata(runDir: string): DeploymentMetadata[] {
     const deploymentsDir = path.join(runDir, 'deployments');
-    
+
     if (!fs.existsSync(deploymentsDir)) {
       return [];
     }
@@ -201,6 +201,48 @@ export class DeploymentManager {
     }
 
     return metadata.sort((a, b) => a.stepNumber - b.stepNumber);
+  }
+
+  /**
+   * Tag HEAD before deployment so we can roll back if the health check fails.
+   */
+  tagPreDeploy(executionId: string): string {
+    const { execSync } = require('child_process');
+    const tag = `pre-deploy/${executionId}`;
+    execSync(`git tag -f ${tag}`, { cwd: this.workingDir, encoding: 'utf8' });
+    return tag;
+  }
+
+  /**
+   * HTTP health check against a preview URL. Retries on non-200 responses.
+   */
+  async runHealthCheck(url: string, retries: number = 3, intervalMs: number = 20000): Promise<boolean> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (response.ok) return true;
+        console.log(`  [health-check] Attempt ${attempt}/${retries}: HTTP ${response.status}`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.log(`  [health-check] Attempt ${attempt}/${retries}: ${msg}`);
+      }
+      if (attempt < retries) {
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Roll back HEAD by reverting the latest commit and recording the event.
+   */
+  rollbackToTag(tag: string): void {
+    const { execSync } = require('child_process');
+    execSync('git revert --no-commit HEAD', { cwd: this.workingDir, encoding: 'utf8' });
+    execSync(`git commit -m "rollback: revert to ${tag} after failed health check"`, {
+      cwd: this.workingDir, encoding: 'utf8'
+    });
+    console.log(`  [rollback] Reverted HEAD, tagged from ${tag}`);
   }
 }
 

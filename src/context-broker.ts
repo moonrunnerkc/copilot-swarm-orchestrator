@@ -15,6 +15,7 @@ export interface ContextEntry {
     branchName?: string;
     commitShas?: string[];
     verificationPassed?: boolean;
+    transcript?: string; // path to share.md transcript file
   };
 }
 
@@ -196,22 +197,34 @@ export class ContextBroker {
   }
 
   /**
-   * Get context for specific steps (useful for dependency resolution)
+   * Get context for specific steps (useful for dependency resolution).
+   * When strictIsolation is true, only entries with verified transcript
+   * evidence are returned -- rejects anything backed by shared mutable state.
    */
-  getContextForSteps(stepNumbers: number[]): ContextEntry[] {
+  getContextForSteps(stepNumbers: number[], strictIsolation = false): ContextEntry[] {
     const allContext = this.getAllContext();
-    return allContext.filter(entry => stepNumbers.includes(entry.stepNumber));
+    const byStep = allContext.filter(entry => stepNumbers.includes(entry.stepNumber));
+
+    if (!strictIsolation) {
+      return byStep;
+    }
+
+    // strict mode: only entries with a non-empty transcript path
+    return byStep.filter(entry =>
+      entry.data.transcript && entry.data.transcript.length > 0
+    );
   }
 
   /**
-   * Get summary of changes from dependent steps
+   * Get summary of changes from dependent steps.
+   * Strict isolation mode filters to transcript-backed entries only.
    */
-  getDependencyContext(dependencies: number[]): string {
+  getDependencyContext(dependencies: number[], strictIsolation = false): string {
     if (dependencies.length === 0) {
       return 'No dependencies - you are starting fresh.';
     }
 
-    const entries = this.getContextForSteps(dependencies);
+    const entries = this.getContextForSteps(dependencies, strictIsolation);
 
     if (entries.length === 0) {
       return `Dependencies: Steps ${dependencies.join(', ')} (context not yet available)`;

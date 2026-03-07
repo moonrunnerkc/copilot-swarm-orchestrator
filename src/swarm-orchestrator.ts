@@ -13,10 +13,11 @@ import { MetaAnalyzer, MetaReviewResult } from './meta-analyzer';
 import MetricsCollector from './metrics-collector';
 import { ExecutionPlan, PlanStep, ReplanPayload } from './plan-generator';
 import { load_quality_gates_config, run_quality_gates } from './quality-gates';
-import RepairAgent, { RepairContext, RepairResult } from './repair-agent';
+import RepairAgent, { RepairContext } from './repair-agent';
 import SessionExecutor, { SessionOptions, SessionResult } from './session-executor';
 import ShareParser from './share-parser';
 import { Spinner } from './spinner';
+import { CriticResult, SessionState } from './types';
 import VerifierEngine, { VerificationResult } from './verifier-engine';
 import { AdaptiveConcurrencyManager, WaveResizer } from './wave-resizer';
 
@@ -65,6 +66,9 @@ export interface SwarmExecutionContext {
     scaffoldFixAdded: boolean;
     configFixAdded: boolean;
   };
+  criticResults?: CriticResult[];
+  leanSavedRequests?: number;
+  totalWaves?: number;
 }
 
 /**
@@ -179,6 +183,12 @@ export class SwarmOrchestrator {
       qualityGates?: boolean;
       qualityGatesConfigPath?: string;
       qualityGatesOutDir?: string;
+      strictIsolation?: boolean;
+      governance?: boolean;
+      lean?: boolean;
+      useInnerFleet?: boolean;
+      replay?: boolean;
+      onProgress?: (context: SwarmExecutionContext, event: string) => void;
     }
   ): Promise<SwarmExecutionContext> {
     const context = this.initializeSwarmExecution(plan, runDir, options?.maxConcurrency);
@@ -201,12 +211,28 @@ export class SwarmOrchestrator {
     }
     console.log(`${'─'.repeat(50)}`);
 
+    // Group steps by repo for multi-repo orchestration
+    const repoGroups = new Map<string, PlanStep[]>();
+    for (const step of plan.steps) {
+      const repo = step.repo ?? process.cwd();
+      if (!repoGroups.has(repo)) repoGroups.set(repo, []);
+      repoGroups.get(repo)!.push(step);
+    }
+
+    if (repoGroups.size > 1) {
+      console.log(`\n📂 Multi-repo plan detected: ${repoGroups.size} repo(s)`);
+      for (const [repo, steps] of repoGroups) {
+        console.log(`  - ${path.basename(repo)}: ${steps.length} step(s)`);
+      }
+    }
+
     // build dependency graph
     const dependencyGraph = this.buildDependencyGraph(plan);
 
     // identify waves of parallel execution
     const executionWaves = this.identifyExecutionWaves(dependencyGraph);
 
+    context.totalWaves = executionWaves.length;
     console.log(`Execution will proceed in ${executionWaves.length} wave(s)\n`);
 
     // execute each wave with queue and adaptive concurrency
@@ -216,6 +242,25 @@ export class SwarmOrchestrator {
 
       // Track wave start
       context.metricsCollector?.startWave(waveIndex + 1);
+
+      // Notify progress listeners that a new wave is starting
+      options?.onProgress?.(context, `wave-start:${waveIndex + 1}`);
+
+      // Lean mode: scan KB for similar past tasks, append references
+      if (options?.lean && context.knowledgeBase) {
+        for (const stepNum of wave) {
+          const step = plan.steps.find(s => s.stepNumber === stepNum);
+          if (!step) continue;
+          const matches = context.knowledgeBase.findSimilarTasks(step.task);
+          if (matches.length > 0) {
+            const ref = matches[0];
+            const commitRef = ref.evidence[0] || 'unknown';
+            step.task += `\nReference: similar task completed in session ${ref.id}, commit ${commitRef}.`;
+            context.leanSavedRequests = (context.leanSavedRequests || 0) + 1;
+            console.log(`  [lean] Step ${stepNum}: found similar pattern "${ref.insight.slice(0, 50)}"`);
+          }
+        }
+      }
 
       // Check for pause before starting wave
       if (this.pauseRequested) {
@@ -275,6 +320,9 @@ export class SwarmOrchestrator {
 
         // update queue stats
         context.queueStats = context.executionQueue!.getStats();
+
+        // push incremental progress to dashboard after each sub-wave settles
+        options?.onProgress?.(context, `sub-wave-done:${waveIndex + 1}:${subWaveIndex + 1}`);
 
         // check for failures and adjust concurrency
         const failures = waveResults.filter(r => r.status === 'rejected');
@@ -405,11 +453,28 @@ export class SwarmOrchestrator {
         r => wave.includes(r.stepNumber) && r.status === 'completed' && r.branchName
       );
 
-      if (completedInThisWave.length > 0 && waveIndex < executionWaves.length - 1) {
+      // Governance: critic review before merge
+      if (options?.governance && completedInThisWave.length > 0) {
+        if (!context.criticResults) context.criticResults = [];
+        const criticResult = this.runCriticReview(completedInThisWave, context, plan);
+        context.criticResults.push(criticResult);
+        console.log(`  \ud83c\udfad Critic score: ${criticResult.score}/100 (${criticResult.recommendation})`);
+        if (criticResult.flags.length > 0) {
+          console.log(`  \u26a0\ufe0f  Critic flags: ${criticResult.flags.join(', ')}`);
+          console.log('  \u23f8\ufe0f  Governance pause: awaiting human approval...');
+          this.pauseRequested = true;
+          await this.waitForResume();
+        }
+      }
+
+      if (completedInThisWave.length > 0) {
         console.log(`\n🔀 Merging wave ${waveIndex + 1} branches to main (${completedInThisWave.length} branch(es))...`);
         context.contextBroker.forceReleaseStaleLocks();
         await this.mergeWaveBranches(completedInThisWave, context);
       }
+
+      // Notify progress listeners that the wave is fully done
+      options?.onProgress?.(context, `wave-done:${waveIndex + 1}`);
     }
 
     // final quality gates run on the merged state (hard gate)
@@ -516,6 +581,41 @@ export class SwarmOrchestrator {
       analyticsLog.appendRun(metrics);
 
       console.log(`\n📊 Metrics saved: ${metricsPath}`);
+
+      // Persist session state for audit/resume support
+      // Use the runDir basename as session ID so it matches the directory
+      // the CLI created (context.executionId differs by a few ms)
+      const runDirId = path.basename(runDir);
+      const completedSteps = context.results.filter(r => r.status === 'completed');
+      const sessionState: SessionState = {
+        sessionId: runDirId,
+        graph: {
+          goal: plan.goal,
+          steps: plan.steps.map(s => ({ stepNumber: s.stepNumber, task: s.task, agent: s.agentName }))
+        },
+        branchMap: Object.fromEntries(
+          context.results
+            .filter(r => r.branchName)
+            .map(r => [String(r.stepNumber), r.branchName!])
+        ),
+        transcripts: Object.fromEntries(
+          context.results
+            .filter(r => r.sessionResult?.transcriptPath)
+            .map(r => [String(r.stepNumber), r.sessionResult!.transcriptPath!])
+        ),
+        metrics: metrics as unknown as Record<string, unknown>,
+        gateResults: [],
+        status: completedSteps.length === plan.steps.length ? 'completed' : 'failed',
+        lastCompletedStep: Math.max(0, ...completedSteps.map(r => r.stepNumber))
+      };
+      // Write directly to runDir (saveSession uses cwd which differs for demos)
+      fs.writeFileSync(
+        path.join(runDir, 'session-state.json'),
+        JSON.stringify(sessionState, null, 2),
+        'utf8'
+      );
+      // Also persist via collector so audit/metrics CLI can find it from project root
+      context.metricsCollector.saveSession(runDirId, sessionState);
     }
 
     // Record execution in knowledge base
@@ -576,6 +676,8 @@ export class SwarmOrchestrator {
       qualityGates?: boolean;
       qualityGatesConfigPath?: string;
       qualityGatesOutDir?: string;
+      strictIsolation?: boolean;
+      governance?: boolean;
     }
   ): Promise<void> {
     console.log('\n🔄 Executing replan...');
@@ -783,6 +885,11 @@ export class SwarmOrchestrator {
       qualityGates?: boolean;
       qualityGatesConfigPath?: string;
       qualityGatesOutDir?: string;
+      strictIsolation?: boolean;
+      governance?: boolean;
+      useInnerFleet?: boolean;
+      replay?: boolean;
+      onProgress?: (context: SwarmExecutionContext, event: string) => void;
     }
   ): Promise<void> {
     // delegate to original implementation
@@ -804,6 +911,11 @@ export class SwarmOrchestrator {
       qualityGates?: boolean;
       qualityGatesConfigPath?: string;
       qualityGatesOutDir?: string;
+      strictIsolation?: boolean;
+      governance?: boolean;
+      useInnerFleet?: boolean;
+      replay?: boolean;
+      onProgress?: (context: SwarmExecutionContext, event: string) => void;
     }
   ): Promise<void> {
     const resultIndex = context.results.findIndex(r => r.stepNumber === step.stepNumber);
@@ -843,13 +955,25 @@ export class SwarmOrchestrator {
       result.status = 'running';
       result.startTime = new Date().toISOString();
 
+      // Notify progress: step is now running
+      options?.onProgress?.(context, `step-running:${step.stepNumber}`);
+
       // Use git worktree so each agent has its own isolated working directory
       const worktreePath = await this.createAgentWorktree(branchName, context.mainBranch, context.runDir, step.stepNumber);
       console.log(`  🌿 Step ${step.stepNumber} (${agent.name}) on branch: ${branchName}`);
 
       // build enhanced prompt with dependency context
-      const dependencyContext = context.contextBroker.getDependencyContext(step.dependencies);
+      const strictIsolation = options?.strictIsolation ?? false;
+      const dependencyContext = context.contextBroker.getDependencyContext(step.dependencies, strictIsolation);
       const enhancedPrompt = this.buildSwarmPrompt(step, agent, context, dependencyContext);
+
+      // Inner fleet toggle: prefix prompt with /fleet for parallel sub-agent dispatch
+      const finalPrompt = options?.useInnerFleet
+        ? `/fleet ${enhancedPrompt}`
+        : enhancedPrompt;
+      if (options?.useInnerFleet) {
+        console.log(`  ⚡ [inner-fleet] Step ${step.stepNumber} dispatched via /fleet`);
+      }
 
       // execute session on agent branch - IN THE WORKTREE DIRECTORY
       const stepDir = path.join(context.runDir, 'steps', `step-${step.stepNumber}`);
@@ -870,27 +994,47 @@ export class SwarmOrchestrator {
         ...(options?.model && { model: options.model })
       };
 
-      // Print static header instead of animated spinner when live logging
-      // This prevents spinner animation from interleaving with agent output
-      console.log(`  🐝 Step ${step.stepNumber} (${agent.name}) — Agent working...`);
-      console.log(`  ${'─'.repeat(60)}`);
+      // replay mode: reuse a matching prior transcript instead of calling Copilot
+      if (options?.replay && context.knowledgeBase) {
+        const patterns = context.knowledgeBase.findSimilarTasks(step.task, 0.9);
+        const match = patterns.find(p => p.evidence.length > 0);
+        if (match) {
+          const priorTranscript = match.evidence[0];
+          if (priorTranscript && fs.existsSync(priorTranscript)) {
+            console.log(`  ♻️  [replay] Step ${step.stepNumber}: replaying from cached transcript`);
+            fs.copyFileSync(priorTranscript, transcriptPath);
+            result.sessionResult = { output: 'replayed from cache', success: true, duration: 0 } as any;
+            result.status = 'completed';
+            result.endTime = new Date().toISOString();
+            // skip to verification (fall through below)
+          }
+        }
+      }
 
-      const sessionResult = await worktreeExecutor.executeSession(enhancedPrompt, sessionOptions);
+      // only call Copilot if we don't already have a session result (e.g. from replay)
+      if (!result.sessionResult) {
+        // Print static header instead of animated spinner when live logging
+        // This prevents spinner animation from interleaving with agent output
+        console.log(`  🐝 Step ${step.stepNumber} (${agent.name}) — Agent working...`);
+        console.log(`  ${'─'.repeat(60)}`);
 
-      // Print completion with timing
-      const durationSec = Math.round(sessionResult.duration / 1000);
-      console.log(`  ${'─'.repeat(60)}`);
-      console.log(`  ✅ Step ${step.stepNumber} (${agent.name}) complete (${durationSec}s)`);
+        const sessionResult = await worktreeExecutor.executeSession(finalPrompt, sessionOptions);
 
-      result.sessionResult = sessionResult;
+        // Print completion with timing
+        const durationSec = Math.round(sessionResult.duration / 1000);
+        console.log(`  ${'─'.repeat(60)}`);
+        console.log(`  ✅ Step ${step.stepNumber} (${agent.name}) complete (${durationSec}s)`);
 
-      if (!sessionResult.success) {
-        throw new Error(sessionResult.error || 'Session failed');
+        result.sessionResult = sessionResult;
+
+        if (!sessionResult.success) {
+          throw new Error(sessionResult.error || 'Session failed');
+        }
       }
 
       // Check if transcript was created, create fallback if not
       if (!fs.existsSync(transcriptPath)) {
-        const fallbackContent = `# Copilot Session Transcript\n\nSession output:\n\`\`\`\n${sessionResult.output || 'No output captured'}\n\`\`\`\n`;
+        const fallbackContent = `# Copilot Session Transcript\n\nSession output:\n\`\`\`\n${result.sessionResult?.output || 'No output captured'}\n\`\`\`\n`;
         fs.writeFileSync(transcriptPath, fallbackContent, 'utf8');
       }
 
@@ -953,7 +1097,8 @@ export class SwarmOrchestrator {
             outputsSummary: step.expectedOutputs.join(', '),
             branchName,
             commitShas: shareIndex.gitCommits.map(c => c.sha || 'unknown'),
-            verificationPassed: verificationResult.passed
+            verificationPassed: verificationResult.passed,
+            transcript: transcriptPath
           }
         };
         context.contextBroker.addStepContext(contextEntry);
@@ -1145,6 +1290,9 @@ export class SwarmOrchestrator {
       result.status = 'completed';
       result.endTime = new Date().toISOString();
 
+      // Notify progress: step completed
+      options?.onProgress?.(context, `step-done:${step.stepNumber}`);
+
       console.log(`  ✅ Step ${step.stepNumber} (${agent.name}) completed and merged`);
 
     } catch (error: unknown) {
@@ -1153,9 +1301,73 @@ export class SwarmOrchestrator {
       result.error = err.message;
       result.endTime = new Date().toISOString();
 
+      // Notify progress: step failed
+      options?.onProgress?.(context, `step-failed:${step.stepNumber}`);
+
       console.error(`  ❌ Step ${step.stepNumber} (${agent.name}) failed: ${err.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Run critic review on completed wave results.
+   * Scores per check axis (test/build/lint/commit/claim) with weighted deductions.
+   * Grounded in structured verifier output, not raw pass/fail booleans.
+   */
+  private runCriticReview(
+    completedResults: ParallelStepResult[],
+    context: SwarmExecutionContext,
+    plan: ExecutionPlan
+  ): CriticResult {
+    const flags: string[] = [];
+    let score = 100;
+
+    // per-axis deduction weights
+    const weights: Record<string, number> = {
+      test: 20, build: 25, lint: 5, commit: 10, claim: 5
+    };
+
+    for (const result of completedResults) {
+      const step = plan.steps.find(s => s.stepNumber === result.stepNumber);
+      if (!step) continue;
+
+      // aggregate checks by type for this step
+      if (result.verificationResult) {
+        const byType = new Map<string, { passed: number; failed: number; reasons: string[] }>();
+        for (const check of result.verificationResult.checks) {
+          const entry = byType.get(check.type) || { passed: 0, failed: 0, reasons: [] };
+          if (check.passed) {
+            entry.passed++;
+          } else {
+            entry.failed++;
+            if (check.reason) entry.reasons.push(check.reason);
+          }
+          byType.set(check.type, entry);
+        }
+
+        // score each axis and generate typed flags
+        for (const [type, counts] of byType) {
+          if (counts.failed > 0) {
+            const deduction = (weights[type] || 10) * counts.failed;
+            score -= deduction;
+            const total = counts.passed + counts.failed;
+            const detail = counts.reasons.length > 0 ? ` (${counts.reasons[0]})` : '';
+            flags.push(`step-${result.stepNumber}: ${counts.failed}/${total} ${type} checks failed${detail}`);
+          }
+        }
+      }
+
+      // missing session output
+      if (step.expectedOutputs.length > 0 && !result.sessionResult) {
+        flags.push(`step-${result.stepNumber}: no session output captured`);
+        score -= 10;
+      }
+    }
+
+    score = Math.max(0, Math.min(100, score));
+    const recommendation = flags.length === 0 ? 'approve' : score >= 60 ? 'revise' : 'reject';
+
+    return { score, flags, recommendation };
   }
 
   /**
@@ -1564,44 +1776,22 @@ export class SwarmOrchestrator {
     }
 
     try {
-      return await new Promise((resolve, reject) => {
-        const proc = spawn('git', ['merge', '--no-ff', branchName, '-m', `Merge ${branchName}`], {
-          cwd: this.workingDir,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            GIT_TERMINAL_PROMPT: '0',
-            GIT_MERGE_AUTOEDIT: 'no'
-          }
-        });
-
-        // timeout: merges should not take longer than 30s
-        const timeout = setTimeout(() => {
-          proc.kill('SIGKILL');
-          reject(new Error(`Timeout merging ${branchName}`));
-        }, 30000);
-
-        let stderr = '';
-        if (proc.stderr) {
-          proc.stderr.on('data', (data) => {
-            stderr += data.toString();
-          });
+      execSync(`git merge --no-ff "${branchName}" -m "Merge ${branchName}"`, {
+        cwd: this.workingDir,
+        stdio: 'pipe',
+        timeout: 120000, // 2 min -- integrator merges can be large
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: '0',
+          GIT_MERGE_AUTOEDIT: 'no'
         }
-
-        proc.on('close', (code) => {
-          clearTimeout(timeout);
-          if (code === 0) {
-            resolve();
-          } else {
-            reject(new Error(`Merge conflict: ${stderr}`));
-          }
-        });
-
-        proc.on('error', (err) => {
-          clearTimeout(timeout);
-          reject(err);
-        });
       });
+    } catch (err: unknown) {
+      const e = err as any;
+      if (e.killed) {
+        throw new Error(`Timeout merging ${branchName}`);
+      }
+      throw new Error(`Merge conflict: ${e.stderr?.toString() || e.message}`);
     } finally {
       context.contextBroker.releaseGitLock(lockId);
     }
@@ -1747,10 +1937,35 @@ node_modules/
 
     try {
       const branchName = context.results.find(r => r.stepNumber === step.stepNumber)?.branchName || 'unknown';
+
+      // tag HEAD before deploy for rollback safety
+      let preDeployTag: string | undefined;
+      try {
+        preDeployTag = deploymentManager.tagPreDeploy(context.executionId);
+        console.log(`  🏷️  Tagged: ${preDeployTag}`);
+      } catch {
+        console.log(`  [deploy] Could not tag pre-deploy (non-fatal, continuing)`);
+      }
+
       const deployResult = await deploymentManager.deployPreview(branchName);
 
       if (deployResult.success && deployResult.previewUrl) {
         console.log(`  ✅ Preview deployed: ${deployResult.previewUrl}`);
+
+        // health check the preview URL
+        const healthy = await deploymentManager.runHealthCheck(deployResult.previewUrl);
+        if (!healthy && preDeployTag) {
+          console.warn(`  ⚠️  Health check failed, rolling back...`);
+          try {
+            deploymentManager.rollbackToTag(preDeployTag);
+          } catch (rollbackErr: unknown) {
+            const msg = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+            console.warn(`  ⚠️  Rollback failed: ${msg}`);
+          }
+          return;
+        } else if (healthy) {
+          console.log(`  ✅ Health check passed`);
+        }
 
         // store deployment metadata
         const metadata: DeploymentMetadata = {

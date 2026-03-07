@@ -1,6 +1,6 @@
 /**
  * Copilot CLI Wrapper
- * 
+ *
  * Abstraction layer for resilient Copilot CLI invocation with:
  * - Graceful degradation when CLI unavailable
  * - Fallback to alternative modes
@@ -8,9 +8,7 @@
  * - Feature detection and capability checking
  */
 
-import { spawn, SpawnOptions } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
+import { spawn } from 'child_process';
 
 export interface CliCapabilities {
   available: boolean;
@@ -26,6 +24,8 @@ export interface WrapperOptions {
   retryOnFailure?: boolean;
   maxRetries?: number;
   timeout?: number;
+  strictIsolation?: boolean; // force per-task branches, transcript-only context
+  useInnerFleet?: boolean;   // prefix prompts with /fleet
 }
 
 export interface ExecutionResult {
@@ -71,7 +71,7 @@ export class CopilotCliWrapper {
     try {
       // Check if copilot command exists
       const versionResult = await this.runCommand('copilot', ['--version'], { timeout: 5000 });
-      
+
       if (versionResult.exitCode === 0) {
         capabilities.available = true;
         capabilities.version = versionResult.stdout.trim();
@@ -100,6 +100,17 @@ export class CopilotCliWrapper {
     args: string[],
     options: { cwd?: string; input?: string } = {}
   ): Promise<ExecutionResult> {
+    // Strict isolation guard: log when active so transcript captures the mode
+    if (this.options.strictIsolation) {
+      console.log('[strict-isolation] Per-task branch isolation active. Context restricted to transcript evidence only.');
+    }
+
+    // Inner fleet toggle: prepend /fleet to prompt input
+    if (this.options.useInnerFleet && options.input) {
+      console.log('[inner-fleet] Inner fleet mode active. External safety rail enforced.');
+      options = { ...options, input: `/fleet ${options.input}` };
+    }
+
     const capabilities = await this.checkCapabilities();
 
     if (!capabilities.available) {
@@ -125,7 +136,7 @@ export class CopilotCliWrapper {
         if (options.cwd) runOptions.cwd = options.cwd;
         if (this.options.timeout) runOptions.timeout = this.options.timeout;
         if (options.input) runOptions.input = options.input;
-        
+
         const result = await this.runCommand('copilot', args, runOptions);
 
         return {
@@ -138,7 +149,7 @@ export class CopilotCliWrapper {
         };
       } catch (error: any) {
         lastError = error.message;
-        
+
         if (attempt < (this.options.maxRetries || 1)) {
           // Wait before retry with exponential backoff
           await this.sleep(Math.pow(2, attempt) * 1000);
@@ -181,7 +192,7 @@ export class CopilotCliWrapper {
     let message = '⚠️  Graceful Degradation Mode\n\n';
     message += 'The Copilot CLI is not available or failed to execute.\n';
     message += 'This would have run: copilot ' + args.join(' ') + '\n\n';
-    
+
     if (options.input) {
       message += 'With prompt:\n';
       message += '---\n';
@@ -211,7 +222,7 @@ export class CopilotCliWrapper {
   /**
    * Run a command and capture output
    */
-  private runCommand(
+  protected runCommand(
     command: string,
     args: string[],
     options: { cwd?: string; timeout?: number; input?: string } = {}
@@ -254,7 +265,7 @@ export class CopilotCliWrapper {
 
       proc.on('close', (code) => {
         if (timeoutId) clearTimeout(timeoutId);
-        
+
         if (timedOut) {
           resolve({
             stdout,

@@ -84,10 +84,10 @@ export class KnowledgeBaseManager {
    */
   addOrUpdatePattern(pattern: Omit<KnowledgePattern, 'id' | 'firstSeen' | 'occurrences' | 'examples' | 'lastSeen'>): void {
     const now = new Date().toISOString();
-    
+
     // check if similar pattern exists
     const existing = this.knowledgeBase.patterns.find(
-      p => p.category === pattern.category && 
+      p => p.category === pattern.category &&
            this.isSimilarInsight(p.insight, pattern.insight)
     );
 
@@ -228,16 +228,16 @@ export class KnowledgeBaseManager {
     const normalize = (s: string) => s.toLowerCase().replace(/[^\w\s]/g, '').trim();
     const n1 = normalize(insight1);
     const n2 = normalize(insight2);
-    
+
     // exact match
     if (n1 === n2) return true;
-    
+
     // high overlap (simple check)
     const words1 = new Set(n1.split(/\s+/));
     const words2 = new Set(n2.split(/\s+/));
     const intersection = new Set([...words1].filter(w => words2.has(w)));
     const union = new Set([...words1, ...words2]);
-    
+
     const similarity = intersection.size / union.size;
     return similarity > 0.7;
   }
@@ -249,5 +249,41 @@ export class KnowledgeBaseManager {
     const timestamp = Date.now();
     const random = Math.random().toString(36).substring(2, 8);
     return `${category}-${timestamp}-${random}`;
+  }
+
+  /**
+   * Standard Levenshtein distance between two strings.
+   */
+  levenshtein(a: string, b: string): number {
+    const m = a.length, n = b.length;
+    const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+      Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+    );
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+    return dp[m][n];
+  }
+
+  /**
+   * Find stored patterns similar to a task description.
+   * Uses keyword overlap + normalized Levenshtein similarity.
+   */
+  findSimilarTasks(description: string, threshold: number = 0.7): KnowledgePattern[] {
+    const descWords = new Set(description.toLowerCase().split(/\s+/));
+    return this.knowledgeBase.patterns.filter(p => {
+      const insightWords = new Set(p.insight.toLowerCase().split(/\s+/));
+      const overlap = [...descWords].filter(w => insightWords.has(w)).length;
+      const union = new Set([...descWords, ...insightWords]).size;
+      const keywordSim = union > 0 ? overlap / union : 0;
+      const maxLen = Math.max(description.length, p.insight.length) || 1;
+      const levSim = 1 - this.levenshtein(description.toLowerCase(), p.insight.toLowerCase()) / maxLen;
+      const combined = (keywordSim + levSim) / 2;
+      return combined >= threshold;
+    });
   }
 }

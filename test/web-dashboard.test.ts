@@ -27,6 +27,7 @@ describe('Web Dashboard', () => {
   });
 
   describe('runs API integration', () => {
+    const baseUrl = (p: number) => `http://${process.env.TEST_HOST || 'localhost'}:${p}`;
     // Use express to test the routes
     let app: any;
     let server: any;
@@ -48,7 +49,7 @@ describe('Web Dashboard', () => {
     });
 
     it('should return empty array when no runs exist', async () => {
-      const res = await fetch(`http://localhost:${port}/api/runs`);
+      const res = await fetch(`${baseUrl(port)}/api/runs`);
       const data = await res.json();
       assert.ok(Array.isArray(data));
       assert.strictEqual(data.length, 0);
@@ -64,7 +65,7 @@ describe('Web Dashboard', () => {
         'utf8'
       );
 
-      const res = await fetch(`http://localhost:${port}/api/runs`);
+      const res = await fetch(`${baseUrl(port)}/api/runs`);
       const data = await res.json();
       assert.strictEqual(data.length, 1);
       assert.strictEqual(data[0].id, 'swarm-test-run');
@@ -81,7 +82,7 @@ describe('Web Dashboard', () => {
         'utf8'
       );
 
-      const res = await fetch(`http://localhost:${port}/api/runs/swarm-detail-run`);
+      const res = await fetch(`${baseUrl(port)}/api/runs/swarm-detail-run`);
       const data = await res.json();
       assert.strictEqual(data.id, 'swarm-detail-run');
       assert.ok(data.plan);
@@ -89,7 +90,7 @@ describe('Web Dashboard', () => {
     });
 
     it('should return 404 for non-existent run', async () => {
-      const res = await fetch(`http://localhost:${port}/api/runs/nonexistent`);
+      const res = await fetch(`${baseUrl(port)}/api/runs/nonexistent`);
       assert.strictEqual(res.status, 404);
     });
 
@@ -100,7 +101,7 @@ describe('Web Dashboard', () => {
       fs.writeFileSync(path.join(runPath, 'plan.json'), JSON.stringify({ goal: 'G', steps: [] }), 'utf8');
       fs.writeFileSync(path.join(verifyDir, 'step-1-verification.md'), '# Step 1\n\nPASSED\n', 'utf8');
 
-      const res = await fetch(`http://localhost:${port}/api/runs/swarm-verify-run`);
+      const res = await fetch(`${baseUrl(port)}/api/runs/swarm-verify-run`);
       const data = await res.json();
       assert.ok(data.verificationReports);
       assert.strictEqual(data.verificationReports.length, 1);
@@ -114,7 +115,7 @@ describe('Web Dashboard', () => {
       fs.writeFileSync(path.join(runPath, 'plan.json'), JSON.stringify({ goal: 'G', steps: [] }), 'utf8');
       fs.writeFileSync(path.join(stepsDir, 'share.md'), '# Transcript\n\nDo stuff\n', 'utf8');
 
-      const res = await fetch(`http://localhost:${port}/api/runs/swarm-transcript-run`);
+      const res = await fetch(`${baseUrl(port)}/api/runs/swarm-transcript-run`);
       const data = await res.json();
       assert.ok(data.stepTranscripts);
       assert.strictEqual(data.stepTranscripts.length, 1);

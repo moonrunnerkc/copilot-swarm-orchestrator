@@ -84,6 +84,70 @@ export class PlanStorage {
     return this.loadPlan(latestPlan);
   }
 
+  /**
+   * Find a cached plan whose goal matches above a similarity threshold.
+   * Uses keyword overlap + normalized Levenshtein (same algorithm as KB).
+   */
+  findCachedPlan(goal: string, threshold: number = 0.85): ExecutionPlan | null {
+    const plans = this.listPlans();
+    let bestMatch: ExecutionPlan | null = null;
+    let bestScore = 0;
+
+    const goalLower = goal.toLowerCase();
+    const goalWords = new Set(goalLower.split(/\s+/));
+
+    for (const filename of plans) {
+      try {
+        const plan = this.loadPlan(filename);
+        const planLower = plan.goal.toLowerCase();
+        const planWords = new Set(planLower.split(/\s+/));
+
+        // keyword overlap (Jaccard)
+        const overlap = [...goalWords].filter(w => planWords.has(w)).length;
+        const union = new Set([...goalWords, ...planWords]).size;
+        const keywordSim = union > 0 ? overlap / union : 0;
+
+        // normalized Levenshtein
+        const maxLen = Math.max(goalLower.length, planLower.length) || 1;
+        const levDist = this.levenshtein(goalLower, planLower);
+        const levSim = 1 - levDist / maxLen;
+
+        const combined = (keywordSim + levSim) / 2;
+        if (combined >= threshold && combined > bestScore) {
+          bestScore = combined;
+          bestMatch = plan;
+        }
+      } catch {
+        // skip corrupt plan files
+      }
+    }
+
+    if (bestMatch) {
+      console.log(`  [plan-cache] Cache hit (score: ${bestScore.toFixed(2)})`);
+    } else {
+      console.log(`  [plan-cache] Cache miss for: "${goal.slice(0, 60)}"`);
+    }
+    return bestMatch;
+  }
+
+  /**
+   * Standard Levenshtein distance between two strings.
+   */
+  private levenshtein(a: string, b: string): number {
+    const m = a.length, n = b.length;
+    const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+      Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+    );
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+    return dp[m][n];
+  }
+
   private resolvePlanPath(planRef: string): string {
     // allow callers to pass either:
     // - a bare filename (resolved under planDir)

@@ -6,6 +6,7 @@ export interface PlanStep {
   task: string;
   dependencies: number[];
   expectedOutputs: string[];
+  repo?: string; // git URL or local path; defaults to cwd
 }
 
 export interface ExecutionPlan {
@@ -34,9 +35,19 @@ export class PlanGenerator {
    * If userProvidedSteps is given, validates and uses them.
    * Otherwise, generates intelligent default steps based on goal analysis.
    */
-  createPlan(goal: string, userProvidedSteps?: PlanStep[]): ExecutionPlan {
+  createPlan(goal: string, userProvidedSteps?: PlanStep[], options?: { planCache?: boolean }): ExecutionPlan {
     if (!goal || goal.trim() === '') {
       throw new Error('Goal cannot be empty');
+    }
+
+    // plan cache: short-circuit if a similar plan already exists
+    if (options?.planCache && !userProvidedSteps) {
+      const PlanStorage = require('./plan-storage').PlanStorage;
+      const storage = new PlanStorage();
+      const cached = storage.findCachedPlan(goal);
+      if (cached) {
+        return { ...cached, goal: goal.trim(), createdAt: new Date().toISOString() };
+      }
     }
 
     const steps = userProvidedSteps || this.generateIntelligentSteps(goal);
