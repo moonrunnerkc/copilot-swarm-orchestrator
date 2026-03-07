@@ -253,15 +253,10 @@ When `--confirm-deploy` is active, the orchestrator wraps the deployment in a ta
 
 Nine upgrades shipped across two cycles. No new dependencies were added.
 
-**v3.0.0 (Upgrades 7-10)**
-
 - **Plan template caching.** `--plan-cache` skips the Copilot planning call when a stored plan matches the goal above a 0.85 similarity threshold (keyword overlap + normalized Levenshtein). `--replay` reuses a prior verified transcript for identical steps, skipping the Copilot session entirely.
 - **Analysis-augmented critic.** The governance critic now scores per check axis (test: -20, build: -25, lint: -5, commit: -10, claim: -5) instead of a flat -15 per failure. Flags include check type and count. The dashboard shows per-axis breakdown.
 - **Failure-classified repair.** The repair agent classifies failures as build, test, missing-artifact, dependency, or timeout before selecting a targeted repair strategy. Each class gets focused instructions and evidence injection.
 - **Deployment rollback.** When `--confirm-deploy` is active, the orchestrator tags HEAD before deploy, runs an HTTP health check against the preview URL (3 retries, 20s interval), and auto-reverts on failure.
-
-**v2.0.0 (Upgrades 1-6)**
-
 - **Multi-repo orchestration.** Plan steps accept an optional `repo` field. The orchestrator groups steps by repository, runs isolated wave loops per group, performs cross-repo verification, and merges results. The dashboard shows per-repo progress.
 - **Persistent sessions and audit.** Full execution state is saved per session ID. `--resume <SESSION-ID>` continues from the last completed step. `swarm audit <SESSION-ID>` and `GET /api/audit/:sessionId` produce Markdown audit reports with timeline, cost breakdown, gates, and evidence.
 - **Governance mode.** `--governance` inserts a Critic review wave after step execution and before merge. The Critic produces an advisory score (0-100), flags drift or quality issues, and recommends approve/reject/revise. Scores are heuristic, not authoritative; final decisions rest with the operator. Flags trigger auto-pause for human approval.
