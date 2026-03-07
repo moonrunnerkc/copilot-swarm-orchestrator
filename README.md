@@ -1,7 +1,9 @@
 <p align="center">
+  <img src="docs/media/wasp.svg" alt="" width="36" height="36">
+  <img src="docs/media/wasp.svg" alt="" width="52" height="52">
   <img src="docs/media/wasp.svg" alt="Copilot Swarm Orchestrator" width="72" height="72">
-  <img src="docs/media/wasp.svg" alt="Copilot Swarm Orchestrator" width="72" height="72">
-  <img src="docs/media/wasp.svg" alt="Copilot Swarm Orchestrator" width="72" height="72">
+  <img src="docs/media/wasp.svg" alt="" width="52" height="52">
+  <img src="docs/media/wasp.svg" alt="" width="36" height="36">
 </p>
 
 <h1 align="center">Copilot Swarm Orchestrator</h1>
