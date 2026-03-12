@@ -1,0 +1,223 @@
+import * as assert from 'assert';
+import { run_accessibility_gate } from '../src/quality-gates/gates/accessibility.js';
+import { GateContext, AccessibilityConfig, ProjectFile } from '../src/quality-gates/types.js';
+
+const MAX_FILE_SIZE = 1_000_000;
+
+function makeFile(relativePath: string, text: string): ProjectFile {
+  return { path: `/fake/${relativePath}`, relativePath, sizeBytes: text.length, text };
+}
+
+function makeCtx(files: ProjectFile[]): GateContext {
+  return { projectRoot: '/fake', files };
+}
+
+function fullConfig(): AccessibilityConfig {
+  return {
+    enabled: true,
+    requireSkipLink: true,
+    requireHeadingHierarchy: true,
+    requireAriaLabels: true,
+    requireFocusStyles: true
+  };
+}
+
+describe('AccessibilityGate', () => {
+
+  it('passes when all checks are satisfied', async () => {
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head><title>App</title></head>
+<body>
+  <a href="#main-content" class="skip-link">Skip to content</a>
+  <h1>Main Title</h1>
+  <h2>Section</h2>
+  <main id="main-content"></main>
+</body>
+</html>`;
+    const css = `button:focus-visible { outline: 2px solid blue; outline-offset: 2px; }`;
+    const ctx = makeCtx([
+      makeFile('index.html', html),
+      makeFile('styles.css', css)
+    ]);
+
+    const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
+    assert.strictEqual(result.status, 'pass');
+    assert.strictEqual(result.issues.length, 0);
+  });
+
+  it('flags missing lang attribute on <html>', async () => {
+    const html = `<!DOCTYPE html><html><head><title>App</title></head><body><h1>Hi</h1></body></html>`;
+    const ctx = makeCtx([makeFile('index.html', html)]);
+
+    const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
+    assert.strictEqual(result.status, 'fail');
+    const langIssue = result.issues.find(i => i.message.includes('lang'));
+    assert.ok(langIssue, 'should flag missing lang attribute');
+  });
+
+  it('flags missing skip-to-content link', async () => {
+    const html = `<html lang="en"><body><h1>Title</h1></body></html>`;
+    const ctx = makeCtx([makeFile('index.html', html)]);
+
+    const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
+    const skipIssue = result.issues.find(i => i.message.includes('skip-to-content'));
+    assert.ok(skipIssue, 'should flag missing skip link');
+  });
+
+  it('accepts skip link in JSX files', async () => {
+    const html = `<html lang="en"><body><div id="root"></div></body></html>`;
+    const tsx = `export function App() { return <><a href="#main-content" className="skip-link">Skip to content</a><h1>Hi</h1></>; }`;
+    const css = `a:focus-visible { outline: 2px solid blue; }`;
+    const ctx = makeCtx([
+      makeFile('index.html', html),
+      makeFile('src/App.tsx', tsx),
+      makeFile('styles.css', css)
+    ]);
+
+    const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
+    const skipIssue = result.issues.find(i => i.message.includes('skip-to-content'));
+    assert.strictEqual(skipIssue, undefined, 'skip link in JSX should satisfy the check');
+  });
+
+  it('flags broken heading hierarchy (h1 -> h3 skip)', async () => {
+    const html = `<html lang="en"><body>
+      <a href="#main-content" class="skip-link">Skip</a>
+      <h1>Title</h1><h3>Subsection</h3>
+    </body></html>`;
+    const css = `button:focus-visible { outline: 2px solid blue; }`;
+    const ctx = makeCtx([
+      makeFile('index.html', html),
+      makeFile('styles.css', css)
+    ]);
+
+    const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
+    const headingIssue = result.issues.find(i => i.message.includes('heading level skips'));
+    assert.ok(headingIssue, 'should flag h1 -> h3 gap');
+    assert.ok(headingIssue.message.includes('h1'), 'message should mention h1');
+    assert.ok(headingIssue.message.includes('h3'), 'message should mention h3');
+  });
+
+  it('flags first heading not being h1', async () => {
+    const html = `<html lang="en"><body>
+      <a href="#main-content">Skip to content</a>
+      <h2>Not the right start</h2>
+    </body></html>`;
+    const css = `a:focus-visible { outline: 2px solid blue; }`;
+    const ctx = makeCtx([
+      makeFile('index.html', html),
+      makeFile('styles.css', css)
+    ]);
+
+    const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
+    const h2Issue = result.issues.find(i => i.message.includes('first heading is <h2>'));
+    assert.ok(h2Issue, 'should flag first heading not being h1');
+  });
+
+  it('flags <nav> without aria-label in JSX', async () => {
+    const tsx = `export function Header() { return <nav><a href="/">Home</a></nav>; }`;
+    const ctx = makeCtx([makeFile('src/Header.tsx', tsx)]);
+
+    const config = fullConfig();
+    config.requireSkipLink = false;
+    config.requireHeadingHierarchy = false;
+    config.requireFocusStyles = false;
+
+    const result = await run_accessibility_gate(ctx, config, MAX_FILE_SIZE);
+    const navIssue = result.issues.find(i => i.message.includes('<nav>'));
+    assert.ok(navIssue, 'should flag nav without aria-label');
+  });
+
+  it('passes <nav> with aria-label', async () => {
+    const tsx = `export function Header() { return <nav aria-label="Main navigation"><a href="/">Home</a></nav>; }`;
+    const ctx = makeCtx([makeFile('src/Header.tsx', tsx)]);
+
+    const config = fullConfig();
+    config.requireSkipLink = false;
+    config.requireHeadingHierarchy = false;
+    config.requireFocusStyles = false;
+
+    const result = await run_accessibility_gate(ctx, config, MAX_FILE_SIZE);
+    const navIssue = result.issues.find(i => i.message.includes('<nav>'));
+    assert.strictEqual(navIssue, undefined, 'nav with aria-label should pass');
+  });
+
+  it('flags icon-only button without aria-label', async () => {
+    const tsx = `export function IconBtn() { return <button><svg><path d="M10 10"/></svg></button>; }`;
+    const ctx = makeCtx([makeFile('src/IconBtn.tsx', tsx)]);
+
+    const config = fullConfig();
+    config.requireSkipLink = false;
+    config.requireHeadingHierarchy = false;
+    config.requireFocusStyles = false;
+
+    const result = await run_accessibility_gate(ctx, config, MAX_FILE_SIZE);
+    const btnIssue = result.issues.find(i => i.message.includes('icon-only'));
+    assert.ok(btnIssue, 'should flag icon-only button without aria-label');
+  });
+
+  it('passes button with visible text', async () => {
+    const tsx = `export function Btn() { return <button>Save Changes</button>; }`;
+    const ctx = makeCtx([makeFile('src/Btn.tsx', tsx)]);
+
+    const config = fullConfig();
+    config.requireSkipLink = false;
+    config.requireHeadingHierarchy = false;
+    config.requireFocusStyles = false;
+
+    const result = await run_accessibility_gate(ctx, config, MAX_FILE_SIZE);
+    const btnIssue = result.issues.find(i => i.message.includes('icon-only'));
+    assert.strictEqual(btnIssue, undefined, 'button with text should pass');
+  });
+
+  it('flags missing :focus-visible in CSS', async () => {
+    const css = `button { color: blue; }`;
+    const html = `<html lang="en"><body><a href="#main-content">Skip</a><h1>Hi</h1></body></html>`;
+    const ctx = makeCtx([
+      makeFile('styles.css', css),
+      makeFile('index.html', html)
+    ]);
+
+    const config = fullConfig();
+    const result = await run_accessibility_gate(ctx, config, MAX_FILE_SIZE);
+    const focusIssue = result.issues.find(i => i.message.includes('focus-visible'));
+    assert.ok(focusIssue, 'should flag missing :focus-visible');
+  });
+
+  it('flags outline: none without replacement', async () => {
+    const css = `button:focus { outline: none; }`;
+    const html = `<html lang="en"><body><a href="#main-content">Skip</a><h1>Hi</h1></body></html>`;
+    const ctx = makeCtx([
+      makeFile('styles.css', css),
+      makeFile('index.html', html)
+    ]);
+
+    const config = fullConfig();
+    const result = await run_accessibility_gate(ctx, config, MAX_FILE_SIZE);
+    const outlineIssue = result.issues.find(i => i.message.includes('outline: none'));
+    assert.ok(outlineIssue, 'should flag outline: none without replacement');
+  });
+
+  it('passes with no HTML or CSS files (nothing to check)', async () => {
+    const ctx = makeCtx([makeFile('src/utils.ts', 'export const foo = 1;')]);
+    const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
+    assert.strictEqual(result.status, 'pass');
+    assert.strictEqual(result.issues.length, 0);
+  });
+
+  it('reports correct stats', async () => {
+    const html = `<html lang="en"><body><a href="#main-content">Skip</a><h1>Hi</h1></body></html>`;
+    const css = `:focus-visible { outline: 2px solid blue; }`;
+    const tsx = `export const App = () => <div>App</div>;`;
+    const ctx = makeCtx([
+      makeFile('index.html', html),
+      makeFile('src/App.tsx', tsx),
+      makeFile('styles.css', css)
+    ]);
+
+    const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
+    assert.strictEqual(result.stats?.htmlFiles, 1);
+    assert.strictEqual(result.stats?.jsxFiles, 1);
+    assert.strictEqual(result.stats?.cssFiles, 1);
+  });
+});

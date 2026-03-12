@@ -1,0 +1,31 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.*
+plans/
+test-plans/
+test-runs/
+test-proof/
+runs/
+
+# Runtime artifacts (avoid committing local execution evidence)
+proof/
+.quickfix/
+.context/
+.locks/
+
+# Key material (just in case)
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Allow committed, sanitized sample artifacts for judges
+!examples/completed-run/
+!examples/completed-run/**
+
+# Copilot instructions contain internal prompts, not for public
+.github/copilot-instructions.md
+.github/upgrade-guide.md

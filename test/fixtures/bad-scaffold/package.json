@@ -1,0 +1,6 @@
+{
+  "name": "bad-scaffold",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Bad fixture for quality gate failures"
+}

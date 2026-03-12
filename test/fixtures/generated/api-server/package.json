@@ -1,0 +1,6 @@
+{
+  "name": "api-server",
+  "private": true,
+  "version": "0.1.0",
+  "description": "API server sample fixture for quality gates"
+}

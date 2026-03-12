@@ -1,0 +1,43 @@
+/**
+ * Shared type definitions for the swarm conductor
+ */
+
+export interface ExecutionOptions {
+  delegate?: boolean;      // Instruct agent to use /delegate for PR creation
+  mcp?: boolean;           // Require MCP evidence from GitHub context
+  enableExternal?: boolean; // Enable external tool execution (gh, vercel, netlify)
+  dryRun?: boolean;        // Show commands without executing
+  autoPR?: boolean;        // Auto-create PR after swarm completion
+  strictIsolation?: boolean; // Force per-task branches + transcript-only context flow
+  useInnerFleet?: boolean;   // Prefix prompts with /fleet for inner parallelism
+  governance?: boolean;      // Insert critic review wave before merge
+  lean?: boolean;            // Delta context engine: reuse similar past tasks
+  planCache?: boolean;       // Skip planning call when cached template matches
+  replay?: boolean;          // Reuse prior transcript for identical steps
+  wrapFleet?: boolean;       // Enable /fleet prefix on all step prompts
+  maxPremiumRequests?: number; // Abort if estimated premium requests exceed this
+  costEstimateOnly?: boolean;  // Print cost estimate and exit without executing
+}
+
+export interface CriticResult {
+  score: number;         // 0-100
+  flags: string[];       // drift/quality issues found
+  recommendation: 'approve' | 'reject' | 'revise';
+}
+
+export interface SessionState {
+  sessionId: string;
+  graph: { goal: string; steps: { stepNumber: number; task: string; agent: string }[] };
+  branchMap: Record<string, string>;
+  transcripts: Record<string, string>;
+  metrics: Record<string, unknown>;
+  gateResults: { id: string; title: string; status: string; issues: unknown[] }[];
+  status: 'running' | 'paused' | 'completed' | 'failed';
+  lastCompletedStep: number;
+}
+
+export interface MCPEvidence {
+  found: boolean;
+  section?: string;
+  warnings: string[];
+}

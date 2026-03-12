@@ -1,0 +1,209 @@
+import { ExecutionPlan, PlanStep } from './plan-generator';
+import { KnowledgeBaseManager } from './knowledge-base';
+
+/**
+ * Model multipliers for premium request consumption.
+ * Each copilot -p invocation = 1 base premium request * multiplier.
+ * Updated as GitHub changes pricing: https://docs.github.com/en/copilot/concepts/billing/copilot-requests
+ */
+export const MODEL_MULTIPLIERS: Record<string, number> = {
+  'claude-sonnet-4': 1,
+  'claude-opus-4': 1,
+  'gpt-4o': 1,
+  'o3': 20,
+  'o4-mini': 5,
+};
+
+const DEFAULT_RETRY_PROBABILITY = 0.15;
+const MAX_RETRY_PROBABILITY = 0.50;
+const OVERAGE_COST_PER_REQUEST = 0.04;
+
+// Rough token count for the static boilerplate injected by buildSwarmPrompt.
+// Measured from actual prompt captures; chars / 4 approximation.
+const STATIC_BOILERPLATE_TOKENS = 350;
+
+export interface CostEstimateOptions {
+  modelName: string;
+  remainingAllowance?: number;
+  fleetMode?: boolean;
+}
+
+export interface StepCostEstimate {
+  stepNumber: number;
+  agentName: string;
+  estimatedPromptTokens: number;
+  estimatedPremiumRequests: number;
+  retryProbability: number;
+  rationale: string;
+}
+
+export interface CostEstimate {
+  totalPremiumRequests: number;
+  lowEstimate: number;
+  highEstimate: number;
+  perStep: StepCostEstimate[];
+  retryBuffer: number;
+  modelMultiplier: number;
+  overageCostUSD: number;
+  remainingAllowance?: number;
+}
+
+interface ActualRecord {
+  stepNumber: number;
+  estimatedRequests: number;
+  actualRequests: number;
+  retryCount: number;
+}
+
+export class CostEstimator {
+  private knowledgeBase: KnowledgeBaseManager | undefined;
+  private actuals: ActualRecord[] = [];
+
+  constructor(knowledgeBase?: KnowledgeBaseManager) {
+    this.knowledgeBase = knowledgeBase;
+  }
+
+  estimate(plan: ExecutionPlan, options: CostEstimateOptions): CostEstimate {
+    const multiplier = MODEL_MULTIPLIERS[options.modelName] ?? 1;
+    const retryProbability = this.calibrateRetryProbability(plan);
+
+    const perStep: StepCostEstimate[] = plan.steps.map(step => {
+      const taskTokens = Math.ceil(step.task.length / 4);
+      const promptTokens = STATIC_BOILERPLATE_TOKENS + taskTokens;
+      const baseRequests = 1 * multiplier;
+      const fleetMultiplier = options.fleetMode
+        ? this.estimateFleetMultiplier(step.task)
+        : 1;
+      const withRetry = baseRequests * fleetMultiplier * (1 + retryProbability);
+
+      return {
+        stepNumber: step.stepNumber,
+        agentName: step.agentName,
+        estimatedPromptTokens: promptTokens,
+        estimatedPremiumRequests: Math.ceil(withRetry),
+        retryProbability,
+        rationale: this.buildRationale(multiplier, fleetMultiplier, retryProbability, options),
+      };
+    });
+
+    const totalRaw = perStep.reduce((sum, s) => sum + s.estimatedPremiumRequests, 0);
+    const baseTotalNoRetry = plan.steps.length * multiplier
+      * (options.fleetMode ? 2 : 1);
+    const retryBuffer = totalRaw - baseTotalNoRetry;
+
+    // Low estimate assumes no retries; high estimate uses the retry-buffered total
+    const lowEstimate = baseTotalNoRetry;
+    const highEstimate = totalRaw;
+
+    const overageCostUSD = options.remainingAllowance !== undefined
+      ? Math.max(0, totalRaw - options.remainingAllowance) * OVERAGE_COST_PER_REQUEST
+      : 0;
+
+    return {
+      totalPremiumRequests: totalRaw,
+      lowEstimate,
+      highEstimate,
+      perStep,
+      retryBuffer: Math.max(0, retryBuffer),
+      modelMultiplier: multiplier,
+      overageCostUSD: parseFloat(overageCostUSD.toFixed(2)),
+      ...(options.remainingAllowance !== undefined
+        ? { remainingAllowance: options.remainingAllowance }
+        : {}),
+    };
+  }
+
+  recordActual(stepNumber: number, estimatedRequests: number, actualRequests: number, retryCount: number): void {
+    this.actuals.push({ stepNumber, estimatedRequests, actualRequests, retryCount });
+  }
+
+  /**
+   * Ratio of correctly-estimated steps to total recorded steps.
+   * A step is "correct" if estimated >= actual (no underestimate).
+   * Returns 1.0 when no actuals recorded (no data to disprove accuracy).
+   */
+  getAccuracy(): number {
+    if (this.actuals.length === 0) return 1.0;
+
+    const totalEstimated = this.actuals.reduce((s, a) => s + a.estimatedRequests, 0);
+    const totalActual = this.actuals.reduce((s, a) => s + a.actualRequests, 0);
+
+    if (totalActual === 0) return 1.0;
+    // Accuracy = 1 - |estimated - actual| / actual, clamped to [0, 1]
+    const ratio = Math.abs(totalEstimated - totalActual) / totalActual;
+    return Math.max(0, 1 - ratio);
+  }
+
+  /**
+   * Pull historical failure rate from knowledge base cost_history patterns.
+   * Falls back to DEFAULT_RETRY_PROBABILITY when no history exists.
+   */
+  private calibrateRetryProbability(_plan: ExecutionPlan): number {
+    if (!this.knowledgeBase) return DEFAULT_RETRY_PROBABILITY;
+
+    const costPatterns = this.knowledgeBase.getPatternsByCategory('cost_history');
+    if (costPatterns.length === 0) return DEFAULT_RETRY_PROBABILITY;
+
+    // Parse retry counts from evidence strings: "actual:N" entries
+    let totalRetries = 0;
+    let totalSteps = 0;
+    for (const pattern of costPatterns) {
+      for (const ev of pattern.evidence) {
+        if (ev.startsWith('actual:')) {
+          const actual = parseInt(ev.split(':')[1], 10);
+          if (!isNaN(actual)) totalSteps += actual;
+        }
+      }
+      // Retry info embedded in insight string: "N retries"
+      const retryMatch = pattern.insight.match(/(\d+)\s+retries/);
+      if (retryMatch) {
+        totalRetries += parseInt(retryMatch[1], 10);
+      }
+    }
+
+    if (totalSteps === 0) return DEFAULT_RETRY_PROBABILITY;
+
+    const rate = totalRetries / totalSteps;
+    return Math.min(rate, MAX_RETRY_PROBABILITY);
+  }
+
+  /**
+   * Heuristic fleet multiplier: tasks mentioning multiple files or components
+   * likely trigger more subagents.
+   */
+  private estimateFleetMultiplier(taskDescription: string): number {
+    const lower = taskDescription.toLowerCase();
+    const multiFileIndicators = [
+      'multiple files', 'several files', 'all files',
+      'each module', 'every module', 'across modules',
+      'components', 'services', 'endpoints',
+    ];
+    const matchCount = multiFileIndicators.filter(ind => lower.includes(ind)).length;
+
+    if (matchCount >= 2) return 4;
+    if (matchCount === 1) return 3;
+
+    // Check for list-like patterns (commas separating items in the task)
+    const commaSegments = taskDescription.split(',').length;
+    if (commaSegments >= 4) return 3;
+    if (commaSegments >= 2) return 2;
+
+    return 2; // fleet always spawns at least one subagent beyond the coordinator
+  }
+
+  private buildRationale(
+    multiplier: number,
+    fleetMultiplier: number,
+    retryProb: number,
+    options: CostEstimateOptions,
+  ): string {
+    const parts: string[] = [
+      `${options.modelName} (${multiplier}x)`,
+    ];
+    if (options.fleetMode) {
+      parts.push(`fleet (${fleetMultiplier}x subagents)`);
+    }
+    parts.push(`${(retryProb * 100).toFixed(0)}% retry buffer`);
+    return parts.join(', ');
+  }
+}

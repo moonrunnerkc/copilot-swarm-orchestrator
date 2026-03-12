@@ -1,0 +1,9 @@
+{
+  "name": "todo-app",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Todo app sample fixture for quality gates",
+  "scripts": {
+    "test": "echo \"no tests\""
+  }
+}

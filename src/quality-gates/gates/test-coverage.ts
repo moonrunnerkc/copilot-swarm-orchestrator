@@ -1,0 +1,143 @@
+import { maybe_read_text } from '../file-utils';
+import { GateContext, GateIssue, GateResult, TestCoverageConfig } from '../types';
+
+// Patterns that indicate a file is an entry point (not a standalone module needing its own test)
+const DEFAULT_ENTRY_PATTERNS = [
+  /^src\/(main|index)\.(tsx?|jsx?|mjs)$/,
+  /^src\/app\.(tsx?|jsx?)$/i
+];
+
+export async function run_test_coverage_gate(
+  ctx: GateContext,
+  config: TestCoverageConfig,
+  maxFileSizeBytes: number
+): Promise<GateResult> {
+  const start = Date.now();
+  const issues: GateIssue[] = [];
+
+  const entryPatterns = config.entryPointPatterns.length > 0
+    ? config.entryPointPatterns.map(p => new RegExp(p, 'i'))
+    : DEFAULT_ENTRY_PATTERNS;
+
+  // Identify source files that should have tests
+  const sourceFiles = ctx.files.filter(f => {
+    if (!/\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)) return false;
+    if (/^(test|tests|__tests__)\//.test(f.relativePath)) return false;
+    if (/\.test\.|\.spec\./.test(f.relativePath)) return false;
+    if (/^(server|config|scripts)\//.test(f.relativePath)) return false;
+    // Exclude vite/webpack configs and similar build tooling
+    if (/\.(config|d)\.(ts|js|mjs)$/i.test(f.relativePath)) return false;
+    // Exclude entry points
+    if (entryPatterns.some(p => p.test(f.relativePath))) return false;
+    return true;
+  });
+
+  // Identify test files
+  const testFiles = ctx.files.filter(f =>
+    /\.(test|spec)\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)
+  );
+
+  // Build a set of what test files import (to check coverage by import)
+  const importedByTests = new Set<string>();
+  for (const tf of testFiles) {
+    const text = tf.text ?? maybe_read_text(tf, maxFileSizeBytes);
+    if (!text) continue;
+
+    // Match import paths: import ... from '../src/foo' or require('../src/foo')
+    const importRegex = /(?:from\s+['"]|require\s*\(\s*['"])([^'"]+)['"]/g;
+    let match: RegExpExecArray | null;
+    while ((match = importRegex.exec(text)) !== null) {
+      const importPath = match[1];
+      // Normalize: strip leading ../ or ./ and add common extensions
+      const normalized = importPath
+        .replace(/^\.\.\//, '')
+        .replace(/^\.\//, '')
+        .replace(/\.(js|ts|jsx|tsx|mjs)$/, '');
+      importedByTests.add(normalized);
+    }
+  }
+
+  // 1. Check that each source file has a corresponding test or is imported by a test
+  for (const src of sourceFiles) {
+    const baseName = src.relativePath
+      .replace(/^src\//, '')
+      .replace(/\.(tsx?|jsx?|mjs)$/, '');
+
+    const hasDirectTest = testFiles.some(tf => {
+      const testBase = tf.relativePath
+        .replace(/^(test|tests|__tests__)\//, '')
+        .replace(/\.(test|spec)\.(tsx?|jsx?|mjs)$/, '');
+      return testBase === baseName || testBase === baseName.replace(/^utils\//, '');
+    });
+
+    const isImportedByTest = importedByTests.has(`src/${baseName}`) ||
+      importedByTests.has(baseName) ||
+      importedByTests.has(src.relativePath.replace(/\.(tsx?|jsx?|mjs)$/, ''));
+
+    if (!hasDirectTest && !isImportedByTest) {
+      issues.push({
+        message: `no test coverage for ${src.relativePath}`,
+        filePath: src.relativePath,
+        hint: `create a test file or import ${src.relativePath} in an existing test`
+      });
+    }
+  }
+
+  // 2. Check that test files contain real assertions (not empty stubs)
+  for (const tf of testFiles) {
+    const text = tf.text ?? maybe_read_text(tf, maxFileSizeBytes);
+    if (!text) continue;
+
+    const assertionPatterns = /\b(assert\.|expect\(|\.toBe|\.toEqual|\.toThrow|\.ok\(|\.strictEqual|\.deepEqual|\.deepStrictEqual|\.match\(|\.rejects|\.resolves)/;
+    const assertionCount = (text.match(new RegExp(assertionPatterns.source, 'g')) || []).length;
+
+    if (assertionCount < config.minTestAssertions) {
+      issues.push({
+        message: `${tf.relativePath} has ${assertionCount} assertion(s), minimum is ${config.minTestAssertions}`,
+        filePath: tf.relativePath,
+        hint: 'add meaningful assertions that verify module behavior'
+      });
+    }
+  }
+
+  // 3. Check for component-level tests in React projects
+  if (config.requireComponentTests) {
+    const isReactProject = ctx.files.some(f => {
+      const text = f.text ?? maybe_read_text(f, maxFileSizeBytes);
+      if (!text) return false;
+      return /from\s+['"]react['"]|require\s*\(\s*['"]react['"]\)/.test(text);
+    });
+
+    if (isReactProject) {
+      const hasComponentTest = testFiles.some(f => {
+        const text = f.text ?? maybe_read_text(f, maxFileSizeBytes);
+        if (!text) return false;
+        // Check for DOM testing patterns: render(), screen., document., getBy, queryBy, findBy
+        return /(render\s*\(|screen\.|document\.|getBy|queryBy|findBy|innerHTML|textContent|@testing-library)/i.test(text);
+      });
+
+      if (!hasComponentTest) {
+        issues.push({
+          message: 'React project has no component-level tests',
+          hint: 'add at least one test that renders a component and asserts DOM output'
+        });
+      }
+    }
+  }
+
+  const durationMs = Date.now() - start;
+  const status: GateResult['status'] = issues.length > 0 ? 'fail' : 'pass';
+
+  return {
+    id: 'test-coverage',
+    title: 'Test coverage checks',
+    status,
+    durationMs,
+    issues,
+    stats: {
+      sourceFiles: sourceFiles.length,
+      testFiles: testFiles.length,
+      issues: issues.length
+    }
+  };
+}

@@ -1,0 +1,48 @@
+{
+  "name": "copilot-swarm-orchestrator",
+  "version": "2.1.0",
+  "description": "Parallel AI workflow orchestrator using GitHub Copilot CLI",
+  "main": "dist/src/index.js",
+  "bin": {
+    "swarm": "dist/src/cli.js",
+    "swarm-orchestrator": "dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node -e \"require('fs').chmodSync('dist/src/cli.js', 0o755)\"",
+    "test": "npm run build && mocha dist/test/**/*.test.js",
+    "start": "node dist/src/cli.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moonrunnerkc/copilot-swarm-orchestrator.git"
+  },
+  "keywords": ["copilot", "cli", "orchestrator", "swarm", "parallel", "ai", "workflow"],
+  "author": "Bradley R. Kinnard",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/moonrunnerkc/copilot-swarm-orchestrator/issues"
+  },
+  "homepage": "https://github.com/moonrunnerkc/copilot-swarm-orchestrator#readme",
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/js-yaml": "^4.0.9",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^25.0.10",
+    "@types/react": "^18.2.79",
+    "mocha": "^11.7.5",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "body-parser": "^2.2.2",
+    "chalk": "^4.1.2",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "ink": "^4.4.1",
+    "ink-spinner": "^5.0.0",
+    "js-yaml": "^4.1.1",
+    "react": "^18.2.0"
+  }
+}
