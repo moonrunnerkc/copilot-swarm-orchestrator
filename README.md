@@ -22,7 +22,7 @@
 &nbsp;&nbsp;
 ![TypeScript 5.x](https://img.shields.io/badge/TypeScript-5.x-blue.svg)
 &nbsp;&nbsp;
-![647 tests passing](https://img.shields.io/badge/tests-647%20passing-brightgreen.svg)
+![649 tests passing](https://img.shields.io/badge/tests-649%20passing-brightgreen.svg)
 
 <br>
 
@@ -492,7 +492,7 @@ proof/
 
 ## Status
 
-Actively maintained. 71 source files, 51 test files, 647 tests passing. Development is ongoing with regular updates.
+Actively maintained. 71 source files, 61 test files, 649 tests passing. Development is ongoing with regular updates.
 
 See [Releases](https://github.com/moonrunnerkc/copilot-swarm-orchestrator/releases) for version history.
 
