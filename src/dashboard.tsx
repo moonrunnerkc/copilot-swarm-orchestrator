@@ -269,24 +269,14 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
       {/* Queue Status */}
       {queueStats && (
         <Box flexDirection="column" marginBottom={1} borderStyle="single" borderColor="yellow" paddingX={1}>
-          <Text bold color="yellow">⚡ Execution Queue</Text>
-          <Box flexDirection="row" gap={2}>
-            <Text>
-              Running: <Text color="blue" bold>{queueStats.running}</Text>
-            </Text>
-            <Text>
-              Queued: <Text color="yellow" bold>{queueStats.queued}</Text>
-            </Text>
-            <Text>
-              Completed: <Text color="green" bold>{queueStats.completed}</Text>
-            </Text>
-            <Text>
-              Failed: <Text color="red" bold>{queueStats.failed}</Text>
-            </Text>
-            <Text>
-              Concurrency: <Text color="cyan" bold>{queueStats.maxConcurrency}</Text>
-            </Text>
-          </Box>
+          <Text bold color="yellow">» Execution Queue</Text>
+          <Text>
+            Running: <Text color="blue" bold>{queueStats.running}</Text>
+            {'  '}Queued: <Text color="yellow" bold>{queueStats.queued}</Text>
+            {'  '}Completed: <Text color="green" bold>{queueStats.completed}</Text>
+            {'  '}Failed: <Text color="red" bold>{queueStats.failed}</Text>
+            {'  '}Concurrency: <Text color="cyan" bold>{queueStats.maxConcurrency}</Text>
+          </Text>
           {queueStats.queued > 5 && (
             <Text color="yellow">
               ⚠️  High queue depth - consider reducing wave size or checking for rate limits
