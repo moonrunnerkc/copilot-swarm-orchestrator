@@ -138,7 +138,7 @@ For agents, skills, and quality gates without the full orchestrator:
 copilot /plugin install moonrunnerkc/copilot-swarm-orchestrator
 ```
 
-This installs six specialized agent profiles, three skills (orchestrate, verify, gates), and scope enforcement hooks into your Copilot CLI environment. Scope enforcement hooks detect file operations outside the agent's declared scope and log them as scope violations. Violations are enforced at the verification layer: any step with scope violations fails verification. Direct execution-time blocking is planned for a future Copilot CLI SDK update. Use `/agents list` to see the installed agents, and `/swarm gates` to run quality checks from within a Copilot CLI session.
+This installs six specialized agent profiles, three skills (orchestrate, verify, gates), and scope enforcement hooks into your Copilot CLI environment. Scope enforcement hooks detect file operations outside the agent's declared scope and block them at execution time via the SDK's `permissionDecision` deny mechanism. Violations are also logged to the evidence file so the verification layer can independently confirm no out-of-scope changes were made. Use `/agents list` to see the installed agents, and `/swarm gates` to run quality checks from within a Copilot CLI session.
 
 The plugin is the lightweight entry point. For full parallel wave scheduling, cost governance, repair pipeline, and the web dashboard, use the full source install above.
 

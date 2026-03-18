@@ -281,10 +281,13 @@ describe('HookGenerator', () => {
 
       assert.ok(script.includes('src/api'));
       assert.ok(script.includes('src/components'));
-      // Should always approve (SDK limitation: deny not enforced)
+      // Uses permissionDecision field (SDK reads this for deny enforcement)
+      assert.ok(script.includes('permissionDecision'));
       assert.ok(script.includes('approve'));
       // Should reference evidence log for scope violation logging
       assert.ok(script.includes('scope_violation'));
+      // Should output deny for out-of-scope operations
+      assert.ok(script.includes("permissionDecision:'deny'") || script.includes('permissionDecision:"deny"'));
     });
 
     it('should exit cleanly when deny list is empty', () => {
@@ -296,6 +299,7 @@ describe('HookGenerator', () => {
       );
 
       // With no deny rules, the script approves all operations
+      assert.ok(script.includes('permissionDecision'));
       assert.ok(script.includes('approve'));
     });
   });
@@ -337,8 +341,8 @@ describe('HookGenerator', () => {
     });
   });
 
-  describe('scope violation flow (monitoring + verification-layer enforcement)', () => {
-    it('should log scope_violation to evidence when preToolUse detects out-of-scope write', (done) => {
+  describe('scope violation flow (deny enforcement + verification-layer enforcement)', () => {
+    it('should deny and log scope_violation when preToolUse detects out-of-scope write', (done) => {
       const gen = new HookGenerator();
       const evidenceLog = path.join(tempDir, 'scope-violation-evidence.jsonl');
 
@@ -361,11 +365,16 @@ describe('HookGenerator', () => {
       });
 
       const { execSync } = require('child_process');
-      execSync(`echo '${context.replace(/'/g, "'\\''")}' | ${script}`, {
+      const stdout = execSync(`echo '${context.replace(/'/g, "'\\''")}' | ${script}`, {
         cwd: tempDir,
         timeout: 10000,
         encoding: 'utf8'
       });
+
+      // Hook should output deny decision for out-of-scope file
+      const hookOutput = JSON.parse(stdout);
+      assert.strictEqual(hookOutput.permissionDecision, 'deny', 'hook should deny out-of-scope file');
+      assert.ok(hookOutput.permissionDecisionReason.includes('Scope violation'), 'reason should explain the violation');
 
       // Evidence log should contain a scope_violation entry
       assert.ok(fs.existsSync(evidenceLog), 'evidence log should exist after scope violation');
@@ -399,11 +408,15 @@ describe('HookGenerator', () => {
       });
 
       const { execSync } = require('child_process');
-      execSync(`echo '${context.replace(/'/g, "'\\''")}' | ${script}`, {
+      const stdout = execSync(`echo '${context.replace(/'/g, "'\\''")}' | ${script}`, {
         cwd: tempDir,
         timeout: 10000,
         encoding: 'utf8'
       });
+
+      // Hook should approve in-scope file
+      const hookOutput = JSON.parse(stdout);
+      assert.strictEqual(hookOutput.permissionDecision, 'approve', 'hook should approve in-scope file');
 
       // No evidence log should exist (or it should be empty)
       if (fs.existsSync(evidenceLog)) {

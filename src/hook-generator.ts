@@ -205,24 +205,25 @@ export class HookGenerator {
     };
   }
 
-  // PLATFORM LIMITATION (Copilot CLI SDK <=1.0.7):
-  // preToolUse hooks fire correctly and receive tool context via stdin,
-  // but deny decisions are not enforced by the SDK. The hook runs as
-  // monitoring-only: violations are logged to evidence.jsonl but not blocked.
-  // When the SDK adds deny enforcement, remove this note and enable blocking.
+  // Scope enforcement via preToolUse hooks. The SDK reads the
+  // permissionDecision field from the hook's JSON stdout. When a file path
+  // matches a deny rule and no allow rule overrides it, the hook outputs
+  // "deny" with a reason. The SDK blocks the tool call and injects the
+  // reason into the agent's context. Violations are also logged to the
+  // evidence file so the verification layer can flag them independently.
 
   /**
    * Build a bash script that reads context JSON from stdin, checks the
-   * file path against deny/allow rules, and logs any scope violations
-   * to the evidence log. Always approves (SDK does not enforce deny).
-   * Scope violations are enforced at the verification layer instead.
+   * file path against deny/allow rules, and either denies the tool call
+   * (via permissionDecision) or approves it. Violations are logged to
+   * the evidence file regardless for verification-layer enforcement.
    */
   buildPreToolUseScript(scopeRules: ScopeRule, evidenceLogPath: string, agentName: string): string {
     const rulesJson = JSON.stringify({ allow: scopeRules.allow, deny: scopeRules.deny });
     const escapedPath = evidenceLogPath.replace(/'/g, "'\\'");
     const safeAgent = agentName.replace(/'/g, '');
-    // Node reads context from stdin, checks scope rules, logs violations to evidence, always approves
-    return `node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const ctx=JSON.parse(d);const rules=${rulesJson.replace(/"/g, '\\"')};const p=(ctx.toolArgs||{}).path||(ctx.toolArgs||{}).filePath||'';if(p&&rules.deny.length>0){const denied=rules.deny.some(r=>p.includes(r));if(denied){const allowed=rules.allow.some(r=>p.includes(r));if(!allowed){const entry={timestamp:new Date().toISOString(),event:'scope_violation',tool:ctx.toolName||'unknown',filePath:p,agentName:'${safeAgent}',boundaryRule:rules.deny.find(r=>p.includes(r))};require('fs').appendFileSync('${escapedPath}',JSON.stringify(entry)+'\\n')}}}process.stdout.write(JSON.stringify({decision:'approve'}))}catch(e){process.stdout.write(JSON.stringify({decision:'approve'}))}})"`;
+    // Node reads context from stdin, checks scope rules, denies out-of-scope tool calls, logs violations
+    return `node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const ctx=JSON.parse(d);const rules=${rulesJson.replace(/"/g, '\\"')};const p=(ctx.toolArgs||{}).path||(ctx.toolArgs||{}).filePath||'';if(p&&rules.deny.length>0){const denied=rules.deny.some(r=>p.includes(r));if(denied){const allowed=rules.allow.some(r=>p.includes(r));if(!allowed){const rule=rules.deny.find(r=>p.includes(r));const entry={timestamp:new Date().toISOString(),event:'scope_violation',tool:ctx.toolName||'unknown',filePath:p,agentName:'${safeAgent}',boundaryRule:rule};require('fs').appendFileSync('${escapedPath}',JSON.stringify(entry)+'\\n');process.stdout.write(JSON.stringify({permissionDecision:'deny',permissionDecisionReason:'Scope violation: '+p+' is outside agent boundary ('+rule+')'}));return}}}process.stdout.write(JSON.stringify({permissionDecision:'approve'}))}catch(e){process.stdout.write(JSON.stringify({permissionDecision:'approve'}))}})"`;
   }
 
   /**
