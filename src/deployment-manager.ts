@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import ExternalToolManager from './external-tool-manager';
 
 export interface DeploymentResult {
@@ -207,7 +208,6 @@ export class DeploymentManager {
    * Tag HEAD before deployment so we can roll back if the health check fails.
    */
   tagPreDeploy(executionId: string): string {
-    const { execSync } = require('child_process');
     const tag = `pre-deploy/${executionId}`;
     execSync(`git tag -f ${tag}`, { cwd: this.workingDir, encoding: 'utf8' });
     return tag;
@@ -237,7 +237,6 @@ export class DeploymentManager {
    * Roll back HEAD by reverting the latest commit and recording the event.
    */
   rollbackToTag(tag: string): void {
-    const { execSync } = require('child_process');
     execSync('git revert --no-commit HEAD', { cwd: this.workingDir, encoding: 'utf8' });
     execSync(`git commit -m "rollback: revert to ${tag} after failed health check"`, {
       cwd: this.workingDir, encoding: 'utf8'

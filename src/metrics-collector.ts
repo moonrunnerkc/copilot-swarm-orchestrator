@@ -133,7 +133,9 @@ export default class MetricsCollector {
     if (!fs.existsSync(filePath)) return null;
     try {
       return JSON.parse(fs.readFileSync(filePath, 'utf8')) as SessionState;
-    } catch {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[metrics] Failed to load session ${id}: ${msg}`);
       return null;
     }
   }

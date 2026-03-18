@@ -17,6 +17,7 @@ export interface ExecutionOptions {
   wrapFleet?: boolean;       // Enable /fleet prefix on all step prompts
   maxPremiumRequests?: number; // Abort if estimated premium requests exceed this
   costEstimateOnly?: boolean;  // Print cost estimate and exit without executing
+  prMode?: 'auto' | 'review'; // Create PRs instead of direct merge ('auto' or 'review')
 }
 
 export interface CriticResult {

@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ExecutionPlan } from './plan-generator';
+import { levenshtein } from './text-similarity';
 
 export class PlanStorage {
   private planDir: string;
@@ -109,7 +110,7 @@ export class PlanStorage {
 
         // normalized Levenshtein
         const maxLen = Math.max(goalLower.length, planLower.length) || 1;
-        const levDist = this.levenshtein(goalLower, planLower);
+        const levDist = levenshtein(goalLower, planLower);
         const levSim = 1 - levDist / maxLen;
 
         const combined = (keywordSim + levSim) / 2;
@@ -118,7 +119,7 @@ export class PlanStorage {
           bestMatch = plan;
         }
       } catch {
-        // skip corrupt plan files
+        // Plan file is corrupt or unreadable; skip and continue searching
       }
     }
 
@@ -128,24 +129,6 @@ export class PlanStorage {
       console.log(`  [plan-cache] Cache miss for: "${goal.slice(0, 60)}"`);
     }
     return bestMatch;
-  }
-
-  /**
-   * Standard Levenshtein distance between two strings.
-   */
-  private levenshtein(a: string, b: string): number {
-    const m = a.length, n = b.length;
-    const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
-      Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
-    );
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
-        dp[i][j] = a[i - 1] === b[j - 1]
-          ? dp[i - 1][j - 1]
-          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-      }
-    }
-    return dp[m][n];
   }
 
   private resolvePlanPath(planRef: string): string {

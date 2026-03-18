@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import ShareParser, { ShareIndex } from './share-parser';
+import { HookGenerator, EvidenceEntry } from './hook-generator';
 
 export interface VerificationCheck {
   type: 'test' | 'build' | 'lint' | 'commit' | 'claim' | 'output';
@@ -57,7 +58,8 @@ export class VerifierEngine {
       requireCommits?: boolean;
       gracefulDegradation?: boolean; // Allow continuation even if verification fails
     },
-    preParsedIndex?: ShareIndex
+    preParsedIndex?: ShareIndex,
+    evidenceLogPath?: string
   ): Promise<VerificationResult> {
     const checks: VerificationCheck[] = [];
     const unverifiedClaims: string[] = [];
@@ -109,6 +111,12 @@ export class VerifierEngine {
     const claimCheck = this.verifyAllClaims(shareIndex);
     checks.push(...claimCheck.checks);
     unverifiedClaims.push(...claimCheck.unverifiedClaims);
+
+    // Cross-reference hook evidence against transcript claims (defense in depth)
+    if (evidenceLogPath) {
+      const hookEvidence = this.crossReferenceEvidence(shareIndex, evidenceLogPath);
+      checks.push(...hookEvidence);
+    }
 
     // Overall pass/fail: only required checks must pass
     // Unverified claims are warnings for drift detection, NOT hard failures
@@ -358,6 +366,7 @@ export class VerifierEngine {
               const content = fs.readFileSync(path.join(worktreeDir, fp), 'utf8');
               return regex.test(content);
             } catch {
+              // File may be binary or permission-restricted; skip it
               return false;
             }
           });
@@ -395,9 +404,13 @@ export class VerifierEngine {
                   if (!stat.isFile() || stat.size > 256 * 1024) continue;
                   const content = fs.readFileSync(fullPath, 'utf8');
                   if (regex.test(content)) { found = true; break; }
-                } catch { /* skip unreadable files */ }
+                } catch {
+                  // Binary or permission-restricted file; skip
+                }
               }
-            } catch { /* skip unreadable dirs */ }
+            } catch {
+              // Directory unreadable (permissions, broken symlink); skip
+            }
             if (found) break;
           }
 
@@ -522,7 +535,7 @@ export class VerifierEngine {
             await this.runGitCommand(['checkout', 'HEAD', '--', file]);
             filesRestored.push(file);
           } catch {
-            // file might not exist in HEAD, that's ok
+            // File does not exist in HEAD (new file from the agent); nothing to restore
           }
         }
       }
@@ -613,6 +626,103 @@ export class VerifierEngine {
         console.warn(`  ⚠️  Could not commit verification report: ${error.message.split('\n')[0]}`);
       }
     }
+  }
+
+  /**
+   * Cross-reference hook-captured evidence with transcript-based claims.
+   * If hooks recorded errors or scope violations that the transcript does not
+   * mention, the step fails (defense in depth).
+   */
+  private crossReferenceEvidence(shareIndex: ShareIndex, evidenceLogPath: string): VerificationCheck[] {
+    const hookGen = new HookGenerator();
+    const entries = hookGen.parseEvidenceLog(evidenceLogPath);
+
+    if (entries.length === 0) {
+      return [{
+        type: 'claim',
+        description: 'Hook evidence log exists and is non-empty',
+        required: false,
+        passed: false,
+        reason: `No hook evidence entries found at ${evidenceLogPath}`
+      }];
+    }
+
+    const checks: VerificationCheck[] = [];
+
+    // Check for errors captured by hooks that transcript might not mention
+    const errorEntries = entries.filter(e => e.event === 'errorOccurred');
+    // Transcript error signals: failed tests, failed builds, or unverified claims
+    const transcriptHasErrors = shareIndex.testsRun.some(t => !t.verified)
+      || shareIndex.buildOperations.some(b => !b.verified)
+      || shareIndex.claims.some(c => !c.verified);
+
+    if (errorEntries.length > 0 && !transcriptHasErrors) {
+      checks.push({
+        type: 'claim',
+        description: 'Hook error evidence cross-references transcript',
+        required: true,
+        passed: false,
+        evidence: `Hooks captured ${errorEntries.length} error(s) but transcript reports none`,
+        reason: `Hook evidence contradicts transcript: ${errorEntries.length} error(s) captured by hooks were not mentioned in transcript`
+      });
+    } else if (errorEntries.length > 0) {
+      checks.push({
+        type: 'claim',
+        description: 'Hook error evidence cross-references transcript',
+        required: false,
+        passed: true,
+        evidence: `Both hooks (${errorEntries.length}) and transcript acknowledge errors`
+      });
+    }
+
+    // Verify file operations recorded by hooks match transcript claims
+    const hookFiles = new Set(
+      entries
+        .filter(e => e.filePath)
+        .map(e => e.filePath as string)
+    );
+    const transcriptFiles = new Set(shareIndex.changedFiles || []);
+
+    // Scope violation enforcement: if hooks logged any scope_violation entries,
+    // the step fails verification. This compensates for the Copilot CLI SDK not
+    // honoring deny decisions at execution time (SDK <=1.0.7).
+    const scopeViolations = entries.filter(e => e.event === 'scope_violation');
+    if (scopeViolations.length > 0) {
+      const violatedFiles = scopeViolations.map(v => v.filePath || 'unknown').join(', ');
+      const agents = [...new Set(scopeViolations.map(v => v.agentName || 'unknown'))];
+      const rules = [...new Set(scopeViolations.map(v => v.boundaryRule || 'unknown'))];
+      checks.push({
+        type: 'claim',
+        description: 'No scope violations detected during execution',
+        required: true,
+        passed: false,
+        evidence: `${scopeViolations.length} scope violation(s) logged by hooks`,
+        reason: `Agent ${agents.join(', ')} wrote to files outside its declared scope: ${violatedFiles}. Violated boundary rule(s): ${rules.join(', ')}`
+      });
+    }
+
+    // Hook-only files that transcript didn't mention (informational, not blocking)
+    const hookOnlyFiles = [...hookFiles].filter(f => !transcriptFiles.has(f));
+    if (hookOnlyFiles.length > 0) {
+      checks.push({
+        type: 'claim',
+        description: 'Hook file evidence has unmentioned files',
+        required: false,
+        passed: true,
+        evidence: `Hooks captured ${hookOnlyFiles.length} file(s) not mentioned in transcript: ${hookOnlyFiles.slice(0, 5).join(', ')}`
+      });
+    }
+
+    // Overall: hooks corroborate transcript
+    checks.push({
+      type: 'claim',
+      description: 'Hook evidence corroborates transcript',
+      required: false,
+      passed: true,
+      evidence: `${entries.length} hook evidence entries, ${hookFiles.size} files tracked`
+    });
+
+    return checks;
   }
 }
 

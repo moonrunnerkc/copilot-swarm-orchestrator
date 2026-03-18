@@ -35,8 +35,8 @@ export interface RetryConfig {
  * handles rate limits and quota exhaustion gracefully
  */
 export class ExecutionQueue extends EventEmitter {
-  private queue: QueuedTask<any>[] = [];
-  private running: Map<string, QueuedTask<any>> = new Map();
+  private queue: QueuedTask<unknown>[] = [];
+  private running: Map<string, QueuedTask<unknown>> = new Map();
   private maxConcurrency: number;
   private retryConfig: RetryConfig;
   private stats = {
@@ -46,6 +46,8 @@ export class ExecutionQueue extends EventEmitter {
 
   constructor(maxConcurrency: number = 3, retryConfig?: Partial<RetryConfig>) {
     super();
+    // High step counts generate many concurrent task-completed listeners
+    this.setMaxListeners(50);
     this.maxConcurrency = maxConcurrency;
     this.retryConfig = {
       maxRetries: retryConfig?.maxRetries ?? 3,
@@ -88,9 +90,9 @@ export class ExecutionQueue extends EventEmitter {
       // insert based on priority (higher priority first)
       const insertIndex = this.queue.findIndex(t => t.priority < queuedTask.priority);
       if (insertIndex === -1) {
-        this.queue.push(queuedTask);
+        this.queue.push(queuedTask as QueuedTask<unknown>);
       } else {
-        this.queue.splice(insertIndex, 0, queuedTask);
+        this.queue.splice(insertIndex, 0, queuedTask as QueuedTask<unknown>);
       }
 
       this.emit('enqueued', { id, stats: this.getStats() });
@@ -116,7 +118,7 @@ export class ExecutionQueue extends EventEmitter {
   /**
    * execute single task with retry on rate limits
    */
-  private async executeTask<T>(task: QueuedTask<T>): Promise<void> {
+  private async executeTask(task: QueuedTask<unknown>): Promise<void> {
     try {
       const result = await task.execute();
       this.running.delete(task.id);

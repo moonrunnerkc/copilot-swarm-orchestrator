@@ -42,6 +42,8 @@ export class ContextBroker extends EventEmitter {
 
   constructor(runDir: string) {
     super();
+    // Plans with many steps create concurrent per-step listeners for dependency tracking
+    this.setMaxListeners(50);
     this.contextDir = path.join(runDir, '.context');
     this.lockDir = path.join(runDir, '.locks');
     this.contextFile = path.join(this.contextDir, 'shared-context.json');
@@ -107,7 +109,7 @@ export class ContextBroker extends EventEmitter {
               continue;
             }
           } catch {
-            // corrupted lock file, remove
+            // Lock file contains invalid JSON (corrupted write); safe to remove and retry
             fs.unlinkSync(lockFile);
             continue;
           }
@@ -161,28 +163,86 @@ export class ContextBroker extends EventEmitter {
         fs.unlinkSync(lockFile);
       }
     } catch {
-      // Ignore - lock may have been removed concurrently
+      // Lock file may have been removed by a concurrent release; harmless
     }
   }
 
   /**
-   * Add context from a completed step
+   * Add context from a completed step.
+   * Uses an exclusive file lock around the read-modify-write to prevent
+   * concurrent writers from losing entries. In single-process Node.js the
+   * synchronous I/O already serializes, but the lock protects against
+   * future multi-process architectures.
    */
   addStepContext(entry: ContextEntry): void {
-    // Re-ensure directories exist (may have been deleted by git operations)
     this.ensureDirectories();
 
-    const contexts = this.getAllContext();
-    contexts.push(entry);
+    const lockFile = path.join(this.lockDir, 'context.lock');
+    this.acquireFileLockSync(lockFile);
+    try {
+      const contexts = this.getAllContext();
+      contexts.push(entry);
+      fs.writeFileSync(
+        this.contextFile,
+        JSON.stringify(contexts, null, 2),
+        'utf8'
+      );
+    } finally {
+      this.releaseFileLockSync(lockFile);
+    }
 
-    fs.writeFileSync(
-      this.contextFile,
-      JSON.stringify(contexts, null, 2),
-      'utf8'
-    );
-
-    // Notify any listeners waiting on this step's completion
     this.emit('step-completed', entry.stepNumber);
+  }
+
+  /**
+   * Synchronous exclusive file lock via atomic wx creation.
+   * Stale locks (>5s) are force-removed on retry.
+   */
+  private acquireFileLockSync(lockFile: string): void {
+    const maxAttempts = 50;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        fs.writeFileSync(
+          lockFile,
+          JSON.stringify({ pid: process.pid, ts: Date.now() }),
+          { flag: 'wx' }
+        );
+        return;
+      } catch (err: unknown) {
+        const error = err as NodeJS.ErrnoException;
+        if (error.code === 'EEXIST') {
+          try {
+            const stat = fs.statSync(lockFile);
+            if (Date.now() - stat.mtimeMs > 5000) {
+              fs.unlinkSync(lockFile);
+              continue;
+            }
+          } catch {
+            // Lock removed between check and stat; retry
+            continue;
+          }
+          // Single-process Node.js: synchronous ops cannot interleave,
+          // so this continue only fires in multi-process scenarios
+          continue;
+        }
+        if (error.code === 'ENOENT') {
+          this.ensureDirectories();
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error(
+      `Failed to acquire context lock after ${maxAttempts} attempts: ${lockFile}`
+    );
+  }
+
+  private releaseFileLockSync(lockFile: string): void {
+    try {
+      fs.unlinkSync(lockFile);
+    } catch {
+      // Lock file already removed or directory cleaned; harmless
+    }
   }
 
   /**
@@ -196,7 +256,9 @@ export class ContextBroker extends EventEmitter {
     try {
       const content = fs.readFileSync(this.contextFile, 'utf8');
       return JSON.parse(content) as ContextEntry[];
-    } catch {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[context-broker] Failed to parse ${this.contextFile}: ${msg}`);
       return [];
     }
   }

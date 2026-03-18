@@ -1,5 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { levenshtein } from './text-similarity';
+
+// Auto-prune triggers when pattern count exceeds this threshold
+const MAX_PATTERNS = 500;
 
 export interface KnowledgePattern {
   id: string;
@@ -80,7 +84,9 @@ export class KnowledgeBaseManager {
   }
 
   /**
-   * add or update pattern in knowledge base
+   * add or update pattern in knowledge base.
+   * Auto-prunes when pattern count exceeds MAX_PATTERNS to bound
+   * Levenshtein search cost and disk footprint.
    */
   addOrUpdatePattern(pattern: Omit<KnowledgePattern, 'id' | 'firstSeen' | 'occurrences' | 'examples' | 'lastSeen'>): void {
     const now = new Date().toISOString();
@@ -113,6 +119,11 @@ export class KnowledgeBaseManager {
         examples: []
       };
       this.knowledgeBase.patterns.push(newPattern);
+    }
+
+    // Prevent unbounded growth: prune stale and low-value entries
+    if (this.knowledgeBase.patterns.length > MAX_PATTERNS) {
+      this.prunePatterns({ removeOlderThan: 90, removeLowConfidence: true });
     }
 
     this.knowledgeBase.lastUpdated = now;
@@ -252,36 +263,42 @@ export class KnowledgeBaseManager {
   }
 
   /**
-   * Standard Levenshtein distance between two strings.
+   * Delegates to the shared levenshtein from text-similarity.ts.
+   * Kept as a public method for backward compatibility with tests.
    */
   levenshtein(a: string, b: string): number {
-    const m = a.length, n = b.length;
-    const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
-      Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
-    );
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
-        dp[i][j] = a[i - 1] === b[j - 1]
-          ? dp[i - 1][j - 1]
-          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-      }
-    }
-    return dp[m][n];
+    return levenshtein(a, b);
   }
 
   /**
    * Find stored patterns similar to a task description.
    * Uses keyword overlap + normalized Levenshtein similarity.
+   * Skips patterns where length difference exceeds 2x (Levenshtein
+   * similarity cannot reach the threshold in those cases).
    */
   findSimilarTasks(description: string, threshold: number = 0.7): KnowledgePattern[] {
-    const descWords = new Set(description.toLowerCase().split(/\s+/));
+    const descLower = description.toLowerCase();
+    const descWords = new Set(descLower.split(/\s+/));
+    const descLen = descLower.length;
+
     return this.knowledgeBase.patterns.filter(p => {
-      const insightWords = new Set(p.insight.toLowerCase().split(/\s+/));
+      const insightLower = p.insight.toLowerCase();
+
+      // Length pre-filter: when one string is more than 2x the other,
+      // the normalized Levenshtein similarity is at most 0.5, so the
+      // combined score (keyword + lev) / 2 cannot reach 0.7 threshold
+      // unless keyword overlap is near-perfect. Skip the O(n*m) call.
+      const insightLen = insightLower.length;
+      const shorter = Math.min(descLen, insightLen);
+      const longer = Math.max(descLen, insightLen);
+      if (shorter > 0 && longer / shorter > 2) return false;
+
+      const insightWords = new Set(insightLower.split(/\s+/));
       const overlap = [...descWords].filter(w => insightWords.has(w)).length;
       const union = new Set([...descWords, ...insightWords]).size;
       const keywordSim = union > 0 ? overlap / union : 0;
-      const maxLen = Math.max(description.length, p.insight.length) || 1;
-      const levSim = 1 - this.levenshtein(description.toLowerCase(), p.insight.toLowerCase()) / maxLen;
+      const maxLen = longer || 1;
+      const levSim = 1 - levenshtein(descLower, insightLower) / maxLen;
       const combined = (keywordSim + levSim) / 2;
       return combined >= threshold;
     });

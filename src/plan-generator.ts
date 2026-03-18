@@ -1,4 +1,5 @@
 import { AgentProfile } from './config-loader';
+import { PlanStorage } from './plan-storage';
 
 export interface PlanStep {
   stepNumber: number;
@@ -42,7 +43,6 @@ export class PlanGenerator {
 
     // plan cache: short-circuit if a similar plan already exists
     if (options?.planCache && !userProvidedSteps) {
-      const PlanStorage = require('./plan-storage').PlanStorage;
       const storage = new PlanStorage();
       const cached = storage.findCachedPlan(goal);
       if (cached) {

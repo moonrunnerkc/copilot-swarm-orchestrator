@@ -11,7 +11,8 @@ import ExternalToolManager from './external-tool-manager';
 import { KnowledgeBaseManager } from './knowledge-base';
 import { MetaAnalyzer, MetaReviewResult } from './meta-analyzer';
 import MetricsCollector from './metrics-collector';
-import { ExecutionPlan, PlanStep, ReplanPayload } from './plan-generator';
+import { ExecutionPlan, PlanGenerator, PlanStep, ReplanPayload } from './plan-generator';
+import PRAutomation from './pr-automation';
 import { load_quality_gates_config, run_quality_gates } from './quality-gates';
 import RepairAgent, { RepairContext } from './repair-agent';
 import SessionExecutor, { SessionOptions, SessionResult } from './session-executor';
@@ -21,7 +22,10 @@ import { CriticResult, SessionState } from './types';
 import VerifierEngine, { VerificationResult } from './verifier-engine';
 import { AdaptiveConcurrencyManager, WaveResizer } from './wave-resizer';
 import { CostEstimator, CostEstimate } from './cost-estimator';
-import { CostAttribution, StepCostRecord } from './metrics-types';
+import { HookGenerator, GeneratedHooks } from './hook-generator';
+import FleetExecutor from './fleet-executor';
+import { CostAttribution, CostHistoryEvidence, StepCostRecord } from './metrics-types';
+import PRManager from './pr-manager';
 
 export interface ParallelStepResult {
   stepNumber: number;
@@ -41,6 +45,29 @@ export interface ReplanState {
   triggeredAt: string;
   payload: ReplanPayload;
   retryBranches: Map<number, string[]>;
+}
+
+// Single source of truth for the options object threaded through executeSwarm,
+// executeReplan, executeStepInSwarm, and related methods.
+export interface SwarmExecutionOptions {
+  model?: string;
+  maxConcurrency?: number;
+  enableExternal?: boolean;
+  confirmDeploy?: boolean;
+  dryRun?: boolean;
+  autoPR?: boolean;
+  qualityGates?: boolean;
+  qualityGatesConfigPath?: string;
+  qualityGatesOutDir?: string;
+  strictIsolation?: boolean;
+  governance?: boolean;
+  lean?: boolean;
+  useInnerFleet?: boolean;
+  replay?: boolean;
+  prMode?: 'auto' | 'review';
+  hooksEnabled?: boolean;
+  fleetWaveMode?: boolean;
+  onProgress?: (context: SwarmExecutionContext, event: string) => void;
 }
 
 export interface SwarmExecutionContext {
@@ -76,6 +103,8 @@ export interface SwarmExecutionContext {
   costEstimator?: CostEstimator;
   costEstimate?: CostEstimate;
   stepCostRecords?: StepCostRecord[];
+  prManager?: PRManager;
+  prUrls?: Map<number, string>;
 }
 
 /**
@@ -180,23 +209,7 @@ export class SwarmOrchestrator {
     plan: ExecutionPlan,
     agents: Map<string, AgentProfile>,
     runDir: string,
-    options?: {
-      model?: string;
-      maxConcurrency?: number;
-      enableExternal?: boolean;
-      confirmDeploy?: boolean;
-      dryRun?: boolean;
-      autoPR?: boolean;
-      qualityGates?: boolean;
-      qualityGatesConfigPath?: string;
-      qualityGatesOutDir?: string;
-      strictIsolation?: boolean;
-      governance?: boolean;
-      lean?: boolean;
-      useInnerFleet?: boolean;
-      replay?: boolean;
-      onProgress?: (context: SwarmExecutionContext, event: string) => void;
-    }
+    options?: SwarmExecutionOptions
   ): Promise<SwarmExecutionContext> {
     const context = this.initializeSwarmExecution(plan, runDir, options?.maxConcurrency);
     context.agents = agents;
@@ -208,6 +221,17 @@ export class SwarmOrchestrator {
       accessibilityFixAdded: false,
       testCoverageFixAdded: false
     };
+
+    // Initialize PR manager when --pr mode is set
+    if (options?.prMode) {
+      const prManager = new PRManager(this.workingDir);
+      if (!prManager.isGhAvailable()) {
+        console.error('  ❌ --pr requires gh CLI installed and authenticated. Run "gh auth login" first.');
+        process.exit(1);
+      }
+      context.prManager = prManager;
+      context.prUrls = new Map();
+    }
 
     console.log('\n🚀 Starting Parallel Swarm Execution');
     console.log(`${'─'.repeat(50)}`);
@@ -302,7 +326,7 @@ export class SwarmOrchestrator {
       if (inFlight.size === 0 || pendingMerge.length >= 3) {
         if (pendingMerge.length > 0) {
           context.contextBroker.forceReleaseStaleLocks();
-          await this.mergeWaveBranches(pendingMerge, context);
+          await this.mergeWaveBranches(pendingMerge, context, options);
           pendingMerge.length = 0;
         }
       }
@@ -371,6 +395,20 @@ export class SwarmOrchestrator {
 
         console.log(`\n📊 Batch ${waveCounter}: launching ${ready.length} step(s) [${ready.join(', ')}]`);
 
+        // Fleet wave mode: attempt single /fleet dispatch for the batch, fall back on failure
+        let fleetHandled = false;
+        if (options?.fleetWaveMode && ready.length > 1) {
+          fleetHandled = await this.attemptFleetDispatch(ready, plan, agents, context, options);
+          if (fleetHandled) {
+            // All steps handled by fleet; mark them complete
+            for (const stepNum of ready) {
+              inFlight.add(stepNum);
+              await onStepComplete(stepNum);
+            }
+          }
+        }
+
+        if (!fleetHandled) {
         // Launch all ready steps concurrently
         const batchPromises = ready.map(stepNumber => {
           const step = plan.steps.find(s => s.stepNumber === stepNumber)!;
@@ -405,6 +443,7 @@ export class SwarmOrchestrator {
 
         // Settle any remaining promises that are already resolved
         await Promise.allSettled(batchPromises);
+        } // end if (!fleetHandled)
 
         // Update queue stats
         context.queueStats = context.executionQueue!.getStats();
@@ -449,7 +488,7 @@ export class SwarmOrchestrator {
     // Flush any remaining pending merges
     if (pendingMerge.length > 0) {
       context.contextBroker.forceReleaseStaleLocks();
-      await this.mergeWaveBranches(pendingMerge, context);
+      await this.mergeWaveBranches(pendingMerge, context, options);
       pendingMerge.length = 0;
     }
 
@@ -664,11 +703,19 @@ export class SwarmOrchestrator {
         const totalRetries = context.stepCostRecords.reduce((s, r) => s + r.retryCount, 0);
         const totalActual = context.stepCostRecords.reduce((s, r) => s + r.actualPremiumRequests, 0);
         const totalEstimated = context.costEstimate.totalPremiumRequests;
+        const evidence: CostHistoryEvidence = {
+          runId: context.executionId,
+          estimated: totalEstimated,
+          actual: totalActual,
+          retries: totalRetries,
+          steps: plan.steps.length,
+          model: modelName,
+        };
         context.knowledgeBase.addOrUpdatePattern({
           category: 'cost_history',
           insight: `${plan.steps.length} steps, model ${modelName}, ${totalActual} premium requests, ${totalRetries} retries`,
           confidence: 'high',
-          evidence: [`run:${context.executionId}`, `estimated:${totalEstimated}`, `actual:${totalActual}`],
+          evidence: [JSON.stringify(evidence)],
           impact: 'medium',
         });
       }
@@ -678,10 +725,6 @@ export class SwarmOrchestrator {
     if (options?.autoPR) {
       console.log('\n📝 Creating PR...');
       try {
-        const PRAutomation = require('./pr-automation').default;
-        const ExternalToolManager = require('./external-tool-manager').default;
-        const DeploymentManager = require('./deployment-manager').default;
-
         const toolManager = new ExternalToolManager({
           enableExternal: options.enableExternal || false,
           dryRun: options.dryRun || false,
@@ -748,17 +791,7 @@ export class SwarmOrchestrator {
     context: SwarmExecutionContext,
     replanPayload: ReplanPayload,
     agents: Map<string, AgentProfile>,
-    options?: {
-      model?: string;
-      confirmDeploy?: boolean;
-      enableExternal?: boolean;
-      dryRun?: boolean;
-      qualityGates?: boolean;
-      qualityGatesConfigPath?: string;
-      qualityGatesOutDir?: string;
-      strictIsolation?: boolean;
-      governance?: boolean;
-    }
+    options?: SwarmExecutionOptions
   ): Promise<void> {
     console.log('\n🔄 Executing replan...');
 
@@ -908,7 +941,6 @@ export class SwarmOrchestrator {
 
     // append and execute any new steps
     if (replanPayload.addSteps && replanPayload.addSteps.length > 0) {
-      const PlanGenerator = require('./plan-generator').PlanGenerator;
       const generator = new PlanGenerator(Array.from(agents.values()));
 
       const completed = context.results.filter(r => r.status === 'completed').map(r => r.stepNumber);
@@ -958,52 +990,13 @@ export class SwarmOrchestrator {
   }
 
   /**
-   * Execute a single step within the swarm (queued version with retry support)
-   */
-  private async executeStepInSwarmQueued(
-    step: PlanStep,
-    agent: AgentProfile,
-    context: SwarmExecutionContext,
-    options?: {
-      model?: string;
-      confirmDeploy?: boolean;
-      enableExternal?: boolean;
-      dryRun?: boolean;
-      qualityGates?: boolean;
-      qualityGatesConfigPath?: string;
-      qualityGatesOutDir?: string;
-      strictIsolation?: boolean;
-      governance?: boolean;
-      useInnerFleet?: boolean;
-      replay?: boolean;
-      onProgress?: (context: SwarmExecutionContext, event: string) => void;
-    }
-  ): Promise<void> {
-    // delegate to original implementation
-    return this.executeStepInSwarm(step, agent, context, options);
-  }
-
-  /**
    * Execute a single step within the swarm
    */
   private async executeStepInSwarm(
     step: PlanStep,
     agent: AgentProfile,
     context: SwarmExecutionContext,
-    options?: {
-      model?: string;
-      confirmDeploy?: boolean;
-      enableExternal?: boolean;
-      dryRun?: boolean;
-      qualityGates?: boolean;
-      qualityGatesConfigPath?: string;
-      qualityGatesOutDir?: string;
-      strictIsolation?: boolean;
-      governance?: boolean;
-      useInnerFleet?: boolean;
-      replay?: boolean;
-      onProgress?: (context: SwarmExecutionContext, event: string) => void;
-    }
+    options?: SwarmExecutionOptions
   ): Promise<void> {
     const resultIndex = context.results.findIndex(r => r.stepNumber === step.stepNumber);
     const result = context.results[resultIndex];
@@ -1081,6 +1074,22 @@ export class SwarmOrchestrator {
         ...(options?.model && { model: options.model })
       };
 
+      // Generate per-step hooks for scope enforcement and evidence capture
+      // Hooks default to on unless explicitly disabled via --no-hooks
+      let generatedHooks: GeneratedHooks | undefined;
+      if (options?.hooksEnabled !== false) {
+        const hookGen = new HookGenerator();
+        generatedHooks = hookGen.generateStepHooks({
+          step,
+          agent,
+          executionId: context.executionId,
+          runDir: context.runDir,
+          stepBranch: branchName,
+          workingDir: worktreePath
+        });
+        // Hooks are auto-loaded by Copilot CLI from <gitRoot>/.github/hooks/
+      }
+
       // replay mode: reuse a matching prior transcript instead of calling Copilot
       if (options?.replay && context.knowledgeBase) {
         const patterns = context.knowledgeBase.findSimilarTasks(step.task, 0.9);
@@ -1090,7 +1099,13 @@ export class SwarmOrchestrator {
           if (priorTranscript && fs.existsSync(priorTranscript)) {
             console.log(`  ♻️  [replay] Step ${step.stepNumber}: replaying from cached transcript`);
             fs.copyFileSync(priorTranscript, transcriptPath);
-            result.sessionResult = { output: 'replayed from cache', success: true, duration: 0 } as any;
+            result.sessionResult = {
+              output: 'replayed from cache',
+              success: true,
+              duration: 0,
+              exitCode: 0,
+              transcriptPath: transcriptPath,
+            };
             result.status = 'completed';
             result.endTime = new Date().toISOString();
             // skip to verification (fall through below)
@@ -1117,6 +1132,12 @@ export class SwarmOrchestrator {
         if (!sessionResult.success) {
           throw new Error(sessionResult.error || 'Session failed');
         }
+      }
+
+      // Clean up hook files after session completes (evidence log in runDir persists)
+      if (generatedHooks) {
+        const hookGen = new HookGenerator();
+        hookGen.cleanupHooks(generatedHooks.hooksFilePath);
       }
 
       // Check if transcript was created, create fallback if not
@@ -1155,7 +1176,8 @@ export class SwarmOrchestrator {
           // commits are desired but not blocking for demo
           requireCommits: false
         },
-        shareIndex // Pass pre-parsed index to avoid double transcript parse
+        shareIndex, // Pass pre-parsed index to avoid double transcript parse
+        generatedHooks?.evidenceLogPath // Hook evidence for defense-in-depth cross-referencing
       );
 
       result.verificationResult = verificationResult;
@@ -1430,7 +1452,7 @@ export class SwarmOrchestrator {
     try {
       execSync(`git branch ${branchName} ${fromBranch}`, { cwd: this.workingDir, stdio: 'pipe' });
     } catch {
-      // Branch might already exist from a retry, that's fine
+      // Branch already exists from a prior retry; safe to reuse
     }
 
     // Clean up existing worktree if present (e.g. from a retry)
@@ -1438,11 +1460,11 @@ export class SwarmOrchestrator {
       try {
         execSync(`git worktree remove "${worktreePath}" --force`, { cwd: this.workingDir, stdio: 'pipe' });
       } catch {
-        // If remove fails, prune stale worktree entries and delete the directory
+        // Worktree entry may be stale or already removed; prune and force-delete the directory
         try {
           execSync('git worktree prune', { cwd: this.workingDir, stdio: 'pipe' });
         } catch {
-          // ignore prune failures
+          // Prune is best-effort cleanup; the rmSync below handles the directory
         }
         fs.rmSync(worktreePath, { recursive: true, force: true });
       }
@@ -1495,7 +1517,7 @@ export class SwarmOrchestrator {
     try {
       execSync('git stash --include-untracked', { cwd: this.workingDir, stdio: 'pipe' });
     } catch {
-      // stash might fail if nothing to stash, that's fine
+      // Stash fails when working tree is clean; expected during normal execution
     }
 
     return new Promise((resolve, reject) => {
@@ -1521,23 +1543,161 @@ export class SwarmOrchestrator {
   }
 
   /**
-   * Merge completed branches to main. Tries a single octopus merge when multiple
-   * branches are ready (one merge commit instead of N). Falls back to sequential
-   * merges if octopus fails (e.g. merge conflicts in overlapping files).
+   * Attempt to dispatch a batch of steps via a single /fleet prompt.
+   * If fleet dispatch fails or any subtask cannot be mapped back, returns false
+   * so the caller can fall back to subprocess mode.
+   */
+  private async attemptFleetDispatch(
+    readySteps: number[],
+    plan: ExecutionPlan,
+    agents: Map<string, AgentProfile>,
+    context: SwarmExecutionContext,
+    options?: SwarmExecutionOptions
+  ): Promise<boolean> {
+    const fleetExecutor = new FleetExecutor(this.workingDir);
+
+    if (!fleetExecutor.isAvailable()) {
+      console.log('  ⚠️  Fleet mode requested but copilot CLI does not support /fleet. Falling back to subprocess mode.');
+      return false;
+    }
+
+    const steps = readySteps
+      .map(n => plan.steps.find(s => s.stepNumber === n))
+      .filter((s): s is PlanStep => s !== undefined);
+
+    if (steps.length === 0) return false;
+
+    console.log(`  ⚡ [fleet] Dispatching ${steps.length} step(s) via /fleet`);
+
+    const transcriptDir = path.join(context.runDir, 'steps');
+
+    try {
+      const waveResult = await fleetExecutor.executeWave(steps, agents, {
+        model: options?.model,
+        runDir: context.runDir,
+        executionId: context.executionId,
+        mainBranch: context.mainBranch,
+        transcriptDir
+      });
+
+      if (!waveResult.success) {
+        console.log('  ⚠️  Fleet dispatch failed. Falling back to subprocess mode.');
+        return false;
+      }
+
+      // Check how many subtasks completed
+      const completedCount = waveResult.subtaskResults.filter(r => r.completed).length;
+      const failedCount = waveResult.subtaskResults.filter(r => !r.completed).length;
+
+      console.log(`  ⚡ [fleet] ${completedCount} subtask(s) completed, ${failedCount} incomplete`);
+
+      if (failedCount > 0) {
+        console.log('  ⚠️  Some fleet subtasks incomplete. Falling back to subprocess mode for all steps.');
+        return false;
+      }
+
+      // Map fleet results back to step results
+      for (const subtask of waveResult.subtaskResults) {
+        const result: ParallelStepResult = {
+          stepNumber: subtask.stepNumber,
+          agentName: subtask.agentName,
+          status: subtask.completed ? 'completed' : 'failed',
+          startTime: context.startTime,
+          endTime: new Date().toISOString(),
+          sessionResult: {
+            success: subtask.completed,
+            output: subtask.outputFragment,
+            exitCode: subtask.completed ? 0 : 1,
+            duration: waveResult.sessionResult.duration / steps.length
+          }
+        };
+        context.results.push(result);
+      }
+
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.log(`  ⚠️  Fleet dispatch error: ${message}. Falling back to subprocess mode.`);
+      return false;
+    }
+  }
+
+  /**
+   * Merge completed branches to main. When a PRManager is configured on the
+   * context, creates pull requests with verification evidence instead of
+   * direct git merges. Falls back to octopus merge or sequential merge otherwise.
    */
   private async mergeWaveBranches(
     completedResults: ParallelStepResult[],
-    context: SwarmExecutionContext
+    context: SwarmExecutionContext,
+    options?: SwarmExecutionOptions
   ): Promise<void> {
-    const originalDir = process.cwd();
     const branches = completedResults
       .filter(r => r.branchName)
       .map(r => r.branchName!);
 
     if (branches.length === 0) return;
 
+    // PR-based merge: create a PR for each branch instead of direct git merge
+    if (context.prManager) {
+      for (const result of completedResults) {
+        if (!result.branchName) continue;
+
+        const step = context.plan.steps.find(s => s.stepNumber === result.stepNumber);
+        const taskDesc = step?.task || `Step ${result.stepNumber}`;
+        const costRecord = context.stepCostRecords?.find(r => r.stepNumber === result.stepNumber);
+
+        const prResult = context.prManager.createStepPR(
+          result.branchName,
+          context.mainBranch,
+          result.stepNumber,
+          result.agentName,
+          taskDesc,
+          {
+            verification: result.verificationResult,
+            costRecord
+          }
+        );
+
+        if (prResult.success && prResult.url) {
+          context.prUrls?.set(result.stepNumber, prResult.url);
+          console.log(`  📋 PR created for step ${result.stepNumber}: ${prResult.url}`);
+
+          if (options?.prMode === 'auto' && prResult.number) {
+            const merged = context.prManager.autoMergePR(prResult.number);
+            if (merged) {
+              console.log(`  ✅ Auto-merged PR #${prResult.number}`);
+            } else {
+              console.warn(`  ⚠️  Auto-merge failed for PR #${prResult.number}; manual merge required`);
+            }
+          } else if (options?.prMode === 'review' && prResult.number) {
+            console.log(`  ⏳ Waiting for approval on PR #${prResult.number}...`);
+            const status = await context.prManager.waitForApproval(prResult.number);
+            if (status.approved || status.state === 'MERGED') {
+              console.log(`  ✅ PR #${prResult.number} approved`);
+              if (status.state !== 'MERGED') {
+                context.prManager.autoMergePR(prResult.number);
+              }
+            } else {
+              console.warn(`  ⚠️  PR #${prResult.number} review timed out or was not approved`);
+            }
+          }
+        } else {
+          console.warn(`  ⚠️  PR creation failed for ${result.branchName}: ${prResult.error}`);
+          // Fall back to direct merge
+          try {
+            await this.mergeBranch(result.branchName, context);
+            console.log(`  ✅ Merged ${result.branchName} (fallback)`);
+          } catch (error: unknown) {
+            const err = error as Error;
+            console.warn(`  ⚠️  Merge conflict for ${result.branchName}: ${err.message}`);
+          }
+        }
+      }
+      return;
+    }
+
     try {
-      process.chdir(this.workingDir);
       await this.switchBranch(context.mainBranch);
 
       // Attempt octopus merge when 2+ branches are ready
@@ -1558,10 +1718,12 @@ export class SwarmOrchestrator {
             console.log(`  ✅ Octopus merge: ${branches.length} branches in one commit`);
             return;
           } catch {
-            // Octopus failed (conflicts between branches); abort and fall back to sequential
+            // Octopus merge hit conflicts between branches; fall back to sequential
             try {
               execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' });
-            } catch { /* already clean */ }
+            } catch {
+              // No merge in progress to abort; already clean
+            }
             console.log(`  ⚠️  Octopus merge failed, falling back to sequential`);
           } finally {
             context.contextBroker.releaseGitLock(lockId);
@@ -1580,12 +1742,14 @@ export class SwarmOrchestrator {
             console.warn(`  ⚠️  Merge conflict for ${result.branchName}: ${err.message}`);
             try {
               execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' });
-            } catch { /* already clean */ }
+            } catch {
+              // No merge in progress to abort; already clean
+            }
           }
         }
       }
     } finally {
-      process.chdir(originalDir);
+      // switchBranch and mergeBranch pass cwd explicitly; no global state to restore
     }
   }
 
@@ -1616,7 +1780,7 @@ export class SwarmOrchestrator {
       const stashResult = execSync('git stash push --no-include-untracked', { cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe' });
       stashed = !stashResult.includes('No local changes');
     } catch {
-      // No changes to stash
+      // Stash fails when working tree is clean; expected during normal execution
     }
 
     // Determine which branches are already merged to avoid double-merge
@@ -1627,7 +1791,7 @@ export class SwarmOrchestrator {
       });
       mergedBranches = merged.split('\n').map(b => b.trim().replace(/^\* /, ''));
     } catch {
-      // If this fails, we'll attempt all merges
+      // Branch listing can fail in shallow clones or empty repos; safe to attempt all merges
     }
 
     for (const result of context.results) {
@@ -1650,7 +1814,7 @@ export class SwarmOrchestrator {
           try {
             execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' });
           } catch {
-            // Already aborted or no merge in progress
+            // No merge in progress to abort; already clean
           }
         }
       }
@@ -1660,8 +1824,9 @@ export class SwarmOrchestrator {
     if (stashed) {
       try {
         execSync('git stash pop', { cwd: this.workingDir, stdio: 'pipe' });
-      } catch {
-        // Stash pop conflict - not critical
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[merge] Stash pop conflict after final merge (non-fatal): ${msg}`);
       }
     }
   }
@@ -1736,11 +1901,11 @@ export class SwarmOrchestrator {
         }
       });
     } catch (err: unknown) {
-      const e = err as any;
+      const e = err as { killed?: boolean; stderr?: Buffer | string; message?: string };
       if (e.killed) {
         throw new Error(`Timeout merging ${branchName}`);
       }
-      throw new Error(`Merge conflict: ${e.stderr?.toString() || e.message}`);
+      throw new Error(`Merge conflict: ${e.stderr?.toString() || e.message || 'unknown error'}`);
     } finally {
       context.contextBroker.releaseGitLock(lockId);
     }
@@ -1750,7 +1915,7 @@ export class SwarmOrchestrator {
    * Get current git branch
    */
   private getCurrentBranch(): string {
-    const result = require('child_process').execSync('git branch --show-current', {
+    const result = execSync('git branch --show-current', {
       cwd: this.workingDir,
       encoding: 'utf8'
     });
@@ -1762,8 +1927,6 @@ export class SwarmOrchestrator {
    * Creates an initial commit if repo is empty
    */
   private ensureInitialCommit(): void {
-    const execSync = require('child_process').execSync;
-
     // check if repo has any commits
     try {
       execSync('git rev-parse HEAD', {
@@ -1774,14 +1937,12 @@ export class SwarmOrchestrator {
       // repo has commits, nothing to do
       return;
     } catch {
-      // no commits yet, create initial commit
+      // rev-parse fails when repo has no commits; fall through to create one
     }
 
     console.log('  📝 Empty repo detected, creating initial commit...');
 
     // create a minimal .gitignore so there's something to commit
-    const fs = require('fs');
-    const path = require('path');
     const gitignorePath = path.join(this.workingDir, '.gitignore');
 
     if (!fs.existsSync(gitignorePath)) {
@@ -1806,8 +1967,9 @@ node_modules/
         execSync('git add -A', { cwd: this.workingDir, stdio: 'pipe' });
         execSync('git commit --allow-empty -m "chore: initialize repository"', { cwd: this.workingDir, stdio: 'pipe' });
         console.log('  ✅ Initial commit created (empty)');
-      } catch {
-        // ignore if still fails
+      } catch (innerErr: unknown) {
+        const msg = innerErr instanceof Error ? innerErr.message : String(innerErr);
+        console.warn(`[init] Could not create initial commit: ${msg}`);
       }
     }
   }
@@ -1946,8 +2108,9 @@ node_modules/
           });
         });
       }
-    } catch {
-      // Non-critical: never crash the scheduler for analytics failures
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[analytics] Wave analysis failed (non-fatal): ${msg}`);
     }
   }
 
@@ -1979,8 +2142,9 @@ node_modules/
       try {
         preDeployTag = deploymentManager.tagPreDeploy(context.executionId);
         console.log(`  🏷️  Tagged: ${preDeployTag}`);
-      } catch {
-        console.log(`  [deploy] Could not tag pre-deploy (non-fatal, continuing)`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.log(`  [deploy] Could not tag pre-deploy (non-fatal): ${msg}`);
       }
 
       const deployResult = await deploymentManager.deployPreview(branchName);

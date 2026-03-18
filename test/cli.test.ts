@@ -1,0 +1,159 @@
+import * as assert from 'assert';
+import {
+  parseSwarmFlags,
+  showUsage,
+  ExecuteSwarmCliOptions,
+} from '../src/cli-handlers';
+
+describe('CLI Handlers', () => {
+  // -----------------------------------------------------------------------
+  // parseSwarmFlags
+  // -----------------------------------------------------------------------
+  describe('parseSwarmFlags', () => {
+    it('returns empty options when no flags are present', () => {
+      const opts = parseSwarmFlags(['swarm', 'plan.json']);
+      assert.deepStrictEqual(opts, {});
+    });
+
+    it('extracts --model value', () => {
+      const opts = parseSwarmFlags(['swarm', 'plan.json', '--model', 'claude-opus-4']);
+      assert.strictEqual(opts.model, 'claude-opus-4');
+    });
+
+    it('sets boolean flags correctly', () => {
+      const opts = parseSwarmFlags([
+        'swarm', 'plan.json',
+        '--no-dashboard',
+        '--confirm-deploy',
+        '--no-quality-gates',
+        '--pm',
+        '--governance',
+        '--strict-isolation',
+        '--lean',
+        '--cost-estimate-only',
+        '--plan-cache',
+        '--replay',
+      ]);
+      assert.strictEqual(opts.noDashboard, true);
+      assert.strictEqual(opts.confirmDeploy, true);
+      assert.strictEqual(opts.noQualityGates, true);
+      assert.strictEqual(opts.pm, true);
+      assert.strictEqual(opts.governance, true);
+      assert.strictEqual(opts.strictIsolation, true);
+      assert.strictEqual(opts.lean, true);
+      assert.strictEqual(opts.costEstimateOnly, true);
+      assert.strictEqual(opts.planCache, true);
+      assert.strictEqual(opts.replay, true);
+    });
+
+    it('maps --wrap-fleet to useInnerFleet', () => {
+      const opts = parseSwarmFlags(['swarm', 'plan.json', '--wrap-fleet']);
+      assert.strictEqual(opts.useInnerFleet, true);
+    });
+
+    it('maps --useInnerFleet directly', () => {
+      const opts = parseSwarmFlags(['swarm', 'plan.json', '--useInnerFleet']);
+      assert.strictEqual(opts.useInnerFleet, true);
+    });
+
+    it('parses --max-premium-requests as integer', () => {
+      const opts = parseSwarmFlags(['swarm', 'plan.json', '--max-premium-requests', '50']);
+      assert.strictEqual(opts.maxPremiumRequests, 50);
+    });
+
+    it('accepts zero for --max-premium-requests', () => {
+      const opts = parseSwarmFlags(['swarm', 'plan.json', '--max-premium-requests', '0']);
+      assert.strictEqual(opts.maxPremiumRequests, 0);
+    });
+
+    it('throws on non-numeric --max-premium-requests', () => {
+      assert.throws(
+        () => parseSwarmFlags(['swarm', 'plan.json', '--max-premium-requests', 'abc']),
+        /non-negative integer.*abc/
+      );
+    });
+
+    it('throws on negative --max-premium-requests', () => {
+      assert.throws(
+        () => parseSwarmFlags(['swarm', 'plan.json', '--max-premium-requests', '-5']),
+        /non-negative integer/
+      );
+    });
+
+    it('extracts --resume session id', () => {
+      const opts = parseSwarmFlags(['swarm', 'plan.json', '--resume', 'session-123']);
+      assert.strictEqual(opts.session, 'session-123');
+    });
+
+    it('extracts --quality-gates-config path', () => {
+      const opts = parseSwarmFlags(['swarm', 'plan.json', '--quality-gates-config', '/tmp/gates.yaml']);
+      assert.strictEqual(opts.qualityGatesConfigPath, '/tmp/gates.yaml');
+    });
+
+    it('extracts --quality-gates-out directory', () => {
+      const opts = parseSwarmFlags(['swarm', 'plan.json', '--quality-gates-out', '/tmp/reports']);
+      assert.strictEqual(opts.qualityGatesOutDir, '/tmp/reports');
+    });
+
+    it('handles multiple flags together', () => {
+      const opts = parseSwarmFlags([
+        'swarm', 'plan.json',
+        '--model', 'o3',
+        '--pm',
+        '--max-premium-requests', '100',
+        '--lean',
+        '--wrap-fleet',
+        '--resume', 'prev-session',
+      ]);
+      assert.strictEqual(opts.model, 'o3');
+      assert.strictEqual(opts.pm, true);
+      assert.strictEqual(opts.maxPremiumRequests, 100);
+      assert.strictEqual(opts.lean, true);
+      assert.strictEqual(opts.useInnerFleet, true);
+      assert.strictEqual(opts.session, 'prev-session');
+    });
+
+    it('ignores unknown flags without error', () => {
+      const opts = parseSwarmFlags(['swarm', 'plan.json', '--unknown-flag', '--verbose']);
+      // Unknown flags are silently ignored; known fields remain undefined
+      assert.strictEqual(opts.model, undefined);
+      assert.strictEqual(opts.pm, undefined);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // showUsage
+  // -----------------------------------------------------------------------
+  describe('showUsage', () => {
+    let captured: string;
+    const originalLog = console.log;
+
+    beforeEach(() => {
+      captured = '';
+      console.log = (...args: unknown[]) => { captured += args.join(' ') + '\n'; };
+    });
+    afterEach(() => { console.log = originalLog; });
+
+    it('prints usage text containing key commands', () => {
+      showUsage();
+      assert.ok(captured.includes('swarm plan'), 'should mention plan command');
+      assert.ok(captured.includes('swarm swarm'), 'should mention swarm command');
+      assert.ok(captured.includes('swarm quick'), 'should mention quick command');
+      assert.ok(captured.includes('swarm demo'), 'should mention demo command');
+    });
+
+    it('documents cost-related flags', () => {
+      showUsage();
+      assert.ok(captured.includes('--cost-estimate-only'), 'should list --cost-estimate-only');
+      assert.ok(captured.includes('--max-premium-requests'), 'should list --max-premium-requests');
+      assert.ok(captured.includes('--wrap-fleet'), 'should list --wrap-fleet');
+    });
+
+    it('documents lean and replay flags', () => {
+      showUsage();
+      assert.ok(captured.includes('--lean'), 'should list --lean');
+      assert.ok(captured.includes('--plan-cache'), 'should list --plan-cache');
+      assert.ok(captured.includes('--replay'), 'should list --replay');
+    });
+  });
+});

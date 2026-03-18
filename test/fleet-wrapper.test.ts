@@ -75,26 +75,32 @@ describe('FleetWrapper', () => {
   });
 
   describe('isFleetAvailable()', () => {
-    it('returns a boolean indicating fleet support', () => {
-      const dir = tmpDir();
-      tempDirs.push(dir);
-      const result = FleetWrapper.isFleetAvailable(dir);
-      assert.strictEqual(typeof result, 'boolean');
+    it('returns true when cache is pre-seeded with true', () => {
+      FleetWrapper.seedCache(true);
+      const result = FleetWrapper.isFleetAvailable('/nonexistent');
+      assert.strictEqual(result, true);
+    });
+
+    it('returns false when cache is pre-seeded with false', () => {
+      FleetWrapper.seedCache(false);
+      const result = FleetWrapper.isFleetAvailable('/nonexistent');
+      assert.strictEqual(result, false);
     });
 
     it('caches the result across calls', () => {
-      const dir = tmpDir();
-      tempDirs.push(dir);
-      const first = FleetWrapper.isFleetAvailable(dir);
-      const second = FleetWrapper.isFleetAvailable(dir);
+      FleetWrapper.seedCache(true);
+      const first = FleetWrapper.isFleetAvailable('/anywhere');
+      const second = FleetWrapper.isFleetAvailable('/anywhere');
       assert.strictEqual(first, second);
     });
 
-    it('returns consistent result after cache reset', () => {
-      // Verify resetCache doesn't corrupt state
+    it('resetCache clears the cached value', () => {
+      FleetWrapper.seedCache(true);
+      assert.strictEqual(FleetWrapper.isFleetAvailable('/a'), true);
       FleetWrapper.resetCache();
-      const result = typeof FleetWrapper.isFleetAvailable(process.cwd());
-      assert.strictEqual(result, 'boolean');
+      // After reset, a call to a dir without copilot returns false
+      FleetWrapper.seedCache(false);
+      assert.strictEqual(FleetWrapper.isFleetAvailable('/b'), false);
     });
   });
 

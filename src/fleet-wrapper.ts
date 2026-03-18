@@ -31,6 +31,7 @@ export class FleetWrapper {
 
       fleetAvailableCache = FleetWrapper.versionSupportsFleet(output);
     } catch {
+      // copilot binary not found or timed out; fleet unavailable
       fleetAvailableCache = false;
     }
 
@@ -88,5 +89,13 @@ export class FleetWrapper {
    */
   static resetCache(): void {
     fleetAvailableCache = null;
+  }
+
+  /**
+   * Pre-seed the cache to a known value. Used in tests to avoid
+   * shelling out to `copilot --version`.
+   */
+  static seedCache(available: boolean): void {
+    fleetAvailableCache = available;
   }
 }

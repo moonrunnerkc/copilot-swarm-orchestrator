@@ -128,6 +128,7 @@ export class MultiRepoCoordinator {
         .filter(f => f.endsWith('.ts') || f.endsWith('.d.ts'))
         .map(f => path.basename(f));
     } catch {
+      // Directory unreadable (missing, permissions); return empty list
       return [];
     }
   }

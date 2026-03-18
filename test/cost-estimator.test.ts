@@ -6,6 +6,7 @@ import * as path from 'path';
 import { CostEstimator, CostEstimate, MODEL_MULTIPLIERS } from '../src/cost-estimator';
 import { ExecutionPlan } from '../src/plan-generator';
 import { KnowledgeBaseManager } from '../src/knowledge-base';
+import { CostHistoryEvidence } from '../src/metrics-types';
 
 function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'cost-estimator-'));
@@ -217,6 +218,60 @@ describe('CostEstimator', () => {
 
       assert.strictEqual(result.perStep.length, 2);
       assert.strictEqual(result.modelMultiplier, 1);
+    });
+
+    it('calibrates retry probability from structured CostHistoryEvidence', () => {
+      const dir = tmpDir();
+      tempDirs.push(dir);
+      const kb = new KnowledgeBaseManager(dir);
+
+      // Record structured evidence: 10 actual requests, 3 retries
+      const evidence: CostHistoryEvidence = {
+        runId: 'test-run-1',
+        estimated: 8,
+        actual: 10,
+        retries: 3,
+        steps: 5,
+        model: 'gpt-4o',
+      };
+      kb.addOrUpdatePattern({
+        category: 'cost_history',
+        insight: '5 steps, model gpt-4o, 10 premium requests, 3 retries',
+        confidence: 'high',
+        evidence: [JSON.stringify(evidence)],
+        impact: 'medium',
+      });
+
+      const estimator = new CostEstimator(kb);
+      const plan = makeplan(1);
+      const result = estimator.estimate(plan, { modelName: 'gpt-4o' });
+
+      // 3 retries / 10 actual = 0.30 retry probability
+      assert.strictEqual(result.perStep[0].retryProbability, 0.3);
+    });
+
+    it('falls back to legacy string parsing for old evidence format', () => {
+      const dir = tmpDir();
+      tempDirs.push(dir);
+      const kb = new KnowledgeBaseManager(dir);
+
+      // Legacy format: multiple string entries
+      kb.addOrUpdatePattern({
+        category: 'cost_history',
+        insight: '3 steps, model gpt-4o, 6 premium requests, 1 retries',
+        confidence: 'high',
+        evidence: ['run:old-run-1', 'estimated:5', 'actual:6'],
+        impact: 'medium',
+      });
+
+      const estimator = new CostEstimator(kb);
+      const plan = makeplan(1);
+      const result = estimator.estimate(plan, { modelName: 'gpt-4o' });
+
+      // 1 retry / 6 actual = ~0.167
+      const retryProb = result.perStep[0].retryProbability;
+      assert.ok(retryProb > 0.16 && retryProb < 0.17,
+        `Expected ~0.167, got ${retryProb}`);
     });
   });
 

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AgentProfile } from './config-loader';
 import { FleetWrapper } from './fleet-wrapper';
+import { HookGenerator, GeneratedHooks } from './hook-generator';
 import { PlanStep } from './plan-generator';
 import { ExecutionContext } from './step-runner';
 
@@ -16,6 +17,12 @@ export interface SessionOptions {
   shareToFile?: string;
   logPrefix?: string; // prefix for live console logs (e.g., "[Agent:Step]")
   useInnerFleet?: boolean; // prefix prompt with /fleet for subagent dispatch
+  hooksEnabled?: boolean; // generate per-step hook files for scope enforcement
+  hooksRunDir?: string;   // run directory for evidence log output
+  hooksExecutionId?: string; // execution ID for hook context
+  hooksBranch?: string;   // step branch name for hook context
+  additionalEnv?: Record<string, string>; // extra env vars for the spawned process (e.g., COPILOT_HOOKS_DIR)
+  additionalArgs?: string[]; // extra CLI args for the copilot subprocess (e.g., --plugin-dir)
 }
 
 export interface SessionResult {
@@ -81,8 +88,13 @@ export class SessionExecutor {
       args.push('--share', options.shareToFile);
     }
 
+    // Append any extra CLI args (e.g., --plugin-dir from hook injection)
+    if (options.additionalArgs && options.additionalArgs.length > 0) {
+      args.push(...options.additionalArgs);
+    }
+
     // execute copilot command with optional log prefix for parallelism visibility
-    const result = await this.runCommand(this.copilotBin, args, options.logPrefix);
+    const result = await this.runCommand(this.copilotBin, args, options.logPrefix, options.additionalEnv);
 
     const duration = Date.now() - startTime;
 
@@ -114,6 +126,20 @@ export class SessionExecutor {
       prompt = FleetWrapper.wrapPrompt(prompt);
     }
 
+    // Generate per-step hooks for scope enforcement and evidence capture
+    let generatedHooks: GeneratedHooks | undefined;
+    if (options.hooksEnabled && options.hooksRunDir) {
+      const hookGen = new HookGenerator();
+      generatedHooks = hookGen.generateStepHooks({
+        step,
+        agent,
+        executionId: options.hooksExecutionId || 'unknown',
+        runDir: options.hooksRunDir,
+        stepBranch: options.hooksBranch || `step-${step.stepNumber}`,
+        workingDir: this.workingDir
+      });
+    }
+
     // set up transcript path
     const transcriptPath = path.join(
       this.workingDir,
@@ -127,6 +153,9 @@ export class SessionExecutor {
       fs.mkdirSync(proofDir, { recursive: true });
     }
 
+    // Hooks are auto-loaded by Copilot CLI from <gitRoot>/.github/hooks/
+    // No additional args needed; the hook file was written to workingDir.
+
     // merge options with defaults
     const sessionOptions: SessionOptions = {
       silent: false,
@@ -135,7 +164,22 @@ export class SessionExecutor {
       ...options
     };
 
-    return this.executeSession(prompt, sessionOptions);
+    try {
+      const result = await this.executeSession(prompt, sessionOptions);
+
+      // Attach evidence log path to the result for verifier consumption
+      if (generatedHooks) {
+        (result as SessionResult & { evidenceLogPath?: string }).evidenceLogPath = generatedHooks.evidenceLogPath;
+      }
+
+      return result;
+    } finally {
+      // Cleanup hook files (evidence log in runDir persists)
+      if (generatedHooks) {
+        const hookGen = new HookGenerator();
+        hookGen.cleanupHooks(generatedHooks.hooksFilePath);
+      }
+    }
   }
 
   /**
@@ -303,7 +347,8 @@ export class SessionExecutor {
   private runCommand(
     command: string,
     args: string[],
-    logPrefix?: string
+    logPrefix?: string,
+    additionalEnv?: Record<string, string>
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve) => {
       const options: SpawnOptions = {
@@ -311,7 +356,8 @@ export class SessionExecutor {
         env: {
           ...process.env,
           // ensure copilot can authenticate
-          COPILOT_ALLOW_ALL: 'true'
+          COPILOT_ALLOW_ALL: 'true',
+          ...additionalEnv
         }
       };
 

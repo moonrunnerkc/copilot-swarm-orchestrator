@@ -22,7 +22,7 @@
 &nbsp;&nbsp;
 ![TypeScript 5.x](https://img.shields.io/badge/TypeScript-5.x-blue.svg)
 &nbsp;&nbsp;
-![649 tests passing](https://img.shields.io/badge/tests-649%20passing-brightgreen.svg)
+![951 tests passing](https://img.shields.io/badge/tests-951%20passing-brightgreen.svg)
 
 <br>
 
@@ -129,6 +129,18 @@ curl -fsSL https://raw.githubusercontent.com/moonrunnerkc/copilot-swarm-orchestr
 npm link
 swarm demo-fast    # now available as 'swarm' globally
 ```
+
+### Copilot CLI Plugin (Lightweight)
+
+For agents, skills, and quality gates without the full orchestrator:
+
+```bash
+copilot /plugin install moonrunnerkc/copilot-swarm-orchestrator
+```
+
+This installs six specialized agent profiles, three skills (orchestrate, verify, gates), and scope enforcement hooks into your Copilot CLI environment. Scope enforcement hooks detect file operations outside the agent's declared scope and log them as scope violations. Violations are enforced at the verification layer: any step with scope violations fails verification. Direct execution-time blocking is planned for a future Copilot CLI SDK update. Use `/agents list` to see the installed agents, and `/swarm gates` to run quality checks from within a Copilot CLI session.
+
+The plugin is the lightweight entry point. For full parallel wave scheduling, cost governance, repair pipeline, and the web dashboard, use the full source install above.
 
 <br>
 
@@ -492,7 +504,7 @@ proof/
 
 ## Status
 
-Actively maintained. 71 source files, 61 test files, 649 tests passing. Development is ongoing with regular updates.
+Actively maintained. 71 source files, 61 test files, 951 tests passing. Development is ongoing with regular updates.
 
 See [Releases](https://github.com/moonrunnerkc/copilot-swarm-orchestrator/releases) for version history.
 

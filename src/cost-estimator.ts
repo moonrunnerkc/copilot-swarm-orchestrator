@@ -1,5 +1,6 @@
 import { ExecutionPlan, PlanStep } from './plan-generator';
 import { KnowledgeBaseManager } from './knowledge-base';
+import { CostHistoryEvidence } from './metrics-types';
 
 /**
  * Model multipliers for premium request consumption.
@@ -137,6 +138,8 @@ export class CostEstimator {
   /**
    * Pull historical failure rate from knowledge base cost_history patterns.
    * Falls back to DEFAULT_RETRY_PROBABILITY when no history exists.
+   * Parses structured CostHistoryEvidence from evidence array.
+   * Falls back to legacy string parsing for pre-v3.3 entries.
    */
   private calibrateRetryProbability(_plan: ExecutionPlan): number {
     if (!this.knowledgeBase) return DEFAULT_RETRY_PROBABILITY;
@@ -144,17 +147,24 @@ export class CostEstimator {
     const costPatterns = this.knowledgeBase.getPatternsByCategory('cost_history');
     if (costPatterns.length === 0) return DEFAULT_RETRY_PROBABILITY;
 
-    // Parse retry counts from evidence strings: "actual:N" entries
     let totalRetries = 0;
     let totalSteps = 0;
     for (const pattern of costPatterns) {
+      // Try structured evidence first (single JSON string per entry)
+      const parsed = this.parseStructuredEvidence(pattern.evidence);
+      if (parsed) {
+        totalSteps += parsed.actual;
+        totalRetries += parsed.retries;
+        continue;
+      }
+
+      // Legacy fallback: string-encoded fields
       for (const ev of pattern.evidence) {
         if (ev.startsWith('actual:')) {
           const actual = parseInt(ev.split(':')[1], 10);
           if (!isNaN(actual)) totalSteps += actual;
         }
       }
-      // Retry info embedded in insight string: "N retries"
       const retryMatch = pattern.insight.match(/(\d+)\s+retries/);
       if (retryMatch) {
         totalRetries += parseInt(retryMatch[1], 10);
@@ -165,6 +175,23 @@ export class CostEstimator {
 
     const rate = totalRetries / totalSteps;
     return Math.min(rate, MAX_RETRY_PROBABILITY);
+  }
+
+  /**
+   * Attempt to parse a CostHistoryEvidence object from the evidence array.
+   * Returns null if the evidence uses the legacy string format.
+   */
+  private parseStructuredEvidence(evidence: string[]): CostHistoryEvidence | null {
+    if (evidence.length !== 1) return null;
+    try {
+      const obj = JSON.parse(evidence[0]) as Record<string, unknown>;
+      if (typeof obj.runId === 'string' && typeof obj.actual === 'number') {
+        return obj as unknown as CostHistoryEvidence;
+      }
+    } catch {
+      // Not JSON; legacy format
+    }
+    return null;
   }
 
   /**

@@ -435,4 +435,57 @@ describe('ContextBroker', () => {
       assert.strictEqual(satisfied, false);
     });
   });
+
+  describe('rapid sequential writes', () => {
+    it('should preserve all entries when addStepContext is called 20 times rapidly', () => {
+      const broker = new ContextBroker(testRunDir);
+
+      for (let i = 1; i <= 20; i++) {
+        broker.addStepContext({
+          stepNumber: i,
+          agentName: `Agent${i}`,
+          timestamp: new Date().toISOString(),
+          data: { filesChanged: [`file${i}.ts`], outputsSummary: `step ${i} done` }
+        });
+      }
+
+      const allContext = broker.getAllContext();
+      assert.strictEqual(allContext.length, 20, 'all 20 entries should be persisted');
+      for (let i = 1; i <= 20; i++) {
+        const entry = allContext.find(e => e.stepNumber === i);
+        assert.ok(entry, `entry for step ${i} should exist`);
+        assert.strictEqual(entry.agentName, `Agent${i}`);
+      }
+    });
+
+    it('should release lock even when write data causes getAllContext to return empty', () => {
+      const broker = new ContextBroker(testRunDir);
+
+      // Write a corrupt context file, then call addStepContext.
+      // getAllContext returns [] on parse failure, so the entry should still be written.
+      const contextFile = path.join(testRunDir, '.context', 'shared-context.json');
+      fs.mkdirSync(path.dirname(contextFile), { recursive: true });
+      fs.writeFileSync(contextFile, '<<<not json>>>', 'utf8');
+
+      broker.addStepContext({
+        stepNumber: 1,
+        agentName: 'Recovery',
+        timestamp: new Date().toISOString(),
+        data: { filesChanged: [], outputsSummary: 'recovered' }
+      });
+
+      const allContext = broker.getAllContext();
+      assert.strictEqual(allContext.length, 1, 'should recover from corrupt file');
+      assert.strictEqual(allContext[0]?.agentName, 'Recovery');
+
+      // Lock should be released; a second write must succeed
+      broker.addStepContext({
+        stepNumber: 2,
+        agentName: 'FollowUp',
+        timestamp: new Date().toISOString(),
+        data: { filesChanged: [], outputsSummary: 'ok' }
+      });
+      assert.strictEqual(broker.getAllContext().length, 2);
+    });
+  });
 });

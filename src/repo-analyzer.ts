@@ -346,6 +346,7 @@ export class RepoAnalyzer {
       const match = content.match(/url\s*=\s*(.+)/);
       return match ? match[1].trim() : undefined;
     } catch {
+      // .git/config unreadable; remote URL is optional metadata
       return undefined;
     }
   }

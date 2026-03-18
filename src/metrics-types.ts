@@ -103,3 +103,16 @@ export interface CostAttribution {
   overageTriggered: boolean;
   perStep: StepCostRecord[];
 }
+
+/**
+ * Structured evidence for cost_history knowledge base entries.
+ * Replaces the previous string-encoded format to eliminate fragile parsing.
+ */
+export interface CostHistoryEvidence {
+  runId: string;
+  estimated: number;
+  actual: number;
+  retries: number;
+  steps: number;
+  model: string;
+}

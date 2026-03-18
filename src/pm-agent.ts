@@ -210,7 +210,9 @@ export class PMAgent {
         durationMs: Date.now() - start
       };
 
-    } catch {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[pm-agent] LLM review failed, using local review only: ${msg}`);
       return {
         ...localResult,
         reviewNotes: [...localResult.reviewNotes, 'LLM review unavailable, using local review only'],
@@ -286,7 +288,7 @@ export class PMAgent {
         };
       }
     } catch {
-      // Invalid JSON - ignore
+      // LLM output is not valid JSON; expected when model returns prose instead of structured data
     }
 
     return null;

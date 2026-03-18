@@ -55,7 +55,7 @@ export class CICDConfigGenerator {
           return version || '20'; // Default to 20 if parsing fails
         }
       } catch {
-        // Fall through to default
+        // package.json unreadable or malformed; use default Node version
       }
     }
 
@@ -80,7 +80,7 @@ export class CICDConfigGenerator {
           if (pkg.scripts.lint) scripts.lint = pkg.scripts.lint;
         }
       } catch {
-        // Return empty scripts
+        // package.json unreadable or malformed; return empty scripts
       }
     }
 

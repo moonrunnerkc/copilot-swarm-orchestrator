@@ -129,7 +129,7 @@ export class ConfigLoader {
         agentMap.set(agent.name, agent);
       });
     } catch {
-      // user agents file may not exist, that's ok
+      // User agents YAML (config/user-agents.yaml) is optional; missing file is normal
     }
 
     // Load custom .agent.md files (override YAML if name matches)

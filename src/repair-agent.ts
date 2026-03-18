@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import SessionExecutor, { SessionOptions, SessionResult } from './session-executor';
 import VerifierEngine, { VerificationResult } from './verifier-engine';
 
@@ -390,7 +391,6 @@ export class RepairAgent {
    */
   private getGitDiff(branchName: string): string {
     try {
-      const { execSync } = require('child_process');
       const diff = execSync(`git diff HEAD~1 --stat 2>/dev/null || echo ""`, {
         cwd: this.workingDir,
         encoding: 'utf8',
@@ -398,6 +398,7 @@ export class RepairAgent {
       });
       return diff.trim();
     } catch {
+      // Git diff unavailable (no prior commit, detached HEAD); non-critical for repair
       return '';
     }
   }
