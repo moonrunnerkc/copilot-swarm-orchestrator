@@ -58,9 +58,11 @@ interface ProgressBarProps {
 }
 
 const ProgressBar: React.FC<ProgressBarProps> = ({ completed, total, width = 40 }) => {
-  const percentage = Math.round((completed / total) * 100);
-  const filledWidth = Math.round((completed / total) * width);
-  const emptyWidth = width - filledWidth;
+  const safeTotal = Math.max(total, 1);
+  const clampedCompleted = Math.min(completed, safeTotal);
+  const percentage = Math.round((clampedCompleted / safeTotal) * 100);
+  const filledWidth = Math.round((clampedCompleted / safeTotal) * width);
+  const emptyWidth = Math.max(0, width - filledWidth);
 
   return (
     <Box>

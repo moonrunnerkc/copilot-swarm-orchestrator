@@ -613,8 +613,15 @@ export class VerifierEngine {
     // Pick a random message for variety
     const message = messages[Math.floor(Math.random() * messages.length)];
 
+    // Skip committing when the report lives outside the target repo (e.g. bootstrap
+    // targeting an external project stores runs/ under the orchestrator's directory)
+    const resolvedReport = path.resolve(reportPath);
+    const resolvedWorkDir = path.resolve(this.workingDir);
+    if (!resolvedReport.startsWith(resolvedWorkDir + path.sep)) {
+      return;
+    }
+
     // Use git add -f to force-add files in gitignored paths (like runs/)
-    // This ensures verification reports are committed even when runs/ is gitignored
     try {
       await this.runGitCommand(['add', '-f', reportPath]);
       await this.runGitCommand(['commit', '-m', message]);

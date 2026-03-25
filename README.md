@@ -30,7 +30,7 @@
 
 <br>
 
-<img src="docs/media/swarm-tui.png" alt="Copilot Swarm Orchestrator TUI dashboard showing parallel agent execution across waves" width="700">
+<img src="docs/media/swarm.png" alt="Copilot Swarm Orchestrator TUI dashboard showing parallel agent execution across waves" width="700">
 
 <br>
 

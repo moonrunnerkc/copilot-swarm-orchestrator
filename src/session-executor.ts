@@ -42,9 +42,20 @@ export class SessionExecutor {
   private copilotBin: string;
   private workingDir: string;
 
+  // Copilot CLI outputs these when an agent tries to access paths outside its sandbox.
+  // Expected behavior during scoped execution; noisy and confusing to users.
+  private static readonly SCOPE_NOISE_PATTERNS = [
+    /Permission denied and could not request permission/i,
+    /could not request permission from user/i,
+  ];
+
   constructor(workingDir?: string) {
     this.copilotBin = 'copilot';
     this.workingDir = workingDir || process.cwd();
+  }
+
+  private isScopeEnforcementNoise(line: string): boolean {
+    return SessionExecutor.SCOPE_NOISE_PATTERNS.some(p => p.test(line));
   }
 
   /**
@@ -69,7 +80,9 @@ export class SessionExecutor {
     }
 
     if (options.allowAllTools) {
-      args.push('--allow-all-tools');
+      // --allow-all covers tools, paths, and URLs so the subprocess
+      // never blocks waiting for interactive approval on stdin.
+      args.push('--allow-all');
     }
 
     if (options.availableTools && options.availableTools.length > 0) {
@@ -344,6 +357,10 @@ export class SessionExecutor {
    * A heartbeat indicator prints during quiet periods so users know the agent
    * is still working (e.g. reading large files or thinking).
    */
+  // Maximum seconds of silence before killing a stalled copilot subprocess.
+  // Copilot CLI can hang indefinitely on rate limits, tool approval waits, or network drops.
+  private static readonly STALL_TIMEOUT_MS = 120_000; // 2 minutes of no output
+
   private runCommand(
     command: string,
     args: string[],
@@ -363,8 +380,15 @@ export class SessionExecutor {
 
       const proc = spawn(command, args, options);
 
+      // Close stdin immediately so the subprocess never blocks waiting for
+      // interactive input. Non-interactive mode should never need stdin.
+      if (proc.stdin) {
+        proc.stdin.end();
+      }
+
       let stdout = '';
       let stderr = '';
+      let resolved = false;
 
       // line buffers prevent mid-word breaks in streamed output
       let stdoutBuffer = '';
@@ -375,6 +399,38 @@ export class SessionExecutor {
       let lastOutputTime = Date.now();
       const cmdStartTime = Date.now();
       let heartbeatInterval: NodeJS.Timeout | null = null;
+      let stallCheckInterval: NodeJS.Timeout | null = null;
+
+      const cleanup = () => {
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        if (stallCheckInterval) clearInterval(stallCheckInterval);
+      };
+
+      // Stall detection: kill subprocess if no output for STALL_TIMEOUT_MS
+      stallCheckInterval = setInterval(() => {
+        const silentMs = Date.now() - lastOutputTime;
+        if (silentMs >= SessionExecutor.STALL_TIMEOUT_MS) {
+          const elapsed = Math.round((Date.now() - cmdStartTime) / 1000);
+          const stallSec = Math.round(silentMs / 1000);
+          if (logPrefix) {
+            console.log(`${logPrefix} STALL DETECTED: no output for ${stallSec}s (total ${elapsed}s, ${lineCount} lines). Killing process.`);
+          }
+          cleanup();
+          proc.kill('SIGTERM');
+          // give it 5s to exit gracefully, then force kill
+          setTimeout(() => {
+            try { proc.kill('SIGKILL'); } catch { /* already dead */ }
+          }, 5000);
+          if (!resolved) {
+            resolved = true;
+            resolve({
+              stdout,
+              stderr: stderr + `\nProcess killed after ${stallSec}s of no output (stall timeout)`,
+              exitCode: 1
+            });
+          }
+        }
+      }, 10_000);
 
       if (logPrefix) {
         heartbeatInterval = setInterval(() => {
@@ -401,7 +457,7 @@ export class SessionExecutor {
             stdoutBuffer = lines.pop() || '';
             // print complete lines with prefix
             for (const line of lines) {
-              if (line.trim()) {
+              if (line.trim() && !this.isScopeEnforcementNoise(line)) {
                 lineCount++;
                 console.log(`${logPrefix} ${line}`);
               }
@@ -424,7 +480,7 @@ export class SessionExecutor {
             stderrBuffer = lines.pop() || '';
             // print complete lines with prefix
             for (const line of lines) {
-              if (line.trim()) {
+              if (line.trim() && !this.isScopeEnforcementNoise(line)) {
                 lineCount++;
                 console.error(`${logPrefix} ${line}`);
               }
@@ -434,8 +490,7 @@ export class SessionExecutor {
       }
 
       proc.on('close', (code) => {
-        // stop heartbeat
-        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        cleanup();
 
         // flush any remaining buffered content
         if (logPrefix) {
@@ -449,16 +504,18 @@ export class SessionExecutor {
           }
         }
 
-        resolve({
-          stdout,
-          stderr,
-          exitCode: code || 0
-        });
+        if (!resolved) {
+          resolved = true;
+          resolve({
+            stdout,
+            stderr,
+            exitCode: code || 0
+          });
+        }
       });
 
       proc.on('error', (err) => {
-        // stop heartbeat
-        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        cleanup();
 
         // flush buffers on error too
         if (logPrefix) {
@@ -470,11 +527,14 @@ export class SessionExecutor {
           }
         }
 
-        resolve({
-          stdout,
-          stderr: stderr + '\n' + err.message,
-          exitCode: 1
-        });
+        if (!resolved) {
+          resolved = true;
+          resolve({
+            stdout,
+            stderr: stderr + '\n' + err.message,
+            exitCode: 1
+          });
+        }
       });
     });
   }

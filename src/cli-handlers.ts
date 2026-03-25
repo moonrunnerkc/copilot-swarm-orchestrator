@@ -506,7 +506,13 @@ async function executeSwarm(
     return 1;
   }
 
-  const orchestrator = new SwarmOrchestrator();
+  // Resolve the target repo directory: plan metadata > CLI flag > first step repo > cwd
+  const targetDir = plan.metadata?.targetDir
+    || options?.targetDir
+    || plan.steps.find(s => s.repo)?.repo
+    || undefined;
+
+  const orchestrator = new SwarmOrchestrator(targetDir);
 
   const runId = `swarm-${new Date().toISOString().replace(/[:.]/g, '-')}`;
   const runDir = path.join(process.cwd(), 'runs', runId);
@@ -570,6 +576,7 @@ async function executeSwarm(
 
         dashboard!.update({
           results: ctx.results,
+          totalSteps: ctx.plan.steps.length,
           ...(currentWave !== undefined && { currentWave }),
           ...(ctx.totalWaves && { totalWaves: ctx.totalWaves }),
           ...(ctx.criticResults && { criticResults: ctx.criticResults }),

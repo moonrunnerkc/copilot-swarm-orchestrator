@@ -602,8 +602,25 @@ export class SwarmOrchestrator {
           );
           if (testCovStep) addSteps.push(testCovStep);
 
-          if (addSteps.length > 0) {
+          // Consolidate multiple gate failures into a single remediation step
+          // to avoid burning one premium request per gate failure.
+          if (addSteps.length > 1) {
+            const combinedTask = addSteps.map(s => s.task).join('\n\nALSO: ');
+            const singleStep: { agent: string; task: string; afterStep?: number } = {
+              agent: addSteps[0].agent,
+              task: combinedTask,
+            };
+            if (addSteps[0].afterStep !== undefined) {
+              singleStep.afterStep = addSteps[0].afterStep;
+            }
+            addSteps.length = 0;
+            addSteps.push(singleStep);
+            console.warn(`⚠️  Final quality gates failed (${failedIds.size} gates); scheduling single consolidated remediation step...`);
+          } else if (addSteps.length === 1) {
             console.warn('⚠️  Final quality gates failed; attempting one remediation pass...');
+          }
+
+          if (addSteps.length > 0) {
             await this.executeReplan(context, { retrySteps: [], addSteps }, agentMap, options);
             gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut);
           }
@@ -960,6 +977,10 @@ export class SwarmOrchestrator {
 
       console.log(`  ➕ Replan added ${newSteps.length} new step(s)`);
 
+      // Notify dashboard immediately so totalSteps and progress bar update
+      // before the replan steps start executing
+      options?.onProgress?.(context, `replan-added:${newSteps.length}`);
+
       // Execute added steps in parallel when they have no mutual dependencies
       const replanPromises = newSteps.map(async (added: PlanStep) => {
         const agent = agents.get(added.agentName);
@@ -1039,7 +1060,8 @@ export class SwarmOrchestrator {
       options?.onProgress?.(context, `step-running:${step.stepNumber}`);
 
       // Use git worktree so each agent has its own isolated working directory
-      const worktreePath = await this.createAgentWorktree(branchName, context.mainBranch, context.runDir, step.stepNumber);
+      const stepRepoDir = step.repo || this.workingDir;
+      const worktreePath = await this.createAgentWorktree(branchName, context.mainBranch, context.runDir, step.stepNumber, stepRepoDir);
       console.log(`  🌿 Step ${step.stepNumber} (${agent.name}) on branch: ${branchName}`);
 
       // build enhanced prompt with dependency context
@@ -1432,14 +1454,19 @@ export class SwarmOrchestrator {
 
   /**
    * Create a git worktree for an agent - enables true parallel execution
-   * Each agent gets its own isolated working directory with its branch checked out
+   * Each agent gets its own isolated working directory with its branch checked out.
+   * When repoDir differs from this.workingDir, the worktree is forked from the
+   * target repo's git history (e.g. bootstrap targeting an external project).
    */
   private async createAgentWorktree(
     branchName: string,
     fromBranch: string,
     runDir: string,
-    stepNumber: number
+    stepNumber: number,
+    repoDir?: string
   ): Promise<string> {
+    // repoDir is the git repo to fork from; defaults to the orchestrator's own repo
+    const gitDir = repoDir || this.workingDir;
     const worktreePath = path.join(runDir, 'worktrees', `step-${stepNumber}`);
 
     // Ensure worktrees directory exists
@@ -1448,9 +1475,44 @@ export class SwarmOrchestrator {
       fs.mkdirSync(worktreesDir, { recursive: true });
     }
 
+    // Ensure the target repo has at least one commit (handles freshly-init'd repos)
+    try {
+      execSync('git rev-parse HEAD', { cwd: gitDir, stdio: 'pipe' });
+    } catch {
+      // No commits yet; create an initial empty commit so branch/worktree ops work
+      try {
+        execSync('git add -A', { cwd: gitDir, stdio: 'pipe' });
+        execSync('git commit --allow-empty -m "chore: initialize repository"', { cwd: gitDir, stdio: 'pipe' });
+      } catch {
+        // Already has staged content or other edge case; try allow-empty as last resort
+        try {
+          execSync('git commit --allow-empty -m "chore: initialize repository"', { cwd: gitDir, stdio: 'pipe' });
+        } catch {
+          // Truly cannot commit; worktree add will fail with a clear error
+        }
+      }
+    }
+
+    // Resolve fromBranch: the target repo may not have the same branch name as the orchestrator
+    let resolvedFromBranch = fromBranch;
+    if (gitDir !== this.workingDir) {
+      try {
+        // Use whatever branch the target repo is currently on
+        const targetBranch = execSync('git branch --show-current', { cwd: gitDir, encoding: 'utf8', stdio: 'pipe' }).trim();
+        if (targetBranch) {
+          resolvedFromBranch = targetBranch;
+        } else {
+          // Detached HEAD; fall back to the default branch
+          resolvedFromBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: gitDir, encoding: 'utf8', stdio: 'pipe' }).trim();
+        }
+      } catch {
+        // Keep the original fromBranch as best-effort fallback
+      }
+    }
+
     // Create the branch first (without checkout)
     try {
-      execSync(`git branch ${branchName} ${fromBranch}`, { cwd: this.workingDir, stdio: 'pipe' });
+      execSync(`git branch ${branchName} ${resolvedFromBranch}`, { cwd: gitDir, stdio: 'pipe' });
     } catch {
       // Branch already exists from a prior retry; safe to reuse
     }
@@ -1458,11 +1520,11 @@ export class SwarmOrchestrator {
     // Clean up existing worktree if present (e.g. from a retry)
     if (fs.existsSync(worktreePath)) {
       try {
-        execSync(`git worktree remove "${worktreePath}" --force`, { cwd: this.workingDir, stdio: 'pipe' });
+        execSync(`git worktree remove "${worktreePath}" --force`, { cwd: gitDir, stdio: 'pipe' });
       } catch {
         // Worktree entry may be stale or already removed; prune and force-delete the directory
         try {
-          execSync('git worktree prune', { cwd: this.workingDir, stdio: 'pipe' });
+          execSync('git worktree prune', { cwd: gitDir, stdio: 'pipe' });
         } catch {
           // Prune is best-effort cleanup; the rmSync below handles the directory
         }
@@ -1473,7 +1535,7 @@ export class SwarmOrchestrator {
     // Create worktree with the branch
     return new Promise((resolve, reject) => {
       const proc = spawn('git', ['worktree', 'add', worktreePath, branchName], {
-        cwd: this.workingDir
+        cwd: gitDir
       });
 
       let stderr = '';

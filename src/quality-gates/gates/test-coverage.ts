@@ -24,7 +24,7 @@ export async function run_test_coverage_gate(
     if (!/\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)) return false;
     if (/^(test|tests|__tests__)\//.test(f.relativePath)) return false;
     if (/\.test\.|\.spec\./.test(f.relativePath)) return false;
-    if (/^(server|config|scripts)\//.test(f.relativePath)) return false;
+    if (/^(server|config|scripts|examples?)\//.test(f.relativePath)) return false;
     // Exclude vite/webpack configs and similar build tooling
     if (/\.(config|d)\.(ts|js|mjs)$/i.test(f.relativePath)) return false;
     // Exclude entry points

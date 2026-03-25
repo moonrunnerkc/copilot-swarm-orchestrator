@@ -97,7 +97,7 @@ export class BootstrapOrchestrator {
 
     // Step 5: Generate annotated plan
     console.log('Generating execution plan...');
-    const plan = this.generateAnnotatedPlan(goal, analysisResult);
+    const plan = this.generateAnnotatedPlan(goal, analysisResult, repoPaths);
     console.log(`  Generated ${plan.steps.length} step(s)`);
     console.log();
 
@@ -114,17 +114,35 @@ export class BootstrapOrchestrator {
   }
 
   /**
-   * Generate plan with source annotations
+   * Generate plan with source annotations.
+   * Stamps each step with the resolved target repo path so execution
+   * creates worktrees from the correct repository, not the orchestrator's own repo.
    */
   private generateAnnotatedPlan(
     goal: string,
-    analysis: BootstrapAnalysisResult
+    analysis: BootstrapAnalysisResult,
+    repoPaths?: string[]
   ): ExecutionPlan & { steps: AnnotatedPlanStep[] } {
     // Use PlanGenerator to create base plan
     const basePlan = this.planGenerator.createPlan(goal);
+
+    // Resolve target repo paths so worktrees are created from the right git history
+    const resolvedRepoPaths = (repoPaths || []).map(p => path.resolve(p));
+    const primaryRepo = resolvedRepoPaths[0];
+
+    if (primaryRepo) {
+      if (!basePlan.metadata) {
+        basePlan.metadata = { totalSteps: basePlan.steps.length };
+      }
+      basePlan.metadata.targetDir = primaryRepo;
+    }
     
     // Annotate steps with analysis evidence
     const annotatedSteps: AnnotatedPlanStep[] = basePlan.steps.map(step => {
+      // Stamp step with the target repo so execution knows where to create worktrees
+      if (primaryRepo && !step.repo) {
+        step.repo = step.repo || primaryRepo;
+      }
       const annotations: SourceAnnotation[] = [];
 
       // Link to relevant issues

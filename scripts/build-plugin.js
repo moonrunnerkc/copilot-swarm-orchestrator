@@ -43,7 +43,10 @@ function validateManifest() {
   }
 
   // Validate all declared hooks exist
-  for (const hookPath of manifest.hooks || []) {
+  const hookPaths = Array.isArray(manifest.hooks)
+    ? manifest.hooks
+    : manifest.hooks ? [manifest.hooks] : [];
+  for (const hookPath of hookPaths) {
     const fullPath = path.join(PLUGIN_DIR, hookPath);
     if (!fs.existsSync(fullPath)) {
       missing.push(hookPath);
@@ -123,7 +126,8 @@ function main() {
     missing.forEach(f => console.error(`  - ${f}`));
     process.exit(1);
   }
-  console.log(`  plugin.json: OK (${manifest.agents.length} agents, ${manifest.skills.length} skills, ${manifest.hooks.length} hooks)`);
+  const hookCount = Array.isArray(manifest.hooks) ? manifest.hooks.length : manifest.hooks ? 1 : 0;
+  console.log(`  plugin.json: OK (${manifest.agents.length} agents, ${manifest.skills.length} skills, ${hookCount} hooks)`);
 
   // Validate agents
   const agentResult = validateAgentFiles();
@@ -150,8 +154,24 @@ function main() {
     : [];
   console.log(`  hooks/: OK (${hookFiles.length} hook files)`);
 
+  // Sync to .github/plugin/ for copilot plugin install discoverability
+  const ghPluginDir = path.join(ROOT, '.github', 'plugin');
+  syncToGitHubPlugin(PLUGIN_DIR, ghPluginDir);
+
   console.log(`\nPlugin build validated successfully.`);
   console.log(`Install locally: copilot /plugin install ${PLUGIN_DIR}`);
+  console.log(`GitHub plugin path synced: ${ghPluginDir}`);
+}
+
+/**
+ * Recursively copy plugin/ to .github/plugin/ so that
+ * `copilot plugin install moonrunnerkc/copilot-swarm-orchestrator` works.
+ */
+function syncToGitHubPlugin(src, dest) {
+  if (fs.existsSync(dest)) {
+    fs.rmSync(dest, { recursive: true });
+  }
+  fs.cpSync(src, dest, { recursive: true });
 }
 
 main();

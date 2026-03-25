@@ -17,6 +17,7 @@ export interface ExecutionPlan {
   metadata?: {
     totalSteps: number;
     estimatedDuration?: string;
+    targetDir?: string;
   };
 }
 
@@ -107,13 +108,14 @@ Requirements:
 1. Create 4-8 realistic steps (not too few, not too many)
 2. Assign appropriate agent to each step based on task domain
 3. Use dependencies array to create a valid DAG (no cycles, only reference earlier steps)
-4. Each task must be specific and actionable (not vague like "do everything")
-5. expectedOutputs should list concrete artifacts (files, test results, PRs, etc.)
-6. Consider typical software workflow: design → implement → test → review/integrate
-7. If goal involves security, include a SecurityAuditor step
-8. If goal involves infrastructure/deployment, include a DevOpsPro step
-9. Always include a testing step with TesterElite
-10. Final step should be IntegratorFinalizer for verification and integration
+4. MAXIMIZE PARALLELISM: steps that can run independently should have the same or no dependencies. Only add a dependency when a step truly needs another step's output.
+5. Each task must be specific and actionable (not vague like "do everything")
+6. expectedOutputs should list concrete artifacts (files, test results, PRs, etc.)
+7. Consider typical software workflow: design/implement in parallel where possible, then test, then integrate
+8. If goal involves security, include a SecurityAuditor step
+9. If goal involves infrastructure/deployment, include a DevOpsPro step
+10. Always include a testing step with TesterElite
+11. Final step should be IntegratorFinalizer for verification and integration
 
 OUTPUT ONLY THE JSON, NOTHING ELSE.`;
   }
@@ -318,29 +320,36 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       {
         stepNumber: startNumber,
         agentName: 'BackendMaster',
-        task: `Design and implement API structure for: ${goal}`,
+        task: `Design and implement API routes, controllers, and data models for: ${goal}`,
         dependencies: [],
         expectedOutputs: ['API endpoint definitions', 'Request/response schemas', 'Database models']
       },
       {
         stepNumber: startNumber + 1,
-        agentName: 'SecurityAuditor',
-        task: 'Review API authentication, authorization, and input validation',
-        dependencies: [startNumber],
-        expectedOutputs: ['Security audit report', 'Auth implementation', 'Input validation']
+        agentName: 'DevOpsPro',
+        task: 'Setup project configuration, environment handling, and containerization',
+        dependencies: [],
+        expectedOutputs: ['Docker configuration', 'Environment config', 'Package scripts']
       },
       {
         stepNumber: startNumber + 2,
-        agentName: 'TesterElite',
-        task: 'Create comprehensive API test suite',
-        dependencies: [startNumber + 1],
-        expectedOutputs: ['Integration tests', 'Unit tests', 'Test coverage report']
+        agentName: 'SecurityAuditor',
+        task: 'Implement input validation, error handling middleware, and security hardening',
+        dependencies: [startNumber],
+        expectedOutputs: ['Input validation middleware', 'Error handling', 'Security headers']
       },
       {
         stepNumber: startNumber + 3,
+        agentName: 'TesterElite',
+        task: 'Create comprehensive API test suite with unit and integration tests',
+        dependencies: [startNumber],
+        expectedOutputs: ['Unit tests', 'Integration tests', 'Test coverage report']
+      },
+      {
+        stepNumber: startNumber + 4,
         agentName: 'IntegratorFinalizer',
-        task: 'Verify API integration, documentation, and deployment readiness',
-        dependencies: [startNumber + 2],
+        task: 'Verify API integration, add documentation, and confirm deployment readiness',
+        dependencies: [startNumber + 1, startNumber + 2, startNumber + 3],
         expectedOutputs: ['API documentation', 'Integration verification', 'Deployment checklist']
       }
     ];
@@ -406,7 +415,7 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
         stepNumber: startNumber + 2,
         agentName: 'IntegratorFinalizer',
         task: 'Add documentation, examples, and publish preparation',
-        dependencies: [startNumber + 1],
+        dependencies: [startNumber],
         expectedOutputs: ['README with examples', 'Help text', 'Package metadata']
       }
     ];
@@ -432,7 +441,7 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
         stepNumber: startNumber + 2,
         agentName: 'IntegratorFinalizer',
         task: 'Add documentation, examples, and package config',
-        dependencies: [startNumber + 1],
+        dependencies: [startNumber],
         expectedOutputs: ['API documentation', 'Usage examples', 'Package.json config']
       }
     ];
@@ -458,14 +467,14 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
         stepNumber: startNumber + 2,
         agentName: 'TesterElite',
         task: 'Create infrastructure tests and validation',
-        dependencies: [startNumber + 1],
+        dependencies: [startNumber],
         expectedOutputs: ['Infrastructure tests', 'Validation scripts', 'Test results']
       },
       {
         stepNumber: startNumber + 3,
         agentName: 'IntegratorFinalizer',
         task: 'Verify deployment and create runbooks',
-        dependencies: [startNumber + 2],
+        dependencies: [startNumber + 1, startNumber + 2],
         expectedOutputs: ['Deployment verification', 'Runbooks', 'Documentation']
       }
     ];
@@ -491,14 +500,14 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
         stepNumber: startNumber + 2,
         agentName: 'DevOpsPro',
         task: 'Setup pipeline orchestration and monitoring',
-        dependencies: [startNumber + 1],
+        dependencies: [startNumber],
         expectedOutputs: ['Orchestration config', 'Monitoring setup', 'Alerting']
       },
       {
         stepNumber: startNumber + 3,
         agentName: 'IntegratorFinalizer',
         task: 'Verify end-to-end pipeline and documentation',
-        dependencies: [startNumber + 2],
+        dependencies: [startNumber + 1, startNumber + 2],
         expectedOutputs: ['Pipeline verification', 'Documentation', 'Runbooks']
       }
     ];
