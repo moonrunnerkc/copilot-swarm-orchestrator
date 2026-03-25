@@ -42,14 +42,30 @@
 
 ## Quick Start
 
+Point it at your repo with a goal. The orchestrator analyzes your codebase, builds a dependency-aware plan, and executes it with parallel Copilot agents on isolated branches.
+
 ```bash
 git clone https://github.com/moonrunnerkc/copilot-swarm-orchestrator.git
 cd copilot-swarm-orchestrator
 npm install && npm run build
+
+# Run against your project
+npm start bootstrap ./your-repo "Add JWT auth and role-based access control"
+```
+
+Or generate a plan and execute in one step:
+
+```bash
+npm start run --goal "Build a REST API with JWT auth" --lean --governance
+```
+
+Want to see it work before pointing it at your code? Run the two-step parallel demo:
+
+```bash
 npm start demo-fast
 ```
 
-That runs a two-step parallel demo in about a minute. Requires Node.js 18+, Git, and GitHub Copilot CLI installed and authenticated (`gh copilot`).
+Requires Node.js 18+, Git, and GitHub Copilot CLI installed and authenticated (`gh copilot`).
 
 <br>
 
@@ -127,7 +143,7 @@ curl -fsSL https://raw.githubusercontent.com/moonrunnerkc/copilot-swarm-orchestr
 
 ```bash
 npm link
-swarm demo-fast    # now available as 'swarm' globally
+swarm bootstrap ./your-repo "goal"    # now available as 'swarm' globally
 ```
 
 ### Copilot CLI Plugin (Lightweight)
@@ -150,54 +166,41 @@ The plugin is the lightweight entry point. For full parallel wave scheduling, co
 
 ## Usage
 
-### Demos
+### Working With Your Codebase
 
-Six built-in scenarios that create a temp directory, run real Copilot CLI sessions, and produce a working project with clean git history.
-
-| Scenario | Agents | Waves | What gets built | Time |
-|----------|--------|-------|-----------------|------|
-| `demo-fast` | 2 | 1 | Two independent utility modules (parallel proof) | ~1 min |
-| `dashboard-showcase` | 4 | 3 | React + Chart.js analytics dashboard, Express API, dark theme, ~27 tests | ~8 min |
-| `todo-app` | 4 | 3 | React todo app with Express backend and test suite | ~15 min |
-| `api-server` | 6 | 4 | REST API with JWT auth, PostgreSQL/Prisma, Docker, CI/CD | ~25 min |
-| `full-stack-app` | 7 | 5 | Full-stack todo with auth, Playwright E2E, Docker, CI/CD | ~30 min |
-| `saas-mvp` | 8 | 5 | SaaS MVP with Stripe payments, analytics, security audit, deployment | ~40 min |
+The primary workflow is pointing the orchestrator at an existing repo. `bootstrap` analyzes the codebase (languages, dependencies, build scripts, tech debt), generates a dependency-aware plan scoped to what's already there, and executes it.
 
 ```bash
-npm start demo list          # see all scenarios
-npm start demo <name>        # run one
+# Analyze a repo and generate a plan
+npm start bootstrap ./your-repo "Add comprehensive test coverage"
+
+# Multi-repo orchestration
+npm start bootstrap ./frontend ./backend "Add shared auth layer"
+
+# Generate a plan without executing (review first)
+npm start plan "Refactor database layer to use Prisma"
+
+# Execute a reviewed plan
+npm start swarm plan.json
 ```
 
-<details>
-<summary><strong>Output quality</strong> (dashboard-showcase example)</summary>
+### Single Tasks
 
-<br>
+For quick, focused work that doesn't need the full orchestration pipeline:
 
-The `dashboard-showcase` demo typically produces 9 source files and 3 test files (React 18, Vite 5, Express 4, Chart.js 4) totaling ~1,300 lines that pass these checks out of the box:
-
-- **Build:** `vite build` completes with zero warnings
-- **Tests:** ~27 passing (unit + API integration) using the Node.js built-in test runner
-- **Accessibility:** semantic HTML, 20+ ARIA attributes, `:focus-visible` styles, `aria-live` for dynamic content, skip-to-content link
-- **Responsive:** three CSS breakpoints (1440px wide layout, 1024px sidebar collapse, 640px single column)
-- **Error handling:** React ErrorBoundary, fetch error banner with retry, loading skeletons, abort controller cleanup
-- **Documentation:** generated README with install, run, test instructions and architecture overview
-
-</details>
-
-<br>
+```bash
+npm start quick "Fix the race condition in src/worker.ts"
+```
 
 ### Commands
 
 | Command | Description |
 |---------|-------------|
-| `npm start demo-fast` | Two-step parallel demo (~1 min) |
-| `npm start demo <scenario>` | Run a named demo scenario |
-| `npm start demo list` | List all 6 demo scenarios |
+| `npm start bootstrap ./repo "goal"` | Analyze repo(s) and generate a plan |
+| `npm start run --goal "goal"` | Generate plan and execute in one step |
 | `npm start plan "goal"` | Generate an execution plan from a goal |
 | `npm start swarm plan.json` | Execute a plan with parallel agents |
-| `npm start run --goal "goal"` | Generate plan and execute in one step |
 | `npm start quick "task"` | Single-agent quick task |
-| `npm start bootstrap ./repo "goal"` | Analyze repo(s) and generate a plan |
 | `npm start gates [path]` | Run quality gates on a project |
 | `npm start audit <session-id>` | Generate Markdown audit report |
 | `npm start metrics <session-id>` | Show metrics summary (supports `--json`) |
@@ -270,13 +273,6 @@ npm start swarm plan.json --wrap-fleet --max-premium-requests 30
 
 Every agent step consumes its own premium request, multiplied by the model's premium request multiplier (1x for claude-sonnet-4, gpt-4o, claude-opus-4; 5x for o4-mini; 20x for o3). A plan with 6 agents on a 1x model uses a minimum of 6 premium requests. When agents run in parallel within a wave, each one simultaneously consumes a request.
 
-| Scenario | Steps | Min requests (1x model) | Max requests (all retries + repairs) |
-|----------|-------|-------------------------|--------------------------------------|
-| `demo-fast` | 2 | 2 | ~14 |
-| `dashboard-showcase` | 4 | 4 | ~28 |
-| `api-server` | 6 | 6 | ~42 |
-| `saas-mvp` | 8 | 8 | ~56 |
-
 The multiplier comes from up to 3 automatic retries per step (exponential backoff), the Repair Agent spawning up to 3 additional sessions on verification failure, and fallback re-execution if all repair attempts fail. In practice, most steps succeed on the first attempt.
 
 <details>
@@ -302,7 +298,7 @@ After execution, per-step cost attribution (estimated vs actual requests, retry 
 
 </details>
 
-To minimize usage: start with `demo-fast` (2 requests) to verify your setup, use `--cost-estimate-only` to preview costs before committing, review your plan with `--pm` before execution, and use `--skip-verify` during experimentation only.
+To minimize usage: use `--cost-estimate-only` to preview costs before committing, review your plan with `--pm` before execution, and start with a single `quick` task to verify your setup.
 
 <br>
 
@@ -493,6 +489,68 @@ runs/
 proof/
 .quickfix/
 ```
+
+</details>
+
+<br>
+
+---
+
+<br>
+
+## Try It
+
+Six built-in demo scenarios create a temp directory, run real Copilot CLI sessions, and produce a working project with clean git history. Useful for verifying your setup or seeing the orchestration pipeline end-to-end before running against your own code.
+
+```bash
+npm start demo list          # see all scenarios
+npm start demo-fast          # quickest: two parallel agents, ~1 min
+npm start demo <name>        # run any scenario
+```
+
+<details>
+<summary><strong>All demo scenarios</strong></summary>
+
+<br>
+
+| Scenario | Agents | Waves | What gets built | Time |
+|----------|--------|-------|-----------------|------|
+| `demo-fast` | 2 | 1 | Two independent utility modules (parallel proof) | ~1 min |
+| `dashboard-showcase` | 4 | 3 | React + Chart.js analytics dashboard, Express API, dark theme, ~27 tests | ~8 min |
+| `todo-app` | 4 | 3 | React todo app with Express backend and test suite | ~15 min |
+| `api-server` | 6 | 4 | REST API with JWT auth, PostgreSQL/Prisma, Docker, CI/CD | ~25 min |
+| `full-stack-app` | 7 | 5 | Full-stack todo with auth, Playwright E2E, Docker, CI/CD | ~30 min |
+| `saas-mvp` | 8 | 5 | SaaS MVP with Stripe payments, analytics, security audit, deployment | ~40 min |
+
+</details>
+
+<details>
+<summary><strong>Output quality</strong> (dashboard-showcase example)</summary>
+
+<br>
+
+The `dashboard-showcase` demo typically produces 9 source files and 3 test files (React 18, Vite 5, Express 4, Chart.js 4) totaling ~1,300 lines that pass these checks out of the box:
+
+- **Build:** `vite build` completes with zero warnings
+- **Tests:** ~27 passing (unit + API integration) using the Node.js built-in test runner
+- **Accessibility:** semantic HTML, 20+ ARIA attributes, `:focus-visible` styles, `aria-live` for dynamic content, skip-to-content link
+- **Responsive:** three CSS breakpoints (1440px wide layout, 1024px sidebar collapse, 640px single column)
+- **Error handling:** React ErrorBoundary, fetch error banner with retry, loading skeletons, abort controller cleanup
+- **Documentation:** generated README with install, run, test instructions and architecture overview
+
+</details>
+
+<details>
+<summary><strong>Demo cost reference</strong></summary>
+
+<br>
+
+| Scenario | Steps | Min requests (1x model) | Max requests (all retries + repairs) |
+|----------|-------|-------------------------|--------------------------------------|
+| `demo-fast` | 2 | 2 | ~14 |
+| `dashboard-showcase` | 4 | 4 | ~28 |
+| `api-server` | 6 | 6 | ~42 |
+| `saas-mvp` | 8 | 8 | ~56 |
 
 </details>
 
