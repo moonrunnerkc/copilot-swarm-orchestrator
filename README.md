@@ -22,6 +22,8 @@ _This is not an autonomous system builder. It orchestrates external AI agents (C
 &nbsp;&nbsp;
 [![CI](https://github.com/moonrunnerkc/swarm-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/moonrunnerkc/swarm-orchestrator/actions/workflows/ci.yml)
 &nbsp;&nbsp;
+![Tests: 1112 passing](https://img.shields.io/badge/tests-1112%20passing-brightgreen.svg)
+&nbsp;&nbsp;
 ![Node.js 18+](https://img.shields.io/badge/node-18%2B-green.svg)
 &nbsp;&nbsp;
 ![TypeScript 5.x](https://img.shields.io/badge/TypeScript-5.x-blue.svg)

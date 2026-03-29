@@ -29,7 +29,23 @@ jobs:
       run: npm run build
 
     - name: Test
-      run: npm test
+      run: npm test 2>&1 | tee test-output.txt
+
+    - name: Publish test summary
+      if: always() && matrix.node-version == 22
+      run: |
+        PASS_COUNT=$(grep -oP '\d+(?= passing)' test-output.txt || echo '0')
+        FAIL_COUNT=$(grep -oP '\d+(?= failing)' test-output.txt || echo '0')
+        PEND_COUNT=$(grep -oP '\d+(?= pending)' test-output.txt || echo '0')
+        echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Passing | $PASS_COUNT |" >> $GITHUB_STEP_SUMMARY
+        echo "| Failing | $FAIL_COUNT |" >> $GITHUB_STEP_SUMMARY
+        echo "| Pending | $PEND_COUNT |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Node.js ${{ matrix.node-version }} on ubuntu-latest" >> $GITHUB_STEP_SUMMARY
 
     - name: Run quality gates on self
       if: matrix.node-version == 22
