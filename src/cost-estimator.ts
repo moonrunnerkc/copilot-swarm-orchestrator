@@ -6,11 +6,15 @@ import { CostHistoryEvidence } from './metrics-types';
  * Model multipliers for premium request consumption.
  * Each copilot -p invocation = 1 base premium request * multiplier.
  * Updated as GitHub changes pricing: https://docs.github.com/en/copilot/concepts/billing/copilot-requests
+ * Model availability varies by Copilot plan; Copilot CLI will reject
+ * unavailable models at runtime with "not available" on stderr.
  */
 export const MODEL_MULTIPLIERS: Record<string, number> = {
   'claude-sonnet-4': 1,
+  'claude-sonnet-4.6': 1,
   'claude-opus-4': 1,
   'gpt-4o': 1,
+  'gpt-5.2': 1,
   'gpt-5.4': 1,
   'o3': 20,
   'o4-mini': 5,

@@ -1,11 +1,11 @@
 {
-  "name": "copilot-swarm-orchestrator",
-  "displayName": "Copilot Swarm Orchestrator",
+  "name": "swarm-orchestrator",
+  "displayName": "Swarm Orchestrator",
   "version": "3.2.0",
-  "description": "Verification and cost governance layer for Copilot CLI. Parallel execution with evidence-based verification, quality gates, and persistent learning.",
+  "description": "Verification and governance layer for AI coding agents. Parallel execution with evidence-based verification, quality gates, and persistent learning.",
   "author": "Bradley R. Kinnard",
   "publisher": "moonrunnerkc",
-  "repository": "https://github.com/moonrunnerkc/copilot-swarm-orchestrator",
+  "repository": "https://github.com/moonrunnerkc/swarm-orchestrator",
   "license": "ISC",
   "engines": {
     "copilot-cli": ">=1.0.0"

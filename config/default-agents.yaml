@@ -1,4 +1,4 @@
-# Default Agent Profiles for Copilot Swarm Conductor
+# Default Agent Profiles for Swarm Orchestrator
 # These agents define the specialized roles for sequential workflow execution
 
 agents:

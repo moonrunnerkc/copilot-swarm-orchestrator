@@ -85,9 +85,16 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
         '^plans/',
         '^proof/',
         '^test/fixtures/',
+        '^(test|tests|__tests__)/',
+        '\\.(test|spec)\\.(ts|js|tsx|jsx|mjs)$',
+        '^(deploy|scripts)/',
+        '\\.(sh|bash|bat|cmd|ps1)$',
         'vite\\.config\\.(js|ts|mjs|mts)$',
         'webpack\\.config\\.(js|ts)$',
-        '\\.env(\\.example|\\.local)?$'
+        '\\.env(\\.example|\\.local)?$',
+        '^docker-compose[^/]*\\.ya?ml$',
+        '^Dockerfile',
+        '\\.dockerfile$'
       ]
     },
     readmeClaims: {

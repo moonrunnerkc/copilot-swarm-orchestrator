@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentProfile } from './config-loader';
+import { AgentProfile, ConfigLoader } from './config-loader';
 import { ExecutionPlan, PlanStep } from './plan-generator';
 import SessionExecutor, { SessionOptions, SessionResult } from './session-executor';
 
@@ -66,8 +66,9 @@ export class PMAgent {
 
     // 2. Check for references to non-existent agents
     const agentNames = new Set(this.availableAgents.map(a => a.name));
+    const normalizedAgentNames = new Set(this.availableAgents.map(a => ConfigLoader.normalizeAgentName(a.name)));
     for (const step of revisedPlan.steps) {
-      if (!agentNames.has(step.agentName)) {
+      if (!agentNames.has(step.agentName) && !normalizedAgentNames.has(ConfigLoader.normalizeAgentName(step.agentName))) {
         reviewNotes.push(`Step ${step.stepNumber} references unknown agent: ${step.agentName}`);
       }
     }

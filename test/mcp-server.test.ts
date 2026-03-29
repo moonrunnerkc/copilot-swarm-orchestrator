@@ -66,7 +66,7 @@ describe('McpServer', () => {
       const result = (response as unknown as { result: Record<string, unknown> }).result;
       assert.strictEqual(result.protocolVersion, '2024-11-05');
       const info = result.serverInfo as { name: string; version: string };
-      assert.strictEqual(info.name, 'copilot-swarm-orchestrator');
+      assert.strictEqual(info.name, 'swarm-orchestrator');
     });
 
     it('returns method-not-found for unknown methods', () => {

@@ -343,7 +343,39 @@ export class ConfigLoader {
 
   getAgentByName(name: string): AgentProfile | undefined {
     const allAgents = this.loadAllAgents();
-    return allAgents.find(agent => agent.name === name);
+    // Exact match first, then normalized match (handles PascalCase vs snake_case)
+    return allAgents.find(agent => agent.name === name)
+      || allAgents.find(agent => ConfigLoader.normalizeAgentName(agent.name) === ConfigLoader.normalizeAgentName(name));
+  }
+
+  /**
+   * Build an agent map keyed by name, with snake_case aliases for PascalCase names.
+   * Plans and demos use snake_case (frontend_expert), YAML uses PascalCase (FrontendExpert).
+   * Both must resolve to the same agent profile.
+   */
+  buildAgentMap(): Map<string, AgentProfile> {
+    const agents = this.loadAllAgents();
+    const map = new Map<string, AgentProfile>();
+    for (const agent of agents) {
+      map.set(agent.name, agent);
+      const snakeName = ConfigLoader.normalizeAgentName(agent.name);
+      if (snakeName !== agent.name && !map.has(snakeName)) {
+        map.set(snakeName, agent);
+      }
+    }
+    return map;
+  }
+
+  /**
+   * Normalize agent name to snake_case for consistent lookups.
+   * FrontendExpert -> frontend_expert, frontend_expert -> frontend_expert
+   */
+  static normalizeAgentName(name: string): string {
+    return name
+      .replace(/([A-Z])/g, '_$1')
+      .toLowerCase()
+      .replace(/^_/, '')
+      .replace(/__+/g, '_');
   }
 }
 

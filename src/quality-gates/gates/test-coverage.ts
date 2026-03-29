@@ -24,7 +24,9 @@ export async function run_test_coverage_gate(
     if (!/\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)) return false;
     if (/^(test|tests|__tests__)\//.test(f.relativePath)) return false;
     if (/\.test\.|\.spec\./.test(f.relativePath)) return false;
-    if (/^(server|config|scripts|examples?)\//.test(f.relativePath)) return false;
+    if (/^(server|config|scripts|examples?|deploy)\//.test(f.relativePath)) return false;
+    // Exclude standalone server entry points (e.g. src/server.js that just calls app.listen)
+    if (/\bserver\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)) return false;
     // Exclude vite/webpack configs and similar build tooling
     if (/\.(config|d)\.(ts|js|mjs)$/i.test(f.relativePath)) return false;
     // Exclude entry points
@@ -37,23 +39,64 @@ export async function run_test_coverage_gate(
     /\.(test|spec)\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)
   );
 
-  // Build a set of what test files import (to check coverage by import)
+  // Collect all require/import edges from every source and test file so we
+  // can resolve transitive coverage. An integration test importing app.js
+  // should count as covering the controllers, middleware, and routes that
+  // app.js itself requires.
+  const allFiles = [...ctx.files];
+  const fileImports = new Map<string, string[]>();
+  const importRegex = /(?:from\s+['"]|require\s*\(\s*['"])([^'"]+)['"]/g;
+
+  for (const f of allFiles) {
+    if (!/\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)) continue;
+    const text = f.text ?? maybe_read_text(f, maxFileSizeBytes);
+    if (!text) continue;
+
+    const imports: string[] = [];
+    let m: RegExpExecArray | null;
+    importRegex.lastIndex = 0;
+    while ((m = importRegex.exec(text)) !== null) {
+      // Skip node_modules / bare specifiers
+      if (!m[1].startsWith('.')) continue;
+      const normalized = m[1]
+        .replace(/^(\.\.\/)+/, '')
+        .replace(/^\.\//,  '')
+        .replace(/\.(js|ts|jsx|tsx|mjs)$/, '');
+      imports.push(normalized);
+    }
+    const key = f.relativePath.replace(/\.(js|ts|jsx|tsx|mjs)$/, '');
+    fileImports.set(key, imports);
+  }
+
+  // Walk transitive imports from test files to build the full coverage set
   const importedByTests = new Set<string>();
+  function walkImports(moduleKey: string, visited: Set<string>): void {
+    if (visited.has(moduleKey)) return;
+    visited.add(moduleKey);
+    importedByTests.add(moduleKey);
+    const deps = fileImports.get(moduleKey) || fileImports.get(`src/${moduleKey}`) || [];
+    for (const dep of deps) {
+      walkImports(dep, visited);
+      // Also try with src/ prefix
+      if (!dep.startsWith('src/')) {
+        walkImports(`src/${dep}`, visited);
+      }
+    }
+  }
+
   for (const tf of testFiles) {
     const text = tf.text ?? maybe_read_text(tf, maxFileSizeBytes);
     if (!text) continue;
 
-    // Match import paths: import ... from '../src/foo' or require('../src/foo')
-    const importRegex = /(?:from\s+['"]|require\s*\(\s*['"])([^'"]+)['"]/g;
+    importRegex.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = importRegex.exec(text)) !== null) {
-      const importPath = match[1];
-      // Normalize: strip leading ../ or ./ and add common extensions
-      const normalized = importPath
-        .replace(/^\.\.\//, '')
-        .replace(/^\.\//, '')
+      if (!match[1].startsWith('.')) continue;
+      const normalized = match[1]
+        .replace(/^(\.\.\/)+/, '')
+        .replace(/^\.\//,  '')
         .replace(/\.(js|ts|jsx|tsx|mjs)$/, '');
-      importedByTests.add(normalized);
+      walkImports(normalized, new Set<string>());
     }
   }
 
@@ -66,8 +109,15 @@ export async function run_test_coverage_gate(
     const hasDirectTest = testFiles.some(tf => {
       const testBase = tf.relativePath
         .replace(/^(test|tests|__tests__)\//, '')
+        .replace(/^(unit|integration|e2e)\//, '')
         .replace(/\.(test|spec)\.(tsx?|jsx?|mjs)$/, '');
-      return testBase === baseName || testBase === baseName.replace(/^utils\//, '');
+      // Match by full relative path, by stripping common prefixes, or
+      // by filename only (test/unit/foo.test.js covers src/services/foo.js)
+      const testBaseName = testBase.split('/').pop() || testBase;
+      const srcBaseName = baseName.split('/').pop() || baseName;
+      return testBase === baseName
+        || testBase === baseName.replace(/^utils\//, '')
+        || testBaseName === srcBaseName;
     });
 
     const isImportedByTest = importedByTests.has(`src/${baseName}`) ||

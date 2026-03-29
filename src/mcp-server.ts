@@ -223,7 +223,7 @@ export class McpServer {
           tools: {}
         },
         serverInfo: {
-          name: 'copilot-swarm-orchestrator',
+          name: 'swarm-orchestrator',
           version: '3.2.0'
         }
       }

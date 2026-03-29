@@ -143,7 +143,9 @@ export class QuickFixMode {
     let agentProfile: AgentProfile | undefined;
     try {
       const agents = await this.configLoader.loadAllAgents();
-      agentProfile = agents.find((a: AgentProfile) => a.name.toLowerCase() === agentName.toLowerCase());
+      agentProfile = agents.find((a: AgentProfile) =>
+        a.name === agentName || ConfigLoader.normalizeAgentName(a.name) === ConfigLoader.normalizeAgentName(agentName)
+      );
 
       if (!agentProfile) {
         return {

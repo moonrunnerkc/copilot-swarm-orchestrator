@@ -157,9 +157,13 @@ export class SessionExecutor {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
+      // Include stderr when stdout is empty so diagnostic messages
+      // (e.g. model-not-available errors that slip through) are visible
+      const transcriptBody = agentResult.stdout
+        || (agentResult.stderr ? `stderr:\n${agentResult.stderr}` : 'No output captured');
       fs.writeFileSync(
         options.shareToFile,
-        `# Agent Session Transcript\n\nSession output:\n\`\`\`\n${agentResult.stdout || 'No output captured'}\n\`\`\`\n`,
+        `# Agent Session Transcript\n\nSession output:\n\`\`\`\n${transcriptBody}\n\`\`\`\n`,
         'utf8'
       );
       transcriptPath = options.shareToFile;

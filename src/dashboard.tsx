@@ -225,7 +225,7 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
       {/* Header */}
       <Box marginBottom={1}>
         <Text bold color="magenta">
-          🐝 Copilot Swarm Orchestrator - Parallel Execution
+          🐝 Swarm Orchestrator - Parallel Execution
         </Text>
       </Box>
 

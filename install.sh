@@ -1,9 +1,9 @@
 #!/bin/bash
-# Copilot Swarm Orchestrator - Quick Install
-# curl -fsSL https://raw.githubusercontent.com/moonrunnerkc/copilot-swarm-orchestrator/main/install.sh | bash
+# Swarm Orchestrator - Quick Install
+# curl -fsSL https://raw.githubusercontent.com/moonrunnerkc/swarm-orchestrator/main/install.sh | bash
 set -e
 
-echo "Installing Copilot Swarm Orchestrator..."
+echo "Installing Swarm Orchestrator..."
 
 # Check prerequisites
 command -v node >/dev/null 2>&1 || { echo "Error: Node.js 18+ required. Install from https://nodejs.org"; exit 1; }
@@ -16,7 +16,7 @@ if [ "$NODE_MAJOR" -lt 18 ]; then
 fi
 
 # Install globally via npm
-npm install -g copilot-swarm-orchestrator
+npm install -g swarm-orchestrator
 
 echo ""
 echo "✅ Installed! Run: swarm --help"

@@ -4,7 +4,7 @@ import * as path from 'path';
 import { resolveAdapter, defaultModelForAdapter } from './adapters';
 import AnalyticsLog from './analytics-log';
 import CommitPatternDetector, { CommitMessage } from './commit-pattern-detector';
-import { AgentProfile } from './config-loader';
+import { AgentProfile, ConfigLoader } from './config-loader';
 import ContextBroker, { ContextEntry } from './context-broker';
 import DeploymentManager, { DeploymentMetadata } from './deployment-manager';
 import { ExecutionQueue, QueueStats } from './execution-queue';
@@ -132,6 +132,20 @@ export class SwarmOrchestrator {
     this.sessionExecutor = new SessionExecutor(this.workingDir);
     this.shareParser = new ShareParser();
     this.verifier = new VerifierEngine(this.workingDir);
+  }
+
+  /**
+   * Look up an agent by name, falling back to normalized (snake_case) matching.
+   * Handles plans using snake_case (frontend_expert) against YAML agents (FrontendExpert).
+   */
+  private resolveAgent(agents: Map<string, AgentProfile>, name: string): AgentProfile | undefined {
+    const exact = agents.get(name);
+    if (exact) return exact;
+    const normalized = ConfigLoader.normalizeAgentName(name);
+    for (const [key, agent] of agents) {
+      if (ConfigLoader.normalizeAgentName(key) === normalized) return agent;
+    }
+    return undefined;
   }
 
   /**
@@ -420,7 +434,7 @@ export class SwarmOrchestrator {
         // Launch all ready steps concurrently
         const batchPromises = ready.map(stepNumber => {
           const step = plan.steps.find(s => s.stepNumber === stepNumber)!;
-          const agent = agents.get(step.agentName);
+          const agent = this.resolveAgent(agents, step.agentName);
 
           if (!agent) {
             throw new Error(`Agent ${step.agentName} not found for step ${stepNumber}`);
@@ -803,10 +817,8 @@ export class SwarmOrchestrator {
     if (!configEnabled) return null;
     if (!context.qualityGatesTriggered || context.qualityGatesTriggered[triggeredFlag]) return null;
 
-    const preferredAgent = agents.get('integrator_finalizer')
+    const preferredAgent = this.resolveAgent(agents, 'integrator_finalizer')
       ? 'integrator_finalizer'
-      : agents.get('IntegratorFinalizer')
-      ? 'IntegratorFinalizer'
       : fallbackAgent;
 
     console.warn(warningMessage);
@@ -851,7 +863,7 @@ export class SwarmOrchestrator {
         continue;
       }
 
-      const agent = agents.get(step.agentName);
+      const agent = this.resolveAgent(agents, step.agentName);
       if (!agent) {
         console.warn(`  replan: agent ${step.agentName} not found, skipping`);
         continue;
@@ -1003,7 +1015,7 @@ export class SwarmOrchestrator {
 
       // Execute added steps in parallel when they have no mutual dependencies
       const replanPromises = newSteps.map(async (added: PlanStep) => {
-        const agent = agents.get(added.agentName);
+        const agent = this.resolveAgent(agents, added.agentName);
         if (!agent) {
           console.warn(`  replan: agent ${added.agentName} not found for step ${added.stepNumber}, skipping`);
           return;
@@ -1748,7 +1760,7 @@ export class SwarmOrchestrator {
   /**
    * Merge completed branches to main. When a PRManager is configured on the
    * context, creates pull requests with verification evidence instead of
-   * direct git merges. Falls back to octopus merge or sequential merge otherwise.
+   * direct git merges. Falls back to sequential merge otherwise.
    */
   private async mergeWaveBranches(
     completedResults: ParallelStepResult[],
@@ -1823,38 +1835,11 @@ export class SwarmOrchestrator {
     try {
       await this.switchBranch(context.mainBranch);
 
-      // Attempt octopus merge when 2+ branches are ready
-      if (branches.length >= 2) {
-        const lockId = await context.contextBroker.acquireGitLock('orchestrator', `octopus merge ${branches.length} branches`);
-        if (lockId) {
-          try {
-            const branchArgs = branches.map(b => `"${b}"`).join(' ');
-            execSync(
-              `git merge --no-ff ${branchArgs} -m "Merge ${branches.length} branches (octopus)"`,
-              {
-                cwd: this.workingDir,
-                stdio: 'pipe',
-                timeout: 120000,
-                env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_MERGE_AUTOEDIT: 'no' }
-              }
-            );
-            console.log(`  ✅ Octopus merge: ${branches.length} branches in one commit`);
-            return;
-          } catch {
-            // Octopus merge hit conflicts between branches; fall back to sequential
-            try {
-              execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' });
-            } catch {
-              // No merge in progress to abort; already clean
-            }
-            console.log(`  ⚠️  Octopus merge failed, falling back to sequential`);
-          } finally {
-            context.contextBroker.releaseGitLock(lockId);
-          }
-        }
-      }
-
-      // Sequential fallback (or single branch)
+      // Sequential merge with conflict resolution. Octopus merge was removed
+      // because parallel agents nearly always touch shared files (package.json,
+      // README, etc.), making octopus fail every time. Sequential merge with
+      // the 3-strategy fallback (rebase, -X theirs, modify/delete) handles
+      // all real-world conflict patterns correctly.
       for (const result of completedResults) {
         if (result.branchName) {
           try {
@@ -2278,7 +2263,7 @@ node_modules/
     if (fs.existsSync(instructionsPath)) return;
 
     const content = [
-      '# Copilot Swarm Agent Instructions',
+      '# Swarm Agent Instructions',
       '',
       '## Parallel Execution Context',
       'You are running inside a git worktree on a dedicated branch. Do NOT run `git checkout`.',

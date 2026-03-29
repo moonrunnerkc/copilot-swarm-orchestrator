@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { AgentAdapter, AgentResult, AgentSpawnOptions } from '../src/adapters/agent-adapter';
-import { CopilotAdapter } from '../src/adapters/copilot-adapter';
+import { CopilotAdapter, hasFatalStderrError } from '../src/adapters/copilot-adapter';
 import { ClaudeCodeAdapter } from '../src/adapters/claude-code-adapter';
 import { CodexAdapter } from '../src/adapters/codex-adapter';
 import { resolveAdapter } from '../src/adapters';
@@ -231,6 +231,72 @@ describe('Agent Adapters', () => {
       // so it should not interfere with --tool
       const opts = parseSwarmFlags(['swarm', 'plan.json', '--tool', 'claude-code']);
       assert.strictEqual(opts.cliAgent, 'claude-code');
+    });
+  });
+
+  describe('hasFatalStderrError', () => {
+    it('detects model-not-available error', () => {
+      assert.strictEqual(
+        hasFatalStderrError('Error: Model "claude-opus-4" from --model flag is not available.'),
+        true
+      );
+    });
+
+    it('detects model-not-available with different model name', () => {
+      assert.strictEqual(
+        hasFatalStderrError('Error: Model "gpt-4o" from --model flag is not available.'),
+        true
+      );
+    });
+
+    it('returns false for normal stderr warnings', () => {
+      assert.strictEqual(
+        hasFatalStderrError('Warning: some non-critical message'),
+        false
+      );
+    });
+
+    it('returns false for empty stderr', () => {
+      assert.strictEqual(hasFatalStderrError(''), false);
+    });
+
+    it('returns false for scope noise', () => {
+      assert.strictEqual(
+        hasFatalStderrError('Permission denied and could not request permission'),
+        false
+      );
+    });
+  });
+
+  describe('Adapter transcript edge cases', () => {
+    it('includes stderr in transcript body when stdout is empty', async () => {
+      const dir = tmpDir();
+      tempDirs.push(dir);
+      const transcriptPath = path.join(dir, 'proof', 'share.md');
+      // Simulate an adapter that exits 0 but produced only stderr
+      const stub = new StubAdapter({ stdout: '', stderr: 'diagnostic warning here', exitCode: 0 });
+      const executor = new SessionExecutor(dir, stub);
+
+      await executor.executeSession('task', { shareToFile: transcriptPath });
+
+      assert.ok(fs.existsSync(transcriptPath), 'transcript should exist');
+      const content = fs.readFileSync(transcriptPath, 'utf8');
+      assert.ok(content.includes('diagnostic warning here'), 'stderr should appear in transcript when stdout is empty');
+    });
+
+    it('prefers stdout over stderr in transcript when both present', async () => {
+      const dir = tmpDir();
+      tempDirs.push(dir);
+      const transcriptPath = path.join(dir, 'proof', 'share.md');
+      const stub = new StubAdapter({ stdout: 'actual output', stderr: 'some warning', exitCode: 0 });
+      const executor = new SessionExecutor(dir, stub);
+
+      await executor.executeSession('task', { shareToFile: transcriptPath });
+
+      const content = fs.readFileSync(transcriptPath, 'utf8');
+      assert.ok(content.includes('actual output'), 'stdout should be in transcript');
+      // stderr is not included in transcript body when stdout has content
+      assert.ok(!content.includes('some warning'), 'stderr should not be in transcript body when stdout present');
     });
   });
 });

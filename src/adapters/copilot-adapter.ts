@@ -15,8 +15,20 @@ const SCOPE_NOISE_PATTERNS = [
   /could not request permission from user/i,
 ];
 
+// Copilot CLI sometimes exits 0 even on fatal errors like invalid model
+// names. These patterns on stderr indicate the session never ran at all.
+const FATAL_STDERR_PATTERNS = [
+  /Model ".*" from --model flag is not available/i,
+  /Error:.*not available/i,
+];
+
 function isScopeNoise(line: string): boolean {
   return SCOPE_NOISE_PATTERNS.some(p => p.test(line));
+}
+
+// Exported for direct testing without spawning real subprocesses
+export function hasFatalStderrError(stderr: string): boolean {
+  return FATAL_STDERR_PATTERNS.some(p => p.test(stderr));
 }
 
 export class CopilotAdapter implements AgentAdapter {
@@ -41,10 +53,18 @@ export class CopilotAdapter implements AgentAdapter {
     const result = await this.runProcess('copilot', args, opts.workdir, opts.timeout);
     const durationMs = Date.now() - startTime;
 
+    // Copilot CLI exits 0 for certain fatal errors (e.g. invalid model name)
+    // that produce no stdout. Detect these and correct the exit code so the
+    // orchestrator treats the session as failed rather than empty-but-successful.
+    let exitCode = result.exitCode;
+    if (exitCode === 0 && !result.stdout.trim() && hasFatalStderrError(result.stderr)) {
+      exitCode = 1;
+    }
+
     return {
       stdout: result.stdout,
       stderr: result.stderr,
-      exitCode: result.exitCode,
+      exitCode,
       durationMs,
     };
   }
@@ -127,7 +147,8 @@ export class CopilotAdapter implements AgentAdapter {
         cleanup();
         if (!resolved) {
           resolved = true;
-          resolve({ stdout, stderr, exitCode: code || 0 });
+          // null exit code means process was killed by a signal; treat as failure
+          resolve({ stdout, stderr, exitCode: code ?? 1 });
         }
       });
 

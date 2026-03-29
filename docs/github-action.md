@@ -25,7 +25,7 @@ jobs:
         run: gh extension install github/gh-copilot
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: moonrunnerkc/copilot-swarm-orchestrator@main
+      - uses: moonrunnerkc/swarm-orchestrator@main
         with:
           goal: ${{ inputs.goal }}
           pr: review
@@ -120,7 +120,7 @@ The action exits 0 when all steps pass verification, and exits 1 when any step f
 ### Goal-Based Execution
 
 ```yaml
-- uses: moonrunnerkc/copilot-swarm-orchestrator@main
+- uses: moonrunnerkc/swarm-orchestrator@main
   with:
     goal: "Add comprehensive unit tests for all modules"
     tool: copilot
@@ -130,7 +130,7 @@ The action exits 0 when all steps pass verification, and exits 1 when any step f
 ### Plan-Based Execution
 
 ```yaml
-- uses: moonrunnerkc/copilot-swarm-orchestrator@main
+- uses: moonrunnerkc/swarm-orchestrator@main
   with:
     plan: plans/api-migration.json
     tool: claude-code
@@ -140,7 +140,7 @@ The action exits 0 when all steps pass verification, and exits 1 when any step f
 ### Recipe-Based Execution
 
 ```yaml
-- uses: moonrunnerkc/copilot-swarm-orchestrator@main
+- uses: moonrunnerkc/swarm-orchestrator@main
   with:
     recipe: add-tests
     tool: copilot
@@ -150,7 +150,7 @@ The action exits 0 when all steps pass verification, and exits 1 when any step f
 ### Using the Result Output
 
 ```yaml
-- uses: moonrunnerkc/copilot-swarm-orchestrator@main
+- uses: moonrunnerkc/swarm-orchestrator@main
   id: swarm
   with:
     goal: "Fix all linting errors"
@@ -168,7 +168,7 @@ The action exits 0 when all steps pass verification, and exits 1 when any step f
 ### Multi-Agent Workflow
 
 ```yaml
-- uses: moonrunnerkc/copilot-swarm-orchestrator@main
+- uses: moonrunnerkc/swarm-orchestrator@main
   with:
     goal: "Migrate codebase from JavaScript to TypeScript"
     tool: claude-code

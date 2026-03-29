@@ -109,11 +109,93 @@ describe('ConfigLoader', () => {
       assert.strictEqual(agent?.name, 'FrontendExpert');
     });
 
+    it('should find agent by snake_case name even when only YAML provides PascalCase', () => {
+      // Whether .agent.md files exist or not, snake_case lookup should resolve
+      const loader = new ConfigLoader(configDir);
+      const agent = loader.getAgentByName('frontend_expert');
+      assert.ok(agent, 'Should resolve frontend_expert (either from .agent.md or YAML normalization)');
+    });
+
+    it('should resolve all 6 default agents by snake_case name', () => {
+      const loader = new ConfigLoader(configDir);
+      const snakeNames = [
+        'frontend_expert',
+        'backend_master',
+        'dev_ops_pro',
+        'security_auditor',
+        'tester_elite',
+        'integrator_finalizer'
+      ];
+      for (const sn of snakeNames) {
+        const agent = loader.getAgentByName(sn);
+        assert.ok(agent, `Should resolve snake_case name: ${sn}`);
+      }
+    });
+
     it('should return undefined for non-existent agent', () => {
       const loader = new ConfigLoader(configDir);
       const agent = loader.getAgentByName('NonExistentAgent');
 
       assert.strictEqual(agent, undefined);
+    });
+  });
+
+  describe('normalizeAgentName', () => {
+    it('should convert PascalCase to snake_case', () => {
+      assert.strictEqual(ConfigLoader.normalizeAgentName('FrontendExpert'), 'frontend_expert');
+      assert.strictEqual(ConfigLoader.normalizeAgentName('BackendMaster'), 'backend_master');
+      assert.strictEqual(ConfigLoader.normalizeAgentName('DevOpsPro'), 'dev_ops_pro');
+      assert.strictEqual(ConfigLoader.normalizeAgentName('SecurityAuditor'), 'security_auditor');
+      assert.strictEqual(ConfigLoader.normalizeAgentName('TesterElite'), 'tester_elite');
+      assert.strictEqual(ConfigLoader.normalizeAgentName('IntegratorFinalizer'), 'integrator_finalizer');
+    });
+
+    it('should leave snake_case unchanged', () => {
+      assert.strictEqual(ConfigLoader.normalizeAgentName('frontend_expert'), 'frontend_expert');
+      assert.strictEqual(ConfigLoader.normalizeAgentName('backend_master'), 'backend_master');
+    });
+
+    it('should handle single word', () => {
+      assert.strictEqual(ConfigLoader.normalizeAgentName('Agent'), 'agent');
+    });
+
+    it('should collapse double underscores from already-underscored names', () => {
+      assert.strictEqual(ConfigLoader.normalizeAgentName('Some_Agent'), 'some__agent'.replace(/__+/g, '_'));
+    });
+  });
+
+  describe('buildAgentMap', () => {
+    it('should return a map with both PascalCase and snake_case keys', () => {
+      const loader = new ConfigLoader(configDir);
+      const map = loader.buildAgentMap();
+
+      // PascalCase keys from YAML
+      assert.ok(map.has('FrontendExpert'), 'Should have PascalCase key');
+      assert.ok(map.has('BackendMaster'), 'Should have PascalCase key');
+
+      // snake_case aliases
+      assert.ok(map.has('frontend_expert'), 'Should have snake_case alias');
+      assert.ok(map.has('backend_master'), 'Should have snake_case alias');
+      assert.ok(map.has('integrator_finalizer'), 'Should have snake_case alias');
+    });
+
+    it('should map snake_case keys to agent profiles', () => {
+      const loader = new ConfigLoader(configDir);
+      const map = loader.buildAgentMap();
+
+      // Verify snake_case keys exist and resolve to valid agents
+      const snake = map.get('frontend_expert');
+      assert.ok(snake, 'snake_case key should resolve to an agent');
+      // The profile name could be PascalCase (YAML) or snake_case (.agent.md)
+      const normalized = ConfigLoader.normalizeAgentName(snake.name);
+      assert.strictEqual(normalized, 'frontend_expert');
+    });
+
+    it('should include at least 12 entries for 6 agents (PascalCase + snake_case)', () => {
+      const loader = new ConfigLoader(configDir);
+      const map = loader.buildAgentMap();
+
+      assert.ok(map.size >= 12, `Expected at least 12 entries, got ${map.size}`);
     });
   });
 

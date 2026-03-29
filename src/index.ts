@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Copilot Swarm Orchestrator - Public API
+ * Swarm Orchestrator - Public API
  * Import these for programmatic use of the orchestrator.
  */
 export { SwarmOrchestrator } from './swarm-orchestrator';

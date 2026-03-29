@@ -1,11 +1,11 @@
 #!/bin/bash
-# Demo Script - Copilot Swarm Conductor
+# Demo Script - Swarm Orchestrator
 # This script demonstrates key features for judges
 
 set -e
 
 echo "╔══════════════════════════════════════════════════════════════════════╗"
-echo "║  Copilot Swarm Conductor - Championship Demo                        ║"
+echo "║  Swarm Orchestrator - Championship Demo                              ║"
 echo "╚══════════════════════════════════════════════════════════════════════╝"
 echo ""
 

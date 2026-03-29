@@ -28,7 +28,7 @@ proof/
 
 # Copilot instructions contain internal prompts, not for public
 .github/copilot-instructions.md
-.github/upgrade-guide.md
+.github/cso-upgrade-plan.md
 
 # Local MCP config and gate output artifacts
 .mcp.json

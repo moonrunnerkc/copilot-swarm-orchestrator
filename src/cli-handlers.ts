@@ -71,7 +71,7 @@ function confirmCostPrompt(estimateLow: number, estimateHigh: number, model: str
 
 export function showUsage(): void {
   console.log(`
-Copilot Swarm Orchestrator - Parallel AI Workflow Tool
+Swarm Orchestrator - Parallel AI Workflow Tool
 
 Usage:
   swarm bootstrap <path(s)> "Goal"       Deep analysis and plan generation (multi-repo)
@@ -414,7 +414,7 @@ function importPlanFromTranscript(runId: string, transcriptPath: string): number
 }
 
 function executePlan(planFilename: string, options?: ExecutionOptions): number {
-  console.log('Copilot Swarm Orchestrator - Plan Execution\n');
+  console.log('Swarm Orchestrator - Plan Execution\n');
 
   const storage = new PlanStorage();
   const plan = storage.loadPlan(planFilename);
@@ -494,7 +494,7 @@ async function executeSwarm(
   planFilename: string,
   options?: ExecuteSwarmCliOptions
 ): Promise<number> {
-  console.log('🐝 Copilot Swarm Orchestrator - Parallel Execution\n');
+  console.log('🐝 Swarm Orchestrator - Parallel Execution\n');
 
   const storage = new PlanStorage();
   let plan = storage.loadPlan(planFilename);
@@ -504,7 +504,7 @@ async function executeSwarm(
 
   const configLoader = new ConfigLoader();
   const agents = configLoader.loadAllAgents();
-  const agentMap = new Map(agents.map(a => [a.name, a]));
+  const agentMap = configLoader.buildAgentMap();
 
   // PM agent review (optional, activated with --pm)
   if (options?.pm) {
@@ -885,7 +885,7 @@ async function installDemoDependencies(demoDir: string): Promise<void> {
 }
 
 function showStatus(executionId: string): number {
-  console.log('Copilot Swarm Orchestrator - Execution Status\n');
+  console.log('Swarm Orchestrator - Execution Status\n');
 
   const runner = new StepRunner();
 
@@ -939,7 +939,7 @@ function showStatus(executionId: string): number {
 }
 
 function importShare(runId: string, stepNumber: string, agentName: string, transcriptPath: string): number {
-  console.log('Copilot Swarm Orchestrator - Import /share Transcript\n');
+  console.log('Swarm Orchestrator - Import /share Transcript\n');
 
   const step = parseInt(stepNumber, 10);
   if (isNaN(step)) {
@@ -1013,7 +1013,7 @@ function importShare(runId: string, stepNumber: string, agentName: string, trans
 }
 
 function showShareContext(runId: string, stepNumber: string): number {
-  console.log('Copilot Swarm Orchestrator - Prior Context\n');
+  console.log('Swarm Orchestrator - Prior Context\n');
 
   const step = parseInt(stepNumber, 10);
   if (isNaN(step)) {
@@ -1285,7 +1285,7 @@ export async function handleDemoCommand(args: string[]): Promise<number> {
 }
 
 async function runDemo(scenarioName: string): Promise<number> {
-  console.log('🐝 Copilot Swarm Orchestrator - Demo Mode\n');
+  console.log('🐝 Swarm Orchestrator - Demo Mode\n');
 
   const demoMode = new DemoMode();
   const scenario = demoMode.getScenario(scenarioName);
@@ -1645,7 +1645,7 @@ export async function handleRunCommand(args: string[]): Promise<number> {
     return 1;
   }
 
-  console.log('🐝 Copilot Swarm Orchestrator - Plan & Execute\n');
+  console.log('🐝 Swarm Orchestrator - Plan & Execute\n');
   console.log(`Goal: ${goal}\n`);
 
   const configLoader = new ConfigLoader();
@@ -1844,7 +1844,7 @@ export async function handleAgentsCommand(args: string[]): Promise<number> {
 
   const diff = args.includes('--diff');
 
-  console.log('🐝 Copilot Swarm Orchestrator - Agent Export\n');
+  console.log('🐝 Swarm Orchestrator - Agent Export\n');
   console.log(`Output directory: ${outputDir}`);
   console.log(`Minimum runs for data-driven export: ${minRuns}`);
   if (diff) console.log('Diff mode: enabled\n');

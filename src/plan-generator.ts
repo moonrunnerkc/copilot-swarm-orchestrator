@@ -1,4 +1,4 @@
-import { AgentProfile } from './config-loader';
+import { AgentProfile, ConfigLoader } from './config-loader';
 import { PlanStorage } from './plan-storage';
 
 export interface PlanStep {
@@ -578,9 +578,10 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
 
   private validateAgentAssignments(steps: PlanStep[]): void {
     const agentNames = new Set(this.availableAgents.map(a => a.name));
+    const normalizedAgentNames = new Set(this.availableAgents.map(a => ConfigLoader.normalizeAgentName(a.name)));
 
     for (const step of steps) {
-      if (!agentNames.has(step.agentName)) {
+      if (!agentNames.has(step.agentName) && !normalizedAgentNames.has(ConfigLoader.normalizeAgentName(step.agentName))) {
         throw new Error(
           `Step ${step.stepNumber} assigns unknown agent: ${step.agentName}. ` +
           `Available agents: ${Array.from(agentNames).join(', ')}`

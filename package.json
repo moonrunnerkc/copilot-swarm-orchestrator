@@ -1,7 +1,7 @@
 {
-  "name": "copilot-swarm-orchestrator",
-  "version": "3.2.0",
-  "description": "Parallel AI workflow orchestrator using GitHub Copilot CLI",
+  "name": "swarm-orchestrator",
+  "version": "4.0.0",
+  "description": "Verification and governance layer for AI coding agents. Parallel execution with evidence-based quality gates.",
   "main": "dist/src/index.js",
   "bin": {
     "swarm": "dist/src/cli.js",
@@ -26,24 +26,26 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/moonrunnerkc/copilot-swarm-orchestrator.git"
+    "url": "git+https://github.com/moonrunnerkc/swarm-orchestrator.git"
   },
   "keywords": [
-    "copilot",
-    "cli",
     "orchestrator",
     "swarm",
     "parallel",
     "ai",
-    "workflow"
+    "verification",
+    "quality-gates",
+    "copilot",
+    "claude-code",
+    "codex"
   ],
   "author": "Bradley R. Kinnard",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/moonrunnerkc/copilot-swarm-orchestrator/issues"
+    "url": "https://github.com/moonrunnerkc/swarm-orchestrator/issues"
   },
-  "homepage": "https://github.com/moonrunnerkc/copilot-swarm-orchestrator#readme",
+  "homepage": "https://github.com/moonrunnerkc/swarm-orchestrator#readme",
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

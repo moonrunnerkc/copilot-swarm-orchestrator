@@ -153,7 +153,7 @@ describe('README Verification', () => {
       const pkgPath = path.join(rootDir, 'package.json');
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
       
-      assert.strictEqual(pkg.name, 'copilot-swarm-orchestrator');
+      assert.strictEqual(pkg.name, 'swarm-orchestrator');
       assert.ok(pkg.version, 'Should have version');
       assert.ok(pkg.description, 'Should have description');
       assert.ok(pkg.author, 'Should have author');

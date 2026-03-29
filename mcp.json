@@ -1,15 +1,15 @@
 {
   "mcpServers": {
-    "copilot-swarm-orchestrator": {
+    "swarm-orchestrator": {
       "type": "stdio",
       "command": "node",
       "args": ["dist/src/cli.js", "mcp-server"],
       "metadata": {
-        "name": "Copilot Swarm Orchestrator",
+        "name": "Swarm Orchestrator",
         "version": "3.2.0",
-        "description": "Orchestration layer for GitHub Copilot CLI: parallel execution with evidence-based verification, quality gates, cost governance, and persistent learning.",
+        "description": "Verification and governance layer for AI coding agents: parallel execution with evidence-based verification, quality gates, cost governance, and persistent learning.",
         "author": "Bradley R. Kinnard",
-        "repository": "https://github.com/moonrunnerkc/copilot-swarm-orchestrator",
+        "repository": "https://github.com/moonrunnerkc/swarm-orchestrator",
         "license": "ISC",
         "categories": ["orchestration", "code-quality", "testing", "workflow-automation"],
         "protocolVersion": "2024-11-05"

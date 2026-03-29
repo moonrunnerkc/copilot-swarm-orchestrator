@@ -165,7 +165,7 @@ function main() {
 
 /**
  * Recursively copy plugin/ to .github/plugin/ so that
- * `copilot plugin install moonrunnerkc/copilot-swarm-orchestrator` works.
+ * `copilot plugin install moonrunnerkc/swarm-orchestrator` works.
  */
 function syncToGitHubPlugin(src, dest) {
   if (fs.existsSync(dest)) {

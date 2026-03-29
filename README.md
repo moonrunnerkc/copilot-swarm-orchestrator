@@ -20,11 +20,11 @@ _This is not an autonomous system builder. It orchestrates external AI agents (C
 
 [![License: ISC](https://img.shields.io/badge/license-ISC-blue.svg)](LICENSE)
 &nbsp;&nbsp;
+[![CI](https://github.com/moonrunnerkc/swarm-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/moonrunnerkc/swarm-orchestrator/actions/workflows/ci.yml)
+&nbsp;&nbsp;
 ![Node.js 18+](https://img.shields.io/badge/node-18%2B-green.svg)
 &nbsp;&nbsp;
 ![TypeScript 5.x](https://img.shields.io/badge/TypeScript-5.x-blue.svg)
-&nbsp;&nbsp;
-![1000+ tests passing](https://img.shields.io/badge/tests-1000%2B%20passing-brightgreen.svg)
 
 <br>
 
@@ -45,24 +45,29 @@ _This is not an autonomous system builder. It orchestrates external AI agents (C
 ## Quick Start
 
 ```bash
+# Install globally
+npm install -g swarm-orchestrator
+# Or clone and build from source
 git clone https://github.com/moonrunnerkc/swarm-orchestrator.git
 cd swarm-orchestrator
-npm install && npm run build
+npm install && npm run build && npm link
+```
 
+```bash
 # Run against your project with any supported agent
-npm start bootstrap ./your-repo "Add JWT auth and role-based access control"
+swarm bootstrap ./your-repo "Add JWT auth and role-based access control"
 
 # Use Claude Code instead of Copilot
-npm start bootstrap ./your-repo "Add JWT auth" --tool claude-code
+swarm bootstrap ./your-repo "Add JWT auth" --tool claude-code
 
 # Use Codex
-npm start bootstrap ./your-repo "Add JWT auth" --tool codex
+swarm bootstrap ./your-repo "Add JWT auth" --tool codex
 ```
 
 See it work before pointing it at your code:
 
 ```bash
-npm start demo-fast    # two parallel agents, ~1 min
+swarm demo demo-fast    # two parallel agents, ~1 min
 ```
 
 Requires Node.js 18+, Git, and at least one supported agent CLI installed.
@@ -87,8 +92,6 @@ AI coding agents generate code fast, but without verification, you're merging un
 
 **What it does not do:** This tool does not generate code. It delegates code generation to external agent CLIs (Copilot, Claude Code, Codex) and focuses entirely on orchestration, verification, and quality governance. It is not a replacement for autonomous coding tools; it is a trust layer that wraps them.
 
-You define a goal. The orchestrator builds a dependency graph, launches steps as dependencies resolve, and manages the full lifecycle: branch creation, agent execution, outcome verification, failure repair, and merge. Every agent runs on its own isolated git branch. Every step is verified by what actually happened: did files change, does the build pass, do tests pass. Steps that can't prove their work don't merge.
-
 Works with Copilot CLI, Claude Code, Codex, or any CLI agent via the adapter interface. Select your tool with `--tool` globally or per-step in your plan. The orchestrator doesn't care which agent writes the code; it cares whether the code works.
 
 **Verification is outcome-based.** The engine runs `git diff` against the branch baseline, executes the project's build and test commands in the worktree, and checks for expected output files. Transcript analysis (parsing what the agent claimed) runs as a supplementary signal, not the primary gate. When a step fails, the RepairAgent receives structured failure context (which checks failed and why, ordered by actionability) instead of blindly retrying the same prompt.
@@ -107,14 +110,14 @@ Also available as a [GitHub Action](#github-action) for CI/CD integration and wi
 
 | Command | Description |
 |---------|-------------|
-| `npm start bootstrap ./repo "goal"` | Analyze repo and generate a plan |
-| `npm start run --goal "goal"` | Generate plan and execute in one step |
-| `npm start swarm plan.json` | Execute a plan with parallel agents |
-| `npm start quick "task"` | Single-agent quick task |
-| `npm start use <recipe>` | Run a built-in recipe against current project |
-| `npm start recipes` | List available recipes |
-| `npm start recipe-info <name>` | Show recipe details and parameters |
-| `npm start gates [path]` | Run quality gates on a project |
+| `swarm bootstrap ./repo "goal"` | Analyze repo and generate a plan |
+| `swarm run --goal "goal"` | Generate plan and execute in one step |
+| `swarm swarm plan.json` | Execute a plan with parallel agents |
+| `swarm quick "task"` | Single-agent quick task |
+| `swarm use <recipe>` | Run a built-in recipe against current project |
+| `swarm recipes` | List available recipes |
+| `swarm recipe-info <name>` | Show recipe details and parameters |
+| `swarm gates [path]` | Run quality gates on a project |
 
 
 ### Key Flags
@@ -136,13 +139,13 @@ Also available as a [GitHub Action](#github-action) for CI/CD integration and wi
 
 ```bash
 # Full-featured run with Claude Code
-npm start swarm plan.json --tool claude-code --governance --lean
+swarm swarm plan.json --tool claude-code --governance --lean
 
 # Recipe: add tests with vitest targeting 90% coverage
-npm start use add-tests --tool codex --param framework=vitest --param coverage-target=90
+swarm use add-tests --tool codex --param framework=vitest --param coverage-target=90
 
 # Preview cost before committing
-npm start swarm plan.json --cost-estimate-only
+swarm swarm plan.json --cost-estimate-only
 
 # Per-step agent selection in plan.json
 # { "steps": [
@@ -209,10 +212,10 @@ The Action outputs `result` (JSON with per-step verification status), `plan-path
 Reusable, parameterized plans for common tasks. Recipes modify existing projects (unlike templates, which create new ones).
 
 ```bash
-npm start recipes                           # list all
-npm start recipe-info add-tests             # show details
-npm start use add-tests                     # run with defaults
-npm start use add-auth --param strategy=session --tool claude-code
+swarm recipes                           # list all
+swarm recipe-info add-tests             # show details
+swarm use add-tests                     # run with defaults
+swarm use add-auth --param strategy=session --tool claude-code
 ```
 
 | Recipe | Steps | Description | Key Parameters |
@@ -317,20 +320,25 @@ runs/<execution-id>/
 
 Six built-in scenarios for verifying your setup or seeing the pipeline end-to-end.
 
+> **Cost note:** Demos run real agent sessions against real APIs. Each step consumes at least one premium request (or API call for Claude Code / Codex). Larger demos with expensive models can use significant budget. For example, `saas-mvp` with `o3` (20x multiplier) could consume 160+ premium requests. Use `--cost-estimate-only` to preview costs before committing.
+
 ```bash
-npm start demo list
-npm start demo-fast          # ~1 min, two parallel agents
-npm start demo <name>        # any scenario
+swarm demo list
+swarm demo-fast          # ~1 min, two parallel agents
+swarm demo <name>        # any scenario
+
+# Preview cost before running
+swarm demo api-server --cost-estimate-only
 ```
 
-| Scenario | Agents | What Gets Built | Time |
-|----------|--------|-----------------|------|
-| `demo-fast` | 2 | Two independent utility modules | ~1 min |
-| `dashboard-showcase` | 4 | React + Chart.js dashboard, Express API | ~8 min |
-| `todo-app` | 4 | React todo with Express backend | ~15 min |
-| `api-server` | 6 | REST API with JWT, PostgreSQL, Docker | ~25 min |
-| `full-stack-app` | 7 | Full-stack with auth, E2E tests, CI/CD | ~30 min |
-| `saas-mvp` | 8 | SaaS MVP with Stripe, analytics, security | ~40 min |
+| Scenario | Agents | What Gets Built | Time | Est. Requests (1x model) |
+|----------|--------|-----------------|------|--------------------------|
+| `demo-fast` | 2 | Two independent utility modules | ~1 min | 2 |
+| `dashboard-showcase` | 4 | React + Chart.js dashboard, Express API | ~8 min | 4-5 |
+| `todo-app` | 4 | React todo with Express backend | ~15 min | 4-5 |
+| `api-server` | 6 | REST API with JWT, PostgreSQL, Docker | ~25 min | 6-8 |
+| `full-stack-app` | 7 | Full-stack with auth, E2E tests, CI/CD | ~30 min | 7-10 |
+| `saas-mvp` | 8 | SaaS MVP with Stripe, analytics, security | ~40 min | 8-12 |
 
 <br>
 
@@ -344,7 +352,7 @@ npm start demo <name>        # any scenario
 npm install && npm run build && npm test
 ```
 
-Before submitting a PR: run `npm test`, run `npm start gates .`, and keep commits descriptive. TypeScript strict mode, ES2020 target.
+Before submitting a PR: run `npm test`, run `swarm gates .`, and keep commits descriptive. TypeScript strict mode, ES2020 target.
 
 <br>
 

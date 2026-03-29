@@ -97,7 +97,8 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         cleanup();
         if (!resolved) {
           resolved = true;
-          resolve({ stdout, stderr, exitCode: code || 0 });
+          // null exit code means process was killed by a signal; treat as failure
+          resolve({ stdout, stderr, exitCode: code ?? 1 });
         }
       });
 
