@@ -23,7 +23,8 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
     'runs',
     'plans',
     'proof',
-    '.quickfix'
+    '.quickfix',
+    'fixtures'
   ],
   maxFileSizeBytes: 512 * 1024,
   gates: {
@@ -170,7 +171,9 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
     },
     testCoverage: {
       enabled: true,
-      entryPointPatterns: [],
+      entryPointPatterns: [
+        '^src/dashboard\\.tsx?$'
+      ],
       minTestAssertions: 1,
       requireComponentTests: true
     }

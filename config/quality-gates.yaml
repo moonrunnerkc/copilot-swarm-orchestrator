@@ -52,6 +52,7 @@ gates:
 
   testCoverage:
     enabled: true
-    entryPointPatterns: []
+    entryPointPatterns:
+      - '^src/dashboard\.tsx?$'
     minTestAssertions: 1
     requireComponentTests: true

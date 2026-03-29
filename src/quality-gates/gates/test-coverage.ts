@@ -29,6 +29,10 @@ export async function run_test_coverage_gate(
     if (/\bserver\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)) return false;
     // Exclude vite/webpack configs and similar build tooling
     if (/\.(config|d)\.(ts|js|mjs)$/i.test(f.relativePath)) return false;
+    // Exclude root-level entry scripts (start-*, index.js, app.js) outside src/
+    if (!/\//.test(f.relativePath) || /^[^/]+\.(js|mjs)$/.test(f.relativePath)) {
+      if (/^(start|launch|boot|serve)[-.]/i.test(f.relativePath)) return false;
+    }
     // Exclude entry points
     if (entryPatterns.some(p => p.test(f.relativePath))) return false;
     return true;
@@ -47,6 +51,28 @@ export async function run_test_coverage_gate(
   const fileImports = new Map<string, string[]>();
   const importRegex = /(?:from\s+['"]|require\s*\(\s*['"])([^'"]+)['"]/g;
 
+  // Resolve a relative import specifier against the importing file's directory
+  function resolveImport(specifier: string, importerRelPath: string): string {
+    const stripped = specifier.replace(/\.(js|ts|jsx|tsx|mjs)$/, '');
+    if (!specifier.startsWith('.')) return stripped;
+
+    const importerKey = importerRelPath.replace(/\.(js|ts|jsx|tsx|mjs)$/, '');
+    const slashIdx = importerKey.lastIndexOf('/');
+    let dir = slashIdx >= 0 ? importerKey.substring(0, slashIdx) : '';
+
+    let remaining = stripped;
+    if (remaining.startsWith('./')) {
+      remaining = remaining.substring(2);
+    } else {
+      while (remaining.startsWith('../')) {
+        remaining = remaining.substring(3);
+        const parentSlash = dir.lastIndexOf('/');
+        dir = parentSlash >= 0 ? dir.substring(0, parentSlash) : '';
+      }
+    }
+    return dir ? `${dir}/${remaining}` : remaining;
+  }
+
   for (const f of allFiles) {
     if (!/\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)) continue;
     const text = f.text ?? maybe_read_text(f, maxFileSizeBytes);
@@ -56,16 +82,18 @@ export async function run_test_coverage_gate(
     let m: RegExpExecArray | null;
     importRegex.lastIndex = 0;
     while ((m = importRegex.exec(text)) !== null) {
-      // Skip node_modules / bare specifiers
       if (!m[1].startsWith('.')) continue;
-      const normalized = m[1]
-        .replace(/^(\.\.\/)+/, '')
-        .replace(/^\.\//,  '')
-        .replace(/\.(js|ts|jsx|tsx|mjs)$/, '');
-      imports.push(normalized);
+      imports.push(resolveImport(m[1], f.relativePath));
     }
     const key = f.relativePath.replace(/\.(js|ts|jsx|tsx|mjs)$/, '');
     fileImports.set(key, imports);
+
+    // Register barrel alias: directory imports resolve to dir/index
+    const basename = key.split('/').pop();
+    if (basename === 'index') {
+      const dirKey = key.replace(/\/index$/, '');
+      fileImports.set(dirKey, imports);
+    }
   }
 
   // Walk transitive imports from test files to build the full coverage set
@@ -92,11 +120,8 @@ export async function run_test_coverage_gate(
     let match: RegExpExecArray | null;
     while ((match = importRegex.exec(text)) !== null) {
       if (!match[1].startsWith('.')) continue;
-      const normalized = match[1]
-        .replace(/^(\.\.\/)+/, '')
-        .replace(/^\.\//,  '')
-        .replace(/\.(js|ts|jsx|tsx|mjs)$/, '');
-      walkImports(normalized, new Set<string>());
+      const resolved = resolveImport(match[1], tf.relativePath);
+      walkImports(resolved, new Set<string>());
     }
   }
 
