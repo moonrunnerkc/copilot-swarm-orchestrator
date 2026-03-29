@@ -11,6 +11,8 @@ test-proof/
 runs/
 
 # Runtime artifacts (avoid committing local execution evidence)
+reports/
+knowledge-base.json
 proof/
 .quickfix/
 .context/
