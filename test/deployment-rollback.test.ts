@@ -97,6 +97,7 @@ describe('Upgrade 10: Deployment Rollback', () => {
 
     afterEach((done) => {
       if (server) {
+        server.closeAllConnections();
         server.close(done);
       } else {
         done();
