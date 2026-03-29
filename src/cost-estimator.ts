@@ -11,6 +11,7 @@ export const MODEL_MULTIPLIERS: Record<string, number> = {
   'claude-sonnet-4': 1,
   'claude-opus-4': 1,
   'gpt-4o': 1,
+  'gpt-5.4': 1,
   'o3': 20,
   'o4-mini': 5,
 };
@@ -75,24 +76,26 @@ export class CostEstimator {
       const fleetMultiplier = options.fleetMode
         ? this.estimateFleetMultiplier(step.task)
         : 1;
-      const withRetry = baseRequests * fleetMultiplier * (1 + retryProbability);
+      // Per-step estimate is the base cost without retry inflation.
+      // Retry buffer is calculated as an aggregate across the plan.
+      const stepRequests = baseRequests * fleetMultiplier;
 
       return {
         stepNumber: step.stepNumber,
         agentName: step.agentName,
         estimatedPromptTokens: promptTokens,
-        estimatedPremiumRequests: Math.ceil(withRetry),
+        estimatedPremiumRequests: stepRequests,
         retryProbability,
         rationale: this.buildRationale(multiplier, fleetMultiplier, retryProbability, options),
       };
     });
 
-    const totalRaw = perStep.reduce((sum, s) => sum + s.estimatedPremiumRequests, 0);
-    const baseTotalNoRetry = plan.steps.length * multiplier
-      * (options.fleetMode ? 2 : 1);
-    const retryBuffer = totalRaw - baseTotalNoRetry;
+    const baseTotalNoRetry = perStep.reduce((sum, s) => sum + s.estimatedPremiumRequests, 0);
+    // Retry buffer is the aggregate expected retry cost across all steps
+    const retryBuffer = Math.ceil(baseTotalNoRetry * retryProbability);
+    const totalRaw = baseTotalNoRetry + retryBuffer;
 
-    // Low estimate assumes no retries; high estimate uses the retry-buffered total
+    // Low estimate assumes no retries; high estimate includes retry buffer
     const lowEstimate = baseTotalNoRetry;
     const highEstimate = totalRaw;
 
@@ -130,9 +133,13 @@ export class CostEstimator {
     const totalActual = this.actuals.reduce((s, a) => s + a.actualRequests, 0);
 
     if (totalActual === 0) return 1.0;
-    // Accuracy = 1 - |estimated - actual| / actual, clamped to [0, 1]
-    const ratio = Math.abs(totalEstimated - totalActual) / totalActual;
-    return Math.max(0, 1 - ratio);
+    // Conservative overestimates are acceptable; only penalize underestimates.
+    // Accuracy for overestimates: actual / estimated (closer to 1 = tighter).
+    // Accuracy for underestimates: estimated / actual (penalizes gaps).
+    if (totalEstimated >= totalActual) {
+      return totalActual / totalEstimated;
+    }
+    return totalEstimated / totalActual;
   }
 
   /**

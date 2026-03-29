@@ -17,6 +17,7 @@ export interface RepairContext {
   failedChecks: string[];
   rootCause: string;
   retryCount: number;
+  failureContext?: string | undefined;
 }
 
 /**
@@ -137,6 +138,13 @@ export class RepairAgent {
       sections.push('');
     }
 
+    // Outcome evidence: structured failure context from verifier engine
+    if (context.failureContext) {
+      sections.push('--- OUTCOME EVIDENCE ---');
+      sections.push(context.failureContext);
+      sections.push('');
+    }
+
     sections.push('--- REPAIR INSTRUCTIONS ---');
 
     // classify failure and inject targeted strategy (Upgrade 9)
@@ -161,6 +169,12 @@ export class RepairAgent {
         buildChecks.forEach(b => sections.push(`  - ${b}`));
         sections.push('');
       }
+    }
+
+    // Signal urgency when this is the final allowed attempt
+    if (context.retryCount >= this.maxRetries) {
+      sections.push('This is the final attempt. Prioritize getting a working result over completeness.');
+      sections.push('');
     }
 
     sections.push('4. Commit your fixes with a clear message starting with "repair:".');
@@ -326,7 +340,7 @@ export class RepairAgent {
     // priority: timeout > dependency > missing artifact > majority tag
     if (/timeout|timed out/.test(lower)) return 'timeout';
     if (/\bpackage\b|\bdependency\b|\bmodule not found\b/.test(lower)) return 'dependency-error';
-    if (/not found|not created|missing/.test(lower)) return 'missing-artifact';
+    if (/not found|not created|missing|\[missing-files\]|\[no-changes\]/.test(lower)) return 'missing-artifact';
 
     // count tagged prefixes
     let buildCount = 0, testCount = 0;
@@ -368,14 +382,35 @@ export class RepairAgent {
     const checks: string[] = [];
     for (const check of result.checks) {
       if (!check.passed) {
-        const reason = check.reason ? ` - ${check.reason}` : '';
-        checks.push(`[${check.type}] ${check.description}${reason}`);
+        const label = this.formatCheckLabel(check);
+        checks.push(label);
       }
     }
     if (result.unverifiedClaims.length > 0) {
       checks.push(`Unverified claims: ${result.unverifiedClaims.join('; ')}`);
     }
     return checks;
+  }
+
+  /**
+   * Format a single failed check into a tagged string.
+   * Outcome-based check types get richer detail than transcript-parsed ones.
+   */
+  private formatCheckLabel(check: import('./verifier-engine').VerificationCheck): string {
+    const reason = check.reason ? ` - ${check.reason}` : '';
+
+    switch (check.type) {
+      case 'build_exec':
+        return `[build] ${check.description}${reason}`;
+      case 'test_exec':
+        return `[test] ${check.description}${reason}`;
+      case 'file_existence':
+        return `[missing-files] ${check.description}${reason}`;
+      case 'git_diff':
+        return `[no-changes] ${check.description}${reason}`;
+      default:
+        return `[${check.type}] ${check.description}${reason}`;
+    }
   }
 
   /**

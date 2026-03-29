@@ -87,44 +87,4 @@ describe('Upgrade 2: Persistent Sessions + Audit', () => {
     });
   });
 
-  describe('API endpoint', () => {
-    const baseUrl = (p: number) => `http://${process.env.TEST_HOST || 'localhost'}:${p}`;
-    it('should return 200 + text/markdown for valid session', async () => {
-      // save a session so the endpoint can find it
-      const collector = new MetricsCollector('api-test', 'test');
-      collector.saveSession(testSessionId, sampleState);
-
-      // import web dashboard and spin up a server
-      const { startWebDashboard } = require('../src/web-dashboard');
-      const runsDir = path.join(process.cwd(), 'runs');
-      const server = startWebDashboard(runsDir, 0); // port 0 = random
-      const addr = server.address();
-      const port = typeof addr === 'object' ? addr.port : 0;
-
-      try {
-        const res = await fetch(`${baseUrl(port)}/api/audit/${testSessionId}`);
-        assert.strictEqual(res.status, 200);
-        assert.ok(res.headers.get('content-type')?.includes('text/markdown'));
-        const body = await res.text();
-        assert.ok(body.includes('# Audit Report:'));
-      } finally {
-        server.close();
-      }
-    });
-
-    it('should return 404 for missing session', async () => {
-      const { startWebDashboard } = require('../src/web-dashboard');
-      const runsDir = path.join(process.cwd(), 'runs');
-      const server = startWebDashboard(runsDir, 0);
-      const addr = server.address();
-      const port = typeof addr === 'object' ? addr.port : 0;
-
-      try {
-        const res = await fetch(`${baseUrl(port)}/api/audit/does-not-exist`);
-        assert.strictEqual(res.status, 404);
-      } finally {
-        server.close();
-      }
-    });
-  });
 });

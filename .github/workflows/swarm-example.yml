@@ -1,0 +1,66 @@
+# Example: Using Swarm Orchestrator as a GitHub Action
+# Copy this workflow to your own repo's .github/workflows/ directory
+name: AI Swarm - Add Tests
+on:
+  workflow_dispatch:
+    inputs:
+      goal:
+        description: 'What should the swarm build or fix?'
+        required: true
+        default: 'Add unit tests for all untested modules'
+      tool:
+        description: 'CLI agent to use'
+        required: false
+        default: 'copilot'
+        type: choice
+        options:
+          - copilot
+          - claude-code
+          - codex
+      model:
+        description: 'Model override (leave blank for default)'
+        required: false
+
+jobs:
+  swarm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Copilot CLI requires an authenticated gh CLI
+      - name: Set up GitHub CLI
+        run: gh auth setup-git
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Install the agent CLI you chose
+      - name: Install Copilot CLI
+        if: inputs.tool == 'copilot'
+        run: gh extension install github/gh-copilot
+
+      - name: Install Claude Code
+        if: inputs.tool == 'claude-code'
+        run: npm install -g @anthropic-ai/claude-code
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Install Codex
+        if: inputs.tool == 'codex'
+        run: npm install -g @openai/codex
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Run Swarm Orchestrator
+        uses: moonrunnerkc/copilot-swarm-orchestrator
+        id: swarm
+        with:
+          goal: ${{ inputs.goal }}
+          tool: ${{ inputs.tool }}
+          model: ${{ inputs.model }}
+          pr: review
+
+      - name: Show result
+        run: echo "${{ steps.swarm.outputs.result }}"

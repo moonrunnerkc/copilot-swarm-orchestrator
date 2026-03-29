@@ -7,7 +7,7 @@ const MAX_PATTERNS = 500;
 
 export interface KnowledgePattern {
   id: string;
-  category: 'dependency_order' | 'agent_behavior' | 'anti_pattern' | 'best_practice' | 'failure_mode' | 'cost_history';
+  category: 'dependency_order' | 'agent_behavior' | 'anti_pattern' | 'best_practice' | 'failure_mode' | 'cost_history' | 'recipe_run';
   insight: string;
   confidence: 'low' | 'medium' | 'high';
   evidence: string[];
@@ -129,6 +129,38 @@ export class KnowledgeBaseManager {
     this.knowledgeBase.lastUpdated = now;
     this.knowledgeBase.statistics.totalPatterns = this.knowledgeBase.patterns.length;
     this.saveKnowledgeBase();
+  }
+
+  /**
+   * Record a recipe execution for historical tracking.
+   * Stores structured run data so future recipe invocations can reference
+   * success rates and typical durations.
+   */
+  recordRecipeRun(data: {
+    recipe: string;
+    parameters: Record<string, string>;
+    tool: string;
+    passed: boolean;
+    duration: number;
+    stepsCompleted: number;
+    totalSteps: number;
+  }): void {
+    const status = data.passed ? 'passed' : 'failed';
+    const completionRatio = `${data.stepsCompleted}/${data.totalSteps}`;
+    this.addOrUpdatePattern({
+      category: 'recipe_run',
+      insight: `recipe:${data.recipe} tool:${data.tool} ${status} (${completionRatio} steps, ${data.duration}ms)`,
+      confidence: 'high',
+      evidence: [
+        `recipe:${data.recipe}`,
+        `tool:${data.tool}`,
+        `passed:${data.passed}`,
+        `duration:${data.duration}`,
+        `completed:${completionRatio}`,
+        `params:${JSON.stringify(data.parameters)}`,
+      ],
+      impact: data.passed ? 'low' : 'medium',
+    });
   }
 
   /**

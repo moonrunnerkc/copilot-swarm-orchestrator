@@ -8,6 +8,7 @@ export interface PlanStep {
   dependencies: number[];
   expectedOutputs: string[];
   repo?: string; // git URL or local path; defaults to cwd
+  cliAgent?: string; // per-step adapter override (copilot, claude-code, codex)
 }
 
 export interface ExecutionPlan {

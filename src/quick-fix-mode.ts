@@ -191,7 +191,8 @@ export class QuickFixMode {
     const sessionOptions: SessionOptions = {
       shareToFile: transcriptPath,
       allowAllTools: true,
-      silent: false
+      silent: false,
+      logPrefix: `[${agentProfile.name}]`
     };
 
     // Only pass --agent if the file exists (copilot CLI requires it)

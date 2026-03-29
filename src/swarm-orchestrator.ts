@@ -1,6 +1,7 @@
 import { execSync, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { resolveAdapter, defaultModelForAdapter } from './adapters';
 import AnalyticsLog from './analytics-log';
 import CommitPatternDetector, { CommitMessage } from './commit-pattern-detector';
 import { AgentProfile } from './config-loader';
@@ -67,6 +68,7 @@ export interface SwarmExecutionOptions {
   prMode?: 'auto' | 'review';
   hooksEnabled?: boolean;
   fleetWaveMode?: boolean;
+  cliAgent?: string;
   onProgress?: (context: SwarmExecutionContext, event: string) => void;
 }
 
@@ -105,6 +107,12 @@ export interface SwarmExecutionContext {
   stepCostRecords?: StepCostRecord[];
   prManager?: PRManager;
   prUrls?: Map<number, string>;
+  unmergedBranches?: Array<{
+    stepNumber: number;
+    branchName: string;
+    agentName: string;
+    reason: string;
+  }>;
 }
 
 /**
@@ -270,7 +278,7 @@ export class SwarmOrchestrator {
 
     // Pre-execution cost estimation
     const costEstimator = new CostEstimator(context.knowledgeBase);
-    const modelName = options?.model || 'claude-sonnet-4';
+    const modelName = options?.model || defaultModelForAdapter(options?.cliAgent);
     context.costEstimator = costEstimator;
     context.costEstimate = costEstimator.estimate(plan, {
       modelName,
@@ -509,6 +517,13 @@ export class SwarmOrchestrator {
     console.log(`  ${'─'.repeat(40)}`);
     console.log(`  ${completedResults.length} passed, ${failedResults.length} failed, ${waveCounter} batch(es)`);
 
+    if (context.unmergedBranches && context.unmergedBranches.length > 0) {
+      console.log(`\n⚠️  ${context.unmergedBranches.length} branch(es) could not merge (work preserved on branch):`);
+      for (const um of context.unmergedBranches) {
+        console.log(`  • Step ${um.stepNumber} (${um.agentName}): ${um.branchName}`);
+      }
+    }
+
     // final quality gates run on the merged state (hard gate)
     // this happens before auto-PR so we don't create a PR for a failing run
     const gatesEnabled = options?.qualityGates !== false;
@@ -655,7 +670,7 @@ export class SwarmOrchestrator {
 
       // Save cost attribution alongside metrics
       if (context.costEstimate && context.stepCostRecords) {
-        const modelName = options?.model || 'claude-sonnet-4';
+        const modelName = options?.model || defaultModelForAdapter(options?.cliAgent);
         const totalEstimated = context.costEstimate.totalPremiumRequests;
         const totalActual = context.stepCostRecords.reduce((s, r) => s + r.actualPremiumRequests, 0);
         const attribution: CostAttribution = {
@@ -716,7 +731,7 @@ export class SwarmOrchestrator {
 
       // Record cost history for future estimation calibration
       if (context.costEstimate && context.stepCostRecords) {
-        const modelName = options?.model || 'claude-sonnet-4';
+        const modelName = options?.model || defaultModelForAdapter(options?.cliAgent);
         const totalRetries = context.stepCostRecords.reduce((s, r) => s + r.retryCount, 0);
         const totalActual = context.stepCostRecords.reduce((s, r) => s + r.actualPremiumRequests, 0);
         const totalEstimated = context.costEstimate.totalPremiumRequests;
@@ -893,12 +908,16 @@ export class SwarmOrchestrator {
           const extracted = repairAgentHelper.extractFailedChecks(result.verificationResult);
           failedChecks.push(...extracted);
 
-          // Derive root cause from check types
-          const hasTestFailure = result.verificationResult.checks.some(c => !c.passed && c.type === 'test');
-          const hasBuildFailure = result.verificationResult.checks.some(c => !c.passed && c.type === 'build');
+          // Derive root cause from check types (includes outcome-based checks)
+          const hasTestFailure = result.verificationResult.checks.some(c => !c.passed && (c.type === 'test' || c.type === 'test_exec'));
+          const hasBuildFailure = result.verificationResult.checks.some(c => !c.passed && (c.type === 'build' || c.type === 'build_exec'));
           const hasCommitFailure = result.verificationResult.checks.some(c => !c.passed && c.type === 'commit');
-          if (hasTestFailure) rootCause = 'Tests not executed or failed';
+          const hasNoDiff = result.verificationResult.checks.some(c => !c.passed && c.type === 'git_diff');
+          const hasMissingFiles = result.verificationResult.checks.some(c => !c.passed && c.type === 'file_existence');
+          if (hasMissingFiles) rootCause = 'Expected files were not created';
+          else if (hasTestFailure) rootCause = 'Tests not executed or failed';
           else if (hasBuildFailure) rootCause = 'Build not executed or failed';
+          else if (hasNoDiff) rootCause = 'Agent made no code changes';
           else if (hasCommitFailure) rootCause = 'No commits made';
         }
 
@@ -911,7 +930,8 @@ export class SwarmOrchestrator {
           branchName: retryBranchName,
           failedChecks,
           rootCause,
-          retryCount
+          retryCount,
+          failureContext: result.verificationResult?.failureContext,
         };
 
         const repairAgent = new RepairAgent(this.workingDir, 3);
@@ -1064,6 +1084,9 @@ export class SwarmOrchestrator {
       const worktreePath = await this.createAgentWorktree(branchName, context.mainBranch, context.runDir, step.stepNumber, stepRepoDir);
       console.log(`  🌿 Step ${step.stepNumber} (${agent.name}) on branch: ${branchName}`);
 
+      // Capture baseline SHA before agent execution for outcome-based verification
+      const baseSha = execSync('git rev-parse HEAD', { cwd: worktreePath, encoding: 'utf8' }).trim();
+
       // build enhanced prompt with dependency context
       const strictIsolation = options?.strictIsolation ?? false;
       const dependencyContext = context.contextBroker.getDependencyContext(step.dependencies, strictIsolation);
@@ -1087,7 +1110,10 @@ export class SwarmOrchestrator {
       }
 
       // Create a session executor for this worktree
-      const worktreeExecutor = new SessionExecutor(worktreePath);
+      // Per-step cliAgent takes priority; falls back to run-level option; defaults to copilot
+      const adapterName = step.cliAgent || options?.cliAgent || 'copilot';
+      const stepAdapter = resolveAdapter(adapterName);
+      const worktreeExecutor = new SessionExecutor(worktreePath, stepAdapter);
 
       const sessionOptions: SessionOptions = {
         allowAllTools: true,
@@ -1182,6 +1208,22 @@ export class SwarmOrchestrator {
         await this.analyzeCommitQuality(shareIndex.gitCommits, step.stepNumber, agent.name, context);
       }
 
+      // Commit any uncommitted work the agent left behind.
+      // Some adapters (e.g. Codex) modify files without committing;
+      // the git_diff verification check only sees committed changes.
+      try {
+        const status = execSync('git status --porcelain', { cwd: worktreePath, encoding: 'utf8' }).trim();
+        if (status) {
+          execSync('git add -A', { cwd: worktreePath, stdio: 'pipe' });
+          execSync(
+            `git commit -m "auto-commit uncommitted work from step ${step.stepNumber} (${agent.name})"`,
+            { cwd: worktreePath, stdio: 'pipe', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }
+          );
+        }
+      } catch {
+        // Commit may fail if working tree is truly clean or in detached HEAD; non-fatal
+      }
+
       // verify the step with spinner feedback
       const verifySpinner = new Spinner(`Step ${step.stepNumber} — Verifying work...`, { style: 'dots', prefix: '  ' });
       verifySpinner.start();
@@ -1198,8 +1240,9 @@ export class SwarmOrchestrator {
           // commits are desired but not blocking for demo
           requireCommits: false
         },
-        shareIndex, // Pass pre-parsed index to avoid double transcript parse
-        generatedHooks?.evidenceLogPath // Hook evidence for defense-in-depth cross-referencing
+        shareIndex,
+        generatedHooks?.evidenceLogPath,
+        { workdir: worktreePath, baseSha }
       );
 
       result.verificationResult = verificationResult;
@@ -1301,6 +1344,24 @@ export class SwarmOrchestrator {
       result.status = 'failed';
       result.error = err.message;
       result.endTime = new Date().toISOString();
+
+      // Signal completion even for failed steps so dependent replan steps
+      // don't hang forever in waitForDependencies. The replan step can
+      // check context.results to see the step failed and adapt.
+      const failedEntry: ContextEntry = {
+        stepNumber: step.stepNumber,
+        agentName: agent.name,
+        timestamp: new Date().toISOString(),
+        data: {
+          filesChanged: [],
+          outputsSummary: 'step failed verification',
+          branchName: result.branchName || '',
+          commitShas: [],
+          verificationPassed: false,
+          transcript: path.join(context.runDir, 'steps', `step-${step.stepNumber}`, 'share.md')
+        }
+      };
+      context.contextBroker.addStepContext(failedEntry);
 
       // Notify progress: step failed
       options?.onProgress?.(context, `step-failed:${step.stepNumber}`);
@@ -1801,11 +1862,30 @@ export class SwarmOrchestrator {
             console.log(`  ✅ Merged ${result.branchName}`);
           } catch (error: unknown) {
             const err = error as Error;
-            console.warn(`  ⚠️  Merge conflict for ${result.branchName}: ${err.message}`);
+            // Merge conflict: abort, rebase the branch onto updated main, retry
             try {
               execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' });
             } catch {
-              // No merge in progress to abort; already clean
+              // No merge in progress to abort
+            }
+
+            console.log(`  🔄 Merge conflict for ${result.branchName}, rebasing onto ${context.mainBranch}...`);
+            const rebased = this.tryRebaseAndMerge(result.branchName, context);
+            if (rebased) {
+              console.log(`  ✅ Merged ${result.branchName} (rebased)`);
+            } else {
+              console.warn(`  ⚠️  Could not merge ${result.branchName} after rebase: ${err.message}`);
+              console.warn(`     Step ${result.stepNumber} work preserved on branch ${result.branchName}`);
+              // Track the failure so callers can surface it
+              if (!context.unmergedBranches) {
+                context.unmergedBranches = [];
+              }
+              context.unmergedBranches.push({
+                stepNumber: result.stepNumber,
+                branchName: result.branchName,
+                agentName: result.agentName,
+                reason: err.message,
+              });
             }
           }
         }
@@ -1870,13 +1950,28 @@ export class SwarmOrchestrator {
           mergeSpinner.succeed(`Merged ${result.branchName}`);
         } catch (error: unknown) {
           const err = error as Error;
-          mergeSpinner.fail(`Conflict merging ${result.branchName}: ${err.message}`);
-          console.error(`     Manual resolution required`);
-          // Abort the failed merge to keep working directory clean
+          // Abort the failed merge, then try rebase-and-merge recovery
           try {
             execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' });
           } catch {
-            // No merge in progress to abort; already clean
+            // No merge in progress to abort
+          }
+
+          const rebased = this.tryRebaseAndMerge(result.branchName, context);
+          if (rebased) {
+            mergeSpinner.succeed(`Merged ${result.branchName} (rebased)`);
+          } else {
+            mergeSpinner.fail(`Conflict merging ${result.branchName}: ${err.message}`);
+            console.error(`     Work preserved on branch ${result.branchName}`);
+            if (!context.unmergedBranches) {
+              context.unmergedBranches = [];
+            }
+            context.unmergedBranches.push({
+              stepNumber: result.stepNumber,
+              branchName: result.branchName,
+              agentName: result.agentName,
+              reason: err.message,
+            });
           }
         }
       }
@@ -1942,6 +2037,91 @@ export class SwarmOrchestrator {
         }
       }, 500); // Check every 500ms
     });
+  }
+
+  /**
+   * Rebase a branch onto main and retry the merge. Used when a direct merge
+   * fails due to conflicts with a sibling branch that merged first.
+   * Returns true if the rebase + merge succeeded.
+   */
+  private tryRebaseAndMerge(branchName: string, context: SwarmExecutionContext): boolean {
+    const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+    const mergeEnv = { ...gitEnv, GIT_MERGE_AUTOEDIT: 'no' };
+
+    // Strategy 1: rebase onto main, then fast-forward merge
+    try {
+      execSync(`git rebase ${context.mainBranch} "${branchName}"`, {
+        cwd: this.workingDir, stdio: 'pipe', timeout: 120000, env: gitEnv
+      });
+      execSync(`git checkout "${context.mainBranch}"`, {
+        cwd: this.workingDir, stdio: 'pipe', env: gitEnv
+      });
+      execSync(`git merge --no-ff "${branchName}" -m "Merge ${branchName} (rebased)"`, {
+        cwd: this.workingDir, stdio: 'pipe', timeout: 120000, env: mergeEnv
+      });
+      return true;
+    } catch {
+      // Clean up failed rebase/merge before trying next strategy
+      try { execSync('git rebase --abort', { cwd: this.workingDir, stdio: 'pipe' }); } catch { /* none in progress */ }
+      try { execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' }); } catch { /* none in progress */ }
+      try { execSync(`git checkout "${context.mainBranch}"`, { cwd: this.workingDir, stdio: 'pipe', env: gitEnv }); } catch { /* best-effort */ }
+    }
+
+    // Strategy 2: merge with -X theirs to auto-resolve conflicts by
+    // accepting the branch's version of conflicting hunks. This is safe
+    // because each branch's agent owns its changes, and common files
+    // like package.json/package-lock.json/.gitignore will be reconciled
+    // by the IntegratorFinalizer step.
+    try {
+      console.log(`  🔀 Retrying merge of ${branchName} with conflict auto-resolution...`);
+      execSync(`git merge -X theirs --no-ff "${branchName}" -m "Merge ${branchName} (auto-resolved)"`, {
+        cwd: this.workingDir, stdio: 'pipe', timeout: 120000, env: mergeEnv
+      });
+      return true;
+    } catch {
+      // -X theirs can't resolve modify/delete conflicts (e.g. branch deleted
+      // a file that master modified). Attempt manual resolution: accept the
+      // branch's intent for each conflicting path, then commit.
+      try {
+        const statusOutput = execSync('git status --porcelain', {
+          cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe'
+        });
+        const conflictLines = statusOutput.split('\n').filter(l => l.startsWith('UD') || l.startsWith('DU'));
+
+        if (conflictLines.length > 0) {
+          for (const line of conflictLines) {
+            const filePath = line.slice(3).trim();
+            if (line.startsWith('UD')) {
+              // Modified locally, deleted by branch: accept deletion
+              execSync(`git rm -f "${filePath}"`, { cwd: this.workingDir, stdio: 'pipe' });
+            } else {
+              // Deleted locally, modified by branch: accept the branch version
+              execSync(`git checkout --theirs "${filePath}" && git add "${filePath}"`, {
+                cwd: this.workingDir, stdio: 'pipe', shell: '/bin/bash'
+              });
+            }
+          }
+
+          // Any remaining unresolved conflicts? Let git add -u handle them
+          try {
+            execSync('git add -u', { cwd: this.workingDir, stdio: 'pipe' });
+          } catch { /* ignore */ }
+
+          execSync(
+            `git commit --no-edit -m "Merge ${branchName} (auto-resolved with modify/delete fix)"`,
+            { cwd: this.workingDir, stdio: 'pipe', env: mergeEnv }
+          );
+          console.log(`  ✅ Resolved modify/delete conflicts for ${branchName}`);
+          return true;
+        }
+      } catch {
+        // Manual resolution failed; fall through to abort
+      }
+
+      try { execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' }); } catch { /* none in progress */ }
+      try { execSync(`git checkout "${context.mainBranch}"`, { cwd: this.workingDir, stdio: 'pipe', env: gitEnv }); } catch { /* best-effort */ }
+      return false;
+    }
   }
 
   private async mergeBranch(branchName: string, context: SwarmExecutionContext): Promise<void> {

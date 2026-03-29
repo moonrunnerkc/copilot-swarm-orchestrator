@@ -1,11 +1,13 @@
 import { spawn } from 'child_process';
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import ShareParser, { ShareIndex } from './share-parser';
 import { HookGenerator, EvidenceEntry } from './hook-generator';
 
 export interface VerificationCheck {
-  type: 'test' | 'build' | 'lint' | 'commit' | 'claim' | 'output';
+  type: 'test' | 'build' | 'lint' | 'commit' | 'claim' | 'output'
+    | 'git_diff' | 'file_existence' | 'build_exec' | 'test_exec';
   description: string;
   required: boolean;
   passed: boolean;
@@ -21,8 +23,17 @@ export interface VerificationResult {
   unverifiedClaims: string[];
   timestamp: string;
   transcriptPath: string;
-  gracefulFailure?: boolean; // true if verification failed but allowed to continue
-  degradationReason?: string | undefined; // why graceful failure was applied
+  gracefulFailure?: boolean;
+  degradationReason?: string | undefined;
+  failureContext?: string | undefined;
+  summary?: string | undefined;
+  baseSha?: string | undefined;
+}
+
+export interface OutcomeVerificationOpts {
+  workdir: string;
+  baseSha: string;
+  expectedFiles?: string[];
 }
 
 export interface RollbackResult {
@@ -30,6 +41,48 @@ export interface RollbackResult {
   commitReverted?: string;
   filesRestored: string[];
   error?: string;
+}
+
+/**
+ * Truncate output to the last 20 lines for error display.
+ * Returns the full string if it has 20 lines or fewer.
+ */
+export function last20Lines(output: string): string {
+  const lines = output.split('\n');
+  if (lines.length <= 20) return output;
+  return '...\n' + lines.slice(-20).join('\n');
+}
+
+// Ordering for failure context: more actionable types first
+const FAILURE_TYPE_PRIORITY: Record<string, number> = {
+  file_existence: 0,
+  test_exec: 1,
+  build_exec: 2,
+  git_diff: 3,
+};
+
+/**
+ * Build a structured failure context string from failed checks.
+ * Ordered by actionability and truncated to ~500 tokens (2000 chars).
+ */
+export function buildFailureContext(checks: VerificationCheck[]): string {
+  const failed = checks.filter(c => !c.passed);
+  if (failed.length === 0) return '';
+
+  failed.sort((a, b) => {
+    const pa = FAILURE_TYPE_PRIORITY[a.type] ?? 10;
+    const pb = FAILURE_TYPE_PRIORITY[b.type] ?? 10;
+    return pa - pb;
+  });
+
+  const lines = failed.map(c => `- ${c.type}: ${c.reason || c.description}`);
+  const joined = lines.join('\n');
+
+  // ~500 tokens at 4 chars/token = 2000 chars
+  if (joined.length > 2000) {
+    return joined.slice(0, 2000) + '\n... (truncated)';
+  }
+  return joined;
 }
 
 /**
@@ -59,7 +112,8 @@ export class VerifierEngine {
       gracefulDegradation?: boolean; // Allow continuation even if verification fails
     },
     preParsedIndex?: ShareIndex,
-    evidenceLogPath?: string
+    evidenceLogPath?: string,
+    outcomeOpts?: OutcomeVerificationOpts
   ): Promise<VerificationResult> {
     const checks: VerificationCheck[] = [];
     const unverifiedClaims: string[] = [];
@@ -118,9 +172,30 @@ export class VerifierEngine {
       checks.push(...hookEvidence);
     }
 
-    // Overall pass/fail: only required checks must pass
-    // Unverified claims are warnings for drift detection, NOT hard failures
-    const passed = checks.every(check => !check.required || check.passed);
+    // Outcome-based checks: run when the caller provides worktree info
+    if (outcomeOpts) {
+      const outcomeChecks = this.runOutcomeChecks(outcomeOpts);
+      checks.push(...outcomeChecks);
+
+      // Demote transcript-parsed test/build checks when real execution checks exist
+      const hasOutcomeExecChecks = checks.some(
+        c => c.type === 'build_exec' || c.type === 'test_exec'
+      );
+      if (hasOutcomeExecChecks) {
+        for (const c of checks) {
+          if (c.type === 'build' || c.type === 'test') {
+            c.required = false;
+          }
+        }
+      }
+    }
+
+    // Overall pass/fail: every required check must pass (vacuously true when none are required)
+    const passed = checks.every(c => !c.required || c.passed);
+
+    // Build failure context for repair agent consumption
+    const failureContext = passed ? undefined : buildFailureContext(checks);
+    const summary = this.buildSummary(checks, passed);
 
     // Apply graceful degradation if enabled and verification failed
     let gracefulFailure = false;
@@ -128,23 +203,270 @@ export class VerifierEngine {
 
     if (!passed && requirements?.gracefulDegradation) {
       gracefulFailure = true;
-      const failedChecks = checks.filter(c => c.required && !c.passed);
-      degradationReason = `Verification failed but graceful degradation enabled. Failed checks: ${failedChecks.map(c => c.type).join(', ')}`;
+      const failedRequired = checks.filter(c => c.required && !c.passed);
+      degradationReason = `Verification failed but graceful degradation enabled. Failed checks: ${failedRequired.map(c => c.type).join(', ')}`;
     }
 
     const result: VerificationResult = {
       stepNumber,
       agentName,
-      passed: passed || gracefulFailure, // Pass if graceful failure allowed
+      passed: passed || gracefulFailure,
       checks,
       unverifiedClaims,
       timestamp: new Date().toISOString(),
       transcriptPath,
       gracefulFailure,
-      degradationReason
+      degradationReason,
+      failureContext,
+      summary,
+      baseSha: outcomeOpts?.baseSha,
     };
 
     return result;
+  }
+
+  /**
+   * Run outcome-based checks against the actual worktree state.
+   * These checks verify what the agent actually produced, independent of
+   * what the transcript claims.
+   */
+  private runOutcomeChecks(opts: OutcomeVerificationOpts): VerificationCheck[] {
+    const checks: VerificationCheck[] = [];
+
+    checks.push(this.checkGitDiff(opts.workdir, opts.baseSha));
+
+    if (opts.expectedFiles && opts.expectedFiles.length > 0) {
+      checks.push(this.checkFileExistence(opts.workdir, opts.expectedFiles));
+    }
+
+    const buildCheck = this.checkBuildExec(opts.workdir);
+    if (buildCheck) {
+      checks.push(buildCheck);
+    }
+
+    const testCheck = this.checkTestExec(opts.workdir);
+    if (testCheck) {
+      checks.push(testCheck);
+    }
+
+    return checks;
+  }
+
+  /**
+   * git_diff: verifies the agent made at least one change since baseSha.
+   */
+  private checkGitDiff(workdir: string, baseSha: string): VerificationCheck {
+    try {
+      const diffOutput = execSync(
+        `git diff --stat ${baseSha}..HEAD`,
+        { cwd: workdir, encoding: 'utf8', timeout: 10_000 }
+      ).trim();
+
+      if (!diffOutput) {
+        return {
+          type: 'git_diff',
+          description: 'Agent produced code changes',
+          required: true,
+          passed: false,
+          reason: `No changes detected since ${baseSha.slice(0, 8)}`,
+        };
+      }
+
+      // Parse summary line (e.g. "3 files changed, 42 insertions(+), 5 deletions(-)")
+      const lines = diffOutput.split('\n');
+      const summaryLine = lines[lines.length - 1] || '';
+
+      return {
+        type: 'git_diff',
+        description: 'Agent produced code changes',
+        required: true,
+        passed: true,
+        evidence: summaryLine.trim(),
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        type: 'git_diff',
+        description: 'Agent produced code changes',
+        required: true,
+        passed: false,
+        reason: `git diff failed: ${msg.split('\n')[0]}`,
+      };
+    }
+  }
+
+  /**
+   * file_existence: checks that expected files exist in the worktree.
+   */
+  private checkFileExistence(workdir: string, expectedFiles: string[]): VerificationCheck {
+    const missing: string[] = [];
+    const present: string[] = [];
+
+    for (const file of expectedFiles) {
+      const fullPath = path.join(workdir, file);
+      if (fs.existsSync(fullPath)) {
+        present.push(file);
+      } else {
+        missing.push(file);
+      }
+    }
+
+    if (missing.length > 0) {
+      return {
+        type: 'file_existence',
+        description: 'Expected files exist in worktree',
+        required: true,
+        passed: false,
+        reason: `Missing files: ${missing.join(', ')}`,
+        evidence: `${present.length}/${expectedFiles.length} present`,
+      };
+    }
+
+    return {
+      type: 'file_existence',
+      description: 'Expected files exist in worktree',
+      required: true,
+      passed: true,
+      evidence: `All ${expectedFiles.length} expected file(s) found`,
+    };
+  }
+
+  /**
+   * build_exec: detects and runs the build command in the worktree.
+   * Returns null if no build script detected (no check generated).
+   */
+  private checkBuildExec(workdir: string): VerificationCheck | null {
+    const buildCmd = this.detectBuildCommand(workdir);
+    if (!buildCmd) return null;
+
+    try {
+      execSync(buildCmd, {
+        cwd: workdir,
+        encoding: 'utf8',
+        timeout: 60_000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return {
+        type: 'build_exec',
+        description: `Build succeeded (${buildCmd})`,
+        required: true,
+        passed: true,
+        evidence: `Ran "${buildCmd}" in worktree`,
+      };
+    } catch (err: unknown) {
+      const output = this.extractCommandOutput(err);
+      return {
+        type: 'build_exec',
+        description: `Build failed (${buildCmd})`,
+        required: true,
+        passed: false,
+        reason: last20Lines(output),
+      };
+    }
+  }
+
+  /**
+   * test_exec: detects and runs the test command in the worktree.
+   * Returns null if no test script detected (no check generated).
+   */
+  private checkTestExec(workdir: string): VerificationCheck | null {
+    const testCmd = this.detectTestCommand(workdir);
+    if (!testCmd) return null;
+
+    try {
+      execSync(testCmd, {
+        cwd: workdir,
+        encoding: 'utf8',
+        timeout: 120_000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return {
+        type: 'test_exec',
+        description: `Tests passed (${testCmd})`,
+        required: true,
+        passed: true,
+        evidence: `Ran "${testCmd}" in worktree`,
+      };
+    } catch (err: unknown) {
+      const output = this.extractCommandOutput(err);
+      return {
+        type: 'test_exec',
+        description: `Tests failed (${testCmd})`,
+        required: true,
+        passed: false,
+        reason: last20Lines(output),
+      };
+    }
+  }
+
+  /**
+   * Detect build command from project config files.
+   */
+  private detectBuildCommand(workdir: string): string | null {
+    const pkgPath = path.join(workdir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        if (pkg.scripts?.build) return 'npm run build';
+      } catch { /* malformed package.json; skip */ }
+    }
+
+    const makefilePath = path.join(workdir, 'Makefile');
+    if (fs.existsSync(makefilePath)) {
+      const content = fs.readFileSync(makefilePath, 'utf8');
+      if (/^build\s*:/m.test(content)) return 'make build';
+    }
+
+    return null;
+  }
+
+  /**
+   * Detect test command from project config files.
+   */
+  private detectTestCommand(workdir: string): string | null {
+    const pkgPath = path.join(workdir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        if (pkg.scripts?.test) return 'npm test';
+      } catch { /* malformed package.json; skip */ }
+    }
+
+    const makefilePath = path.join(workdir, 'Makefile');
+    if (fs.existsSync(makefilePath)) {
+      const content = fs.readFileSync(makefilePath, 'utf8');
+      if (/^test\s*:/m.test(content)) return 'make test';
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract stdout+stderr from a child_process error for truncated display.
+   */
+  private extractCommandOutput(err: unknown): string {
+    if (err && typeof err === 'object') {
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      const parts: string[] = [];
+      if (e.stdout) parts.push(e.stdout);
+      if (e.stderr) parts.push(e.stderr);
+      if (parts.length > 0) return parts.join('\n');
+      if (e.message) return e.message;
+    }
+    return String(err);
+  }
+
+  /**
+   * One-line summary of verification outcome.
+   */
+  private buildSummary(checks: VerificationCheck[], passed: boolean): string {
+    const total = checks.length;
+    const passedCount = checks.filter(c => c.passed).length;
+    const requiredFailed = checks.filter(c => c.required && !c.passed).length;
+    if (passed) {
+      return `${passedCount}/${total} checks passed`;
+    }
+    return `${requiredFailed} required check(s) failed out of ${total} total`;
   }
 
   /**

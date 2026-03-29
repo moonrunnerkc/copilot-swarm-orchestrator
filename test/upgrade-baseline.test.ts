@@ -17,7 +17,6 @@ import SwarmOrchestrator, {
 } from '../src/swarm-orchestrator';
 import { CriticResult, ExecutionOptions, SessionState } from '../src/types';
 import { VerificationResult } from '../src/verifier-engine';
-import { startWebDashboard } from '../src/web-dashboard';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -165,33 +164,6 @@ describe('Baseline: Upgrade 2 - Persistent Sessions + Audit', () => {
     assert.ok(report.includes('## Steps'), 'missing steps section');
     assert.ok(report.includes('Scaffold Defaults: pass'), 'missing gate detail');
     assert.ok(report.includes('README Truth: fail'), 'missing failing gate');
-  });
-
-  it('should serve audit report via API at /api/audit/:sessionId', async () => {
-    const baseUrl = (p: number) => `http://${process.env.TEST_HOST || 'localhost'}:${p}`;
-    const mc = new MetricsCollector('api-test', 'test goal');
-    const state = makeSampleState({ sessionId: 'api-test-session' });
-    mc.saveSession('api-test-session', state);
-
-    const server = startWebDashboard(undefined, 0);
-    const addr = server.address();
-    const port = typeof addr === 'object' && addr ? addr.port : 3099;
-
-    try {
-      // valid session
-      const res = await fetch(`${baseUrl(port)}/api/audit/api-test-session`);
-      assert.strictEqual(res.status, 200);
-      const ct = res.headers.get('content-type') || '';
-      assert.ok(ct.includes('text/markdown'), `expected markdown, got ${ct}`);
-      const body = await res.text();
-      assert.ok(body.includes('# Audit Report: api-test-session'));
-
-      // missing session
-      const res404 = await fetch(`${baseUrl(port)}/api/audit/nonexistent`);
-      assert.strictEqual(res404.status, 404);
-    } finally {
-      server.close();
-    }
   });
 
   it('should resume from partial session state', () => {

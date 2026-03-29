@@ -1,0 +1,43 @@
+name: 'Swarm Orchestrator'
+description: 'Agent-agnostic parallel AI coding with dependency-aware scheduling and outcome-verified results'
+branding:
+  icon: 'cpu'
+  color: 'blue'
+
+inputs:
+  goal:
+    description: 'Natural language goal for plan generation and execution'
+    required: false
+  plan:
+    description: 'Path to an existing plan JSON file'
+    required: false
+  recipe:
+    description: 'Name of a built-in recipe (e.g., add-tests, add-auth)'
+    required: false
+  tool:
+    description: 'CLI agent to use (copilot, claude-code, codex). Default: copilot'
+    required: false
+    default: 'copilot'
+  model:
+    description: 'Model name for agent sessions (e.g., claude-sonnet-4, o3)'
+    required: false
+  max-retries:
+    description: 'Maximum retry attempts per failed step'
+    required: false
+    default: '3'
+  pr:
+    description: 'PR mode: auto (merge on pass), review (wait for approval), none'
+    required: false
+    default: 'review'
+
+outputs:
+  result:
+    description: 'JSON summary of the swarm execution (steps, pass/fail, timing)'
+  plan-path:
+    description: 'Path to the generated or used plan file'
+  pr-url:
+    description: 'URL of the created pull request (if --pr mode was active)'
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'

@@ -49,9 +49,10 @@ describe('CostEstimator', () => {
 
       assert.strictEqual(result.modelMultiplier, 1);
       assert.strictEqual(result.perStep.length, 4);
-      // Each step: 1 * 1 * (1 + 0.15) = 1.15, ceil = 2
-      assert.strictEqual(result.perStep[0].estimatedPremiumRequests, 2);
-      assert.strictEqual(result.totalPremiumRequests, 8);
+      // Per-step: 1 base request (no per-step retry inflation)
+      assert.strictEqual(result.perStep[0].estimatedPremiumRequests, 1);
+      // Total: 4 base + ceil(4 * 0.15) = 4 + 1 = 5
+      assert.strictEqual(result.totalPremiumRequests, 5);
       assert.strictEqual(result.lowEstimate, 4);
     });
 
@@ -61,8 +62,9 @@ describe('CostEstimator', () => {
       const result = estimator.estimate(plan, { modelName: 'o3' });
 
       assert.strictEqual(result.modelMultiplier, 20);
-      // Each step: 20 * 1.15 = 23, total = 46
-      assert.strictEqual(result.perStep[0].estimatedPremiumRequests, 23);
+      // Per-step: 20 base requests
+      assert.strictEqual(result.perStep[0].estimatedPremiumRequests, 20);
+      // Total: 40 base + ceil(40 * 0.15) = 40 + 6 = 46
       assert.strictEqual(result.totalPremiumRequests, 46);
       assert.strictEqual(result.lowEstimate, 40);
     });
@@ -73,8 +75,8 @@ describe('CostEstimator', () => {
       const result = estimator.estimate(plan, { modelName: 'o4-mini' });
 
       assert.strictEqual(result.modelMultiplier, 5);
-      // Each step: 5 * 1.15 = 5.75, ceil = 6, total = 18
-      assert.strictEqual(result.perStep[0].estimatedPremiumRequests, 6);
+      // Per-step: 5 base requests
+      assert.strictEqual(result.perStep[0].estimatedPremiumRequests, 5);
     });
 
     it('defaults unknown models to 1x multiplier', () => {
@@ -186,7 +188,7 @@ describe('CostEstimator', () => {
       estimator.recordActual(2, 1, 3, 1);
 
       const accuracy = estimator.getAccuracy();
-      // 1 - |3 - 7| / 7 = 1 - 4/7 ≈ 0.4286
+      // Underestimate: 3/7 ≈ 0.4286
       assert.ok(accuracy > 0.42 && accuracy < 0.44, `Accuracy ${accuracy} should be ~0.4286`);
     });
 
@@ -195,7 +197,21 @@ describe('CostEstimator', () => {
       estimator.recordActual(1, 1, 100, 5);
 
       const accuracy = estimator.getAccuracy();
+      // Underestimate: 1/100 = 0.01
       assert.ok(accuracy < 0.02, `Accuracy ${accuracy} should be near 0 for massive underestimate`);
+    });
+
+    it('treats conservative overestimates as acceptable', () => {
+      const estimator = new CostEstimator();
+      // Estimated 6, actual 3 (typical: per-step ceil + retry buffer, no retries occurred)
+      estimator.recordActual(1, 2, 1, 0);
+      estimator.recordActual(2, 2, 1, 0);
+      estimator.recordActual(3, 2, 1, 0);
+
+      const accuracy = estimator.getAccuracy();
+      // Overestimate: 3/6 = 0.50 (not 0.0 like the old formula)
+      assert.strictEqual(accuracy, 0.5);
+      assert.ok(accuracy > 0, 'Overestimates should not show 0% accuracy');
     });
   });
 

@@ -12,12 +12,14 @@ import {
   handleMetricsCommand,
   handlePlanCommand,
   handleQuickCommand,
+  handleRecipeInfoCommand,
+  handleRecipesCommand,
   handleRunCommand,
   handleShareCommand,
   handleStatusCommand,
   handleSwarmCommand,
   handleTemplatesCommand,
-  handleWebDashboardCommand,
+  handleUseCommand,
   showUsage,
 } from './cli-handlers';
 import { startMcpServer } from './mcp-server';
@@ -65,9 +67,6 @@ async function main(): Promise<void> {
       case 'dashboard':
         exitCode = await handleDashboardCommand(args);
         break;
-      case 'web-dashboard':
-        exitCode = await handleWebDashboardCommand(args);
-        break;
       case 'templates':
         exitCode = await handleTemplatesCommand();
         break;
@@ -89,6 +88,15 @@ async function main(): Promise<void> {
         break;
       case 'agents':
         exitCode = await handleAgentsCommand(args);
+        break;
+      case 'use':
+        exitCode = await handleUseCommand(args);
+        break;
+      case 'recipes':
+        exitCode = handleRecipesCommand();
+        break;
+      case 'recipe-info':
+        exitCode = handleRecipeInfoCommand(args);
         break;
       case 'mcp-server':
         startMcpServer(process.cwd());

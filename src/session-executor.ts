@@ -1,6 +1,7 @@
 import { spawn, SpawnOptions } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { AgentAdapter } from './adapters/agent-adapter';
 import { AgentProfile } from './config-loader';
 import { FleetWrapper } from './fleet-wrapper';
 import { HookGenerator, GeneratedHooks } from './hook-generator';
@@ -41,6 +42,7 @@ export interface SessionResult {
 export class SessionExecutor {
   private copilotBin: string;
   private workingDir: string;
+  private adapter: AgentAdapter | undefined;
 
   // Copilot CLI outputs these when an agent tries to access paths outside its sandbox.
   // Expected behavior during scoped execution; noisy and confusing to users.
@@ -49,9 +51,10 @@ export class SessionExecutor {
     /could not request permission from user/i,
   ];
 
-  constructor(workingDir?: string) {
+  constructor(workingDir?: string, adapter?: AgentAdapter) {
     this.copilotBin = 'copilot';
     this.workingDir = workingDir || process.cwd();
+    this.adapter = adapter;
   }
 
   private isScopeEnforcementNoise(line: string): boolean {
@@ -66,6 +69,12 @@ export class SessionExecutor {
     prompt: string,
     options: SessionOptions = {}
   ): Promise<SessionResult> {
+    // When an adapter is set, delegate to it instead of the hardcoded copilot path.
+    // This lets non-Copilot tools (Claude Code, Codex) plug in transparently.
+    if (this.adapter) {
+      return this.executeViaAdapter(prompt, options);
+    }
+
     const startTime = Date.now();
 
     // build command args based on real copilot CLI flags
@@ -119,6 +128,56 @@ export class SessionExecutor {
       exitCode: result.exitCode,
       duration
     } as SessionResult;
+  }
+
+  /**
+   * Delegate session execution to the pluggable adapter.
+   * Maps SessionOptions to AgentSpawnOptions and AgentResult back to SessionResult.
+   */
+  private async executeViaAdapter(
+    prompt: string,
+    options: SessionOptions
+  ): Promise<SessionResult> {
+    const agentResult = await this.adapter!.spawn({
+      prompt,
+      workdir: this.workingDir,
+      model: options.model,
+      copilotAgent: options.agent,
+    });
+
+    // Write transcript to the share file if the adapter produced one,
+    // or if the caller requested shareToFile and the session succeeded.
+    // For non-Copilot adapters shareTranscriptPath is always undefined,
+    // so we generate a fallback transcript from stdout.
+    let transcriptPath: string | undefined;
+    if (agentResult.shareTranscriptPath) {
+      transcriptPath = agentResult.shareTranscriptPath;
+    } else if (options.shareToFile && agentResult.exitCode === 0) {
+      const dir = path.dirname(options.shareToFile);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(
+        options.shareToFile,
+        `# Agent Session Transcript\n\nSession output:\n\`\`\`\n${agentResult.stdout || 'No output captured'}\n\`\`\`\n`,
+        'utf8'
+      );
+      transcriptPath = options.shareToFile;
+    }
+
+    const sessionResult: SessionResult = {
+      success: agentResult.exitCode === 0,
+      output: agentResult.stdout + agentResult.stderr,
+      exitCode: agentResult.exitCode,
+      duration: agentResult.durationMs,
+    };
+    if (agentResult.exitCode !== 0) {
+      sessionResult.error = agentResult.stderr;
+    }
+    if (transcriptPath) {
+      sessionResult.transcriptPath = transcriptPath;
+    }
+    return sessionResult;
   }
 
   /**

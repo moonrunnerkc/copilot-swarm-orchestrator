@@ -6,6 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as readline from 'readline';
 import { ConfigLoader } from './config-loader';
 import { DemoMode } from './demo-mode';
 import { ExecutionPlan, PlanGenerator } from './plan-generator';
@@ -16,6 +17,53 @@ import { StepRunner } from './step-runner';
 import { SwarmOrchestrator, SwarmExecutionOptions, SwarmExecutionContext } from './swarm-orchestrator';
 import { ExecutionOptions, SessionState } from './types';
 import AgentsExporter from './agents-exporter';
+import { defaultModelForAdapter } from './adapters';
+import { loadRecipe, listRecipeDetails, parameterizeRecipe } from './recipe-loader';
+
+// ---------------------------------------------------------------------------
+// Progress spinner for long-running subprocess calls
+// ---------------------------------------------------------------------------
+
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+function startSpinner(label: string): { stop: () => void } {
+  let frameIdx = 0;
+  const t0 = Date.now();
+  const interval = setInterval(() => {
+    const elapsed = Math.round((Date.now() - t0) / 1000);
+    const frame = SPINNER_FRAMES[frameIdx % SPINNER_FRAMES.length];
+    process.stdout.write(`\r${frame} ${label} ${elapsed}s`);
+    frameIdx++;
+  }, 100);
+  return {
+    stop() {
+      clearInterval(interval);
+      process.stdout.write('\r' + ' '.repeat(label.length + 15) + '\r');
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Cost confirmation gate: blocks execution until user approves token spend
+// ---------------------------------------------------------------------------
+
+function confirmCostPrompt(estimateLow: number, estimateHigh: number, model: string, skipConfirm: boolean): Promise<boolean> {
+  if (skipConfirm) return Promise.resolve(true);
+  // Non-interactive environments (CI, piped stdin) skip the prompt
+  if (!process.stdin.isTTY) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(
+      `\n⚡ This will use ${estimateLow}-${estimateHigh} premium requests (${model}). Proceed? [Y/n] `,
+      (answer) => {
+        rl.close();
+        const normalized = (answer || 'y').trim().toLowerCase();
+        resolve(normalized === 'y' || normalized === 'yes' || normalized === '');
+      }
+    );
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Help text
@@ -40,7 +88,6 @@ Usage:
   swarm gates [path]                     Run quality gates on a repo (default: cwd)
   swarm status <execid>                  Show execution status
   swarm dashboard <execid>               Show TUI dashboard for a run
-  swarm web-dashboard [port]             Start web dashboard (default port: 3002)
   swarm templates                        List available plan templates
   swarm share import <runid> <step> <agent> <path>
                                          Import /share transcript for a step
@@ -48,6 +95,9 @@ Usage:
   swarm audit <session-id>               Generate Markdown audit report for a session
   swarm metrics <session-id>             Show metrics summary for a session
   swarm agents export [--output-dir dir] Export agents as .agent.md from execution history
+  swarm use <recipe> [--param k=v ...]   Execute a pre-built recipe (see: swarm recipes)
+  swarm recipes                          List available recipes
+  swarm recipe-info <name>               Show recipe details and parameters
   swarm mcp-server                       Start MCP server (JSON-RPC over stdio)
   swarm --help                           Show this help message
 
@@ -78,6 +128,8 @@ Flags:
   --target <dir>       Run execution in specified directory instead of cwd or temp dir
   --hooks              Enable per-step hook injection for scope enforcement (default: on)
   --no-hooks           Disable hook injection for debugging
+  --tool <name>        Select CLI agent (copilot, claude-code, codex). Default: copilot
+  --yes, -y            Skip cost confirmation prompt (auto-approve)
 
 Examples:
   # Quick demo (recommended for first-time users)
@@ -139,6 +191,8 @@ export interface ExecuteSwarmCliOptions {
   hooksEnabled?: boolean;
   fleetWaveMode?: boolean;
   targetDir?: string;
+  cliAgent?: string;
+  yes?: boolean; // skip cost confirmation prompt
 }
 
 /**
@@ -161,6 +215,7 @@ export function parseSwarmFlags(args: string[]): ExecuteSwarmCliOptions {
   if (args.includes('--useInnerFleet') || args.includes('--wrap-fleet')) opts.useInnerFleet = true;
   if (args.includes('--fleet')) opts.fleetWaveMode = true;
   if (args.includes('--cost-estimate-only')) opts.costEstimateOnly = true;
+  if (args.includes('--yes') || args.includes('-y')) opts.yes = true;
   if (args.includes('--plan-cache')) opts.planCache = true;
   if (args.includes('--replay')) opts.replay = true;
 
@@ -209,6 +264,11 @@ export function parseSwarmFlags(args: string[]): ExecuteSwarmCliOptions {
   const targetIndex = args.indexOf('--target');
   if (targetIndex !== -1 && args[targetIndex + 1]) {
     opts.targetDir = args[targetIndex + 1];
+  }
+
+  const toolIndex = args.indexOf('--tool');
+  if (toolIndex !== -1 && args[toolIndex + 1]) {
+    opts.cliAgent = args[toolIndex + 1];
   }
 
   return opts;
@@ -363,7 +423,7 @@ function executePlan(planFilename: string, options?: ExecutionOptions): number {
   console.log(`Steps: ${plan.steps.length}`);
 
   const { CostEstimator } = require('./cost-estimator') as typeof import('./cost-estimator');
-  const seqModel = 'claude-sonnet-4';
+  const seqModel = defaultModelForAdapter(options?.cliAgent);
   const seqEstimator = new CostEstimator();
   const seqEstimate = seqEstimator.estimate(plan, { modelName: seqModel });
   console.log(`\n💰 Cost Estimate: ${seqEstimate.lowEstimate}-${seqEstimate.totalPremiumRequests} premium requests`);
@@ -472,7 +532,7 @@ async function executeSwarm(
   // Cost estimation (always runs pre-execution)
   const { CostEstimator } = await import('./cost-estimator');
   const costEstimator = new CostEstimator();
-  const modelName = options?.model || 'claude-sonnet-4';
+  const modelName = options?.model || defaultModelForAdapter(options?.cliAgent);
   const costEstimate = costEstimator.estimate(plan, {
     modelName,
     fleetMode: !!options?.useInnerFleet,
@@ -506,16 +566,39 @@ async function executeSwarm(
     return 1;
   }
 
-  // Resolve the target repo directory: plan metadata > CLI flag > first step repo > cwd
+  // Gate: require explicit user confirmation before spending tokens
+  const confirmed = await confirmCostPrompt(
+    costEstimate.lowEstimate,
+    costEstimate.totalPremiumRequests,
+    modelName,
+    !!options?.yes
+  );
+  if (!confirmed) {
+    console.log('Cancelled.');
+    return 0;
+  }
+
+  // Resolve the target repo directory: plan metadata > CLI flag > first step repo > plan file location > cwd
+  // When the plan file sits under <project>/plans/, infer <project> as the target.
+  let inferredFromPlan: string | undefined;
+  if (path.isAbsolute(planFilename)) {
+    const planDir = path.dirname(planFilename);
+    if (path.basename(planDir) === 'plans') {
+      inferredFromPlan = path.dirname(planDir);
+    }
+  }
+
   const targetDir = plan.metadata?.targetDir
     || options?.targetDir
     || plan.steps.find(s => s.repo)?.repo
+    || inferredFromPlan
     || undefined;
 
   const orchestrator = new SwarmOrchestrator(targetDir);
 
   const runId = `swarm-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-  const runDir = path.join(process.cwd(), 'runs', runId);
+  const baseDir = targetDir || process.cwd();
+  const runDir = path.join(baseDir, 'runs', runId);
 
   console.log(`Run ID: ${runId}`);
   console.log(`Run Directory: ${runDir}\n`);
@@ -566,6 +649,7 @@ async function executeSwarm(
     if (options?.fleetWaveMode) swarmOptions.fleetWaveMode = true;
     if (options?.prMode) swarmOptions.prMode = options.prMode;
     if (options?.hooksEnabled !== undefined) swarmOptions.hooksEnabled = options.hooksEnabled;
+    if (options?.cliAgent) swarmOptions.cliAgent = options.cliAgent;
 
     if (dashboard) {
       swarmOptions.onProgress = (ctx: SwarmExecutionContext, event: string) => {
@@ -646,12 +730,60 @@ async function executeSwarm(
       console.log('   git log --oneline -20\n');
     }
 
-    return 0;
+    // CI output: write structured result when running inside GitHub Actions
+    const allPassed = context.results.every(r => r.verificationResult?.passed);
+    if (process.env.GITHUB_ACTIONS) {
+      writeCIOutputs(context, plan, allPassed);
+    }
+
+    return allPassed ? 0 : 1;
   } catch (error) {
     if (dashboard) {
       dashboard.stop();
     }
     throw error;
+  }
+}
+
+/**
+ * Write CI-specific output files when running inside GitHub Actions.
+ * These feed into action.yml outputs via GITHUB_OUTPUT.
+ */
+function writeCIOutputs(
+  context: SwarmExecutionContext,
+  plan: ExecutionPlan,
+  allPassed: boolean
+): void {
+  const starts = context.results.filter(r => r.startTime).map(r => new Date(r.startTime!).getTime());
+  const ends = context.results.filter(r => r.endTime).map(r => new Date(r.endTime!).getTime());
+  const totalDurationMs = (starts.length > 0 && ends.length > 0)
+    ? Math.max(...ends) - Math.min(...starts)
+    : 0;
+
+  const resultJson = {
+    allPassed,
+    totalSteps: context.results.length,
+    completed: context.results.filter(r => r.status === 'completed').length,
+    failed: context.results.filter(r => r.status === 'failed').length,
+    totalDurationMs,
+    steps: context.results.map(r => ({
+      stepNumber: r.stepNumber,
+      agentName: r.agentName,
+      status: r.status,
+      passed: r.verificationResult?.passed ?? false,
+      retryCount: r.retryCount ?? 0,
+    })),
+  };
+
+  fs.writeFileSync('/tmp/swarm-result.json', JSON.stringify(resultJson), 'utf8');
+  fs.writeFileSync('/tmp/swarm-plan.json', JSON.stringify(plan, null, 2), 'utf8');
+
+  // Write first PR URL if present
+  if (context.prUrls && context.prUrls.size > 0) {
+    const firstUrl = context.prUrls.values().next().value;
+    if (firstUrl) {
+      fs.writeFileSync('/tmp/swarm-pr-url.txt', firstUrl, 'utf8');
+    }
   }
 }
 
@@ -975,10 +1107,17 @@ export async function handleBootstrapCommand(args: string[]): Promise<number> {
 
   try {
     const orchestrator = new BootstrapOrchestrator();
-    const { evidencePath, plan } = await orchestrator.bootstrap(repoPaths, goal, runDir) as {
-      evidencePath: string;
-      plan: ExecutionPlan;
-    };
+    const bsSpinner = startSpinner('Analyzing repos...');
+    let bootstrapResult: { evidencePath: string; plan: ExecutionPlan };
+    try {
+      bootstrapResult = await orchestrator.bootstrap(repoPaths, goal, runDir) as {
+        evidencePath: string;
+        plan: ExecutionPlan;
+      };
+    } finally {
+      bsSpinner.stop();
+    }
+    const { evidencePath, plan } = bootstrapResult;
 
     const planPath = storage.savePlan(plan, runId);
 
@@ -1253,14 +1392,6 @@ export async function handleDashboardCommand(args: string[]): Promise<number> {
   }
 }
 
-export async function handleWebDashboardCommand(args: string[]): Promise<number> {
-  const port = args[1] ? parseInt(args[1], 10) : 3002;
-  const runsDir = path.join(process.cwd(), 'runs');
-  const { startWebDashboard } = require('./web-dashboard');
-  startWebDashboard(runsDir, port);
-  return 0;
-}
-
 export async function handleTemplatesCommand(): Promise<number> {
   const templatesDir = path.join(__dirname, '..', 'templates');
   const resolvedDir = fs.existsSync(templatesDir) ? templatesDir : path.join(__dirname, '..', '..', 'templates');
@@ -1422,14 +1553,16 @@ export async function handleQuickCommand(args: string[]): Promise<number> {
   const flags = {
     model: args.includes('--model') ? args[args.indexOf('--model') + 1] : undefined,
     agent: args.includes('--agent') ? args[args.indexOf('--agent') + 1] : undefined,
-    skipVerify: args.includes('--skip-verify')
+    tool: args.includes('--tool') ? args[args.indexOf('--tool') + 1] : undefined,
+    skipVerify: args.includes('--skip-verify'),
+    yes: args.includes('--yes') || args.includes('-y')
   };
 
   const quickFix = new QuickFixMode();
 
   console.log('⚡ Quick-Fix Mode\n');
 
-  const quickModel = flags.model || 'claude-sonnet-4';
+  const quickModel = flags.model || defaultModelForAdapter(flags.tool);
   const { CostEstimator } = require('./cost-estimator') as typeof import('./cost-estimator');
   const quickCostEstimator = new CostEstimator();
   const quickEstimate = quickCostEstimator.estimate(
@@ -1448,6 +1581,18 @@ export async function handleQuickCommand(args: string[]): Promise<number> {
   );
   console.log(`💰 Cost Estimate: ${quickEstimate.lowEstimate}-${quickEstimate.totalPremiumRequests} premium requests`);
   console.log(`   1 step | ${quickModel} (${quickEstimate.modelMultiplier}x)\n`);
+
+  // Gate: require explicit user confirmation before spending tokens
+  const quickConfirmed = await confirmCostPrompt(
+    quickEstimate.lowEstimate,
+    quickEstimate.totalPremiumRequests,
+    quickModel,
+    flags.yes
+  );
+  if (!quickConfirmed) {
+    console.log('Cancelled.');
+    return 0;
+  }
 
   const quickOpts: QuickFixOptions = {
     skipVerification: flags.skipVerify
@@ -1520,6 +1665,156 @@ export async function handleRunCommand(args: string[]): Promise<number> {
     console.error('Error:', error instanceof Error ? error.message : error);
     return 1;
   }
+}
+
+// ---------------------------------------------------------------------------
+// recipe command handlers
+// ---------------------------------------------------------------------------
+
+export async function handleUseCommand(args: string[]): Promise<number> {
+  const recipeName = args[1];
+  if (!recipeName) {
+    console.error('Error: recipe name required\nUsage: swarm use <recipe> [--param key=value ...]');
+    return 1;
+  }
+
+  let recipe;
+  try {
+    recipe = loadRecipe(recipeName);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+
+  // Parse --param key=value pairs from remaining args
+  const userParams: Record<string, string> = {};
+  for (let i = 2; i < args.length; i++) {
+    if (args[i] === '--param' && args[i + 1]) {
+      const eq = args[i + 1].indexOf('=');
+      if (eq === -1) {
+        console.error(`Invalid parameter format: "${args[i + 1]}". Expected key=value`);
+        return 1;
+      }
+      const key = args[i + 1].substring(0, eq);
+      const value = args[i + 1].substring(eq + 1);
+      userParams[key] = value;
+      i++; // skip the value token
+    }
+  }
+
+  let plan;
+  try {
+    plan = parameterizeRecipe(recipe, userParams);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+
+  console.log(`🐝 Recipe: ${recipe.name}\n`);
+  console.log(`   ${recipe.description}`);
+  console.log(`   Category: ${recipe.category}`);
+  console.log(`   Steps: ${plan.steps.length}\n`);
+
+  plan.steps.forEach(step => {
+    console.log(`   Step ${step.stepNumber}: ${step.task.substring(0, 80)}${step.task.length > 80 ? '...' : ''}`);
+  });
+  console.log('');
+
+  // Save the parameterized plan, then delegate to executeSwarm
+  const storage = new PlanStorage();
+  const planPath = storage.savePlan(plan, `recipe-${recipeName}-${Date.now()}.json`);
+  console.log(`Plan saved: ${planPath}\n`);
+
+  try {
+    const options = parseSwarmFlags(args);
+    const exitCode = await executeSwarm(path.basename(planPath), options);
+
+    // Record recipe run in knowledge base after execution
+    try {
+      const { KnowledgeBaseManager } = await import('./knowledge-base');
+      const kb = new KnowledgeBaseManager();
+      kb.recordRecipeRun({
+        recipe: recipeName,
+        parameters: userParams,
+        tool: options.cliAgent || 'copilot',
+        passed: exitCode === 0,
+        duration: 0,
+        stepsCompleted: plan.steps.length,
+        totalSteps: plan.steps.length,
+      });
+    } catch {
+      // Knowledge base recording is non-critical
+    }
+
+    return exitCode;
+  } catch (error) {
+    console.error('Error executing recipe:', error instanceof Error ? error.message : error);
+    return 1;
+  }
+}
+
+export function handleRecipesCommand(): number {
+  const recipes = listRecipeDetails();
+
+  if (recipes.length === 0) {
+    console.log('No recipes found.');
+    return 0;
+  }
+
+  console.log('\n╔══════════════════════════════════════════════════════════════════════╗');
+  console.log('║  Available Recipes                                                   ║');
+  console.log('╚══════════════════════════════════════════════════════════════════════╝\n');
+
+  for (const recipe of recipes) {
+    console.log(`  ${recipe.name}`);
+    console.log(`    ${recipe.description}`);
+    console.log(`    Category: ${recipe.category} | Steps: ${recipe.steps.length}`);
+    const paramNames = Object.keys(recipe.parameters);
+    if (paramNames.length > 0) {
+      console.log(`    Parameters: ${paramNames.join(', ')}`);
+    }
+    console.log('');
+  }
+
+  console.log('Usage: swarm use <recipe> [--param key=value ...]\n');
+  return 0;
+}
+
+export function handleRecipeInfoCommand(args: string[]): number {
+  const recipeName = args[1];
+  if (!recipeName) {
+    console.error('Error: recipe name required\nUsage: swarm recipe-info <name>');
+    return 1;
+  }
+
+  let recipe;
+  try {
+    recipe = loadRecipe(recipeName);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+
+  console.log(`\nRecipe: ${recipe.name}`);
+  console.log(`Description: ${recipe.description}`);
+  console.log(`Category: ${recipe.category}\n`);
+
+  console.log('Parameters:');
+  for (const [key, param] of Object.entries(recipe.parameters)) {
+    const defaultStr = param.default !== undefined ? ` (default: ${param.default})` : ' (required)';
+    const optionsStr = param.options ? ` [${param.options.join(' | ')}]` : '';
+    console.log(`  --param ${key}=<value>  ${param.description}${defaultStr}${optionsStr}`);
+  }
+  console.log('');
+
+  console.log('Steps:');
+  for (const step of recipe.steps) {
+    const deps = step.dependencies.length > 0 ? ` (after step ${step.dependencies.join(', ')})` : '';
+    console.log(`  ${step.stepNumber}. [${step.agentName}] ${step.task.substring(0, 70)}${step.task.length > 70 ? '...' : ''}${deps}`);
+  }
+  console.log('');
+
+  return 0;
 }
 
 // ---------------------------------------------------------------------------
