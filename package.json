@@ -9,6 +9,7 @@
   },
   "files": [
     "dist/src/",
+    "agents/",
     "config/",
     "plugin/",
     "README.md",
