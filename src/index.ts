@@ -23,4 +23,5 @@ export { PMAgent } from './pm-agent';
 export type { PMReviewResult } from './pm-agent';
 export type { ExecutionOptions } from './types';
 export { run_quality_gates, load_quality_gates_config } from './quality-gates';
-
+export { URLShortener, StatisticsTracker, validateURL } from './url-shortener';
+export type { URLShortenerOptions } from './url-shortener';
