@@ -2,7 +2,7 @@
 // for non-interactive use. No transcript sharing; stdout/stderr captured directly.
 
 import { spawn, SpawnOptions } from 'child_process';
-import { AgentAdapter, AgentResult, AgentSpawnOptions } from './agent-adapter';
+import { AgentAdapter, AgentResult, AgentSpawnOptions, buildRestrictedEnv } from './agent-adapter';
 
 // Claude Code can spend several minutes on internal reasoning and multi-file
 // operations without producing stdout, unlike streaming CLI tools.
@@ -39,7 +39,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     return new Promise((resolve) => {
       const spawnOpts: SpawnOptions = {
         cwd: workdir,
-        env: { ...process.env },
+        env: buildRestrictedEnv(['ANTHROPIC_API_KEY']),
       };
 
       const proc = spawn(command, args, spawnOpts);

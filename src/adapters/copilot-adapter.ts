@@ -4,7 +4,7 @@
 // logic from the original implementation.
 
 import { spawn, SpawnOptions } from 'child_process';
-import { AgentAdapter, AgentResult, AgentSpawnOptions } from './agent-adapter';
+import { AgentAdapter, AgentResult, AgentSpawnOptions, buildRestrictedEnv } from './agent-adapter';
 
 // Maximum seconds of silence before killing a stalled copilot subprocess
 const STALL_TIMEOUT_MS = 120_000;
@@ -79,7 +79,7 @@ export class CopilotAdapter implements AgentAdapter {
       const spawnOpts: SpawnOptions = {
         cwd: workdir,
         env: {
-          ...process.env,
+          ...buildRestrictedEnv(['GITHUB_TOKEN', 'COPILOT_TOKEN', 'GH_TOKEN']),
           COPILOT_ALLOW_ALL: 'true',
         },
       };

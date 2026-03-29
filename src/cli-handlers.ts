@@ -490,10 +490,43 @@ function executePlan(planFilename: string, options?: ExecutionOptions): number {
   return 0;
 }
 
+// Maps each adapter to the env var(s) it requires at runtime.
+// Checked before execution so users get clear guidance instead of cryptic
+// auth failures deep in the agent subprocess.
+// Copilot authenticates via `gh auth login` (filesystem credentials),
+// so it has no hard env var requirement. GITHUB_TOKEN is only used
+// in CI where Actions provides it automatically.
+const ADAPTER_REQUIRED_KEYS: Record<string, string[]> = {
+  'claude-code': ['ANTHROPIC_API_KEY'],
+  codex:        ['OPENAI_API_KEY'],
+};
+
+function validateAdapterSecrets(tool: string): void {
+  const required = ADAPTER_REQUIRED_KEYS[tool];
+  if (!required) return;
+
+  const missing = required.filter(k => !process.env[k]);
+  if (missing.length === 0) return;
+
+  const lines = [
+    `Missing required secrets for --tool ${tool}: ${missing.join(', ')}`,
+    '',
+    'Set them in your environment or GitHub Secrets:',
+    ...missing.map(k => `  ${k}=<your-key>`),
+    '',
+    'In a GitHub Actions workflow, pass them via the env: block:',
+    ...missing.map(k => `  ${k}: \${{ secrets.${k} }}`),
+  ];
+  throw new Error(lines.join('\n'));
+}
+
 async function executeSwarm(
   planFilename: string,
   options?: ExecuteSwarmCliOptions
 ): Promise<number> {
+  const selectedTool = options?.cliAgent || 'copilot';
+  validateAdapterSecrets(selectedTool);
+
   console.log('🐝 Swarm Orchestrator - Parallel Execution\n');
 
   const storage = new PlanStorage();

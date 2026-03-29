@@ -3,7 +3,7 @@
 // .git references to the parent repo, which --full-auto's sandbox blocks.
 
 import { spawn, SpawnOptions } from 'child_process';
-import { AgentAdapter, AgentResult, AgentSpawnOptions } from './agent-adapter';
+import { AgentAdapter, AgentResult, AgentSpawnOptions, buildRestrictedEnv } from './agent-adapter';
 
 // Codex can spend significant time on reasoning and file operations
 // without producing stdout, similar to Claude Code.
@@ -46,7 +46,7 @@ export class CodexAdapter implements AgentAdapter {
     return new Promise((resolve) => {
       const spawnOpts: SpawnOptions = {
         cwd: workdir,
-        env: { ...process.env },
+        env: buildRestrictedEnv(['OPENAI_API_KEY']),
       };
 
       const proc = spawn(command, args, spawnOpts);

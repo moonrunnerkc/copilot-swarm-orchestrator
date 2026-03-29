@@ -187,6 +187,34 @@ permissions:
   pull-requests: write
 ```
 
+## Secret Handling
+
+**Never pass secrets as `with:` inputs.** GitHub Actions may expose input values in workflow logs. Use the `env:` block exclusively.
+
+Each `--tool` value requires its own API key, passed as a repository secret:
+
+| `--tool` Value | Required Secret | Where to Get It |
+|----------------|----------------|-----------------|
+| `copilot` | `GITHUB_TOKEN` | Available by default in Actions |
+| `claude-code` | `ANTHROPIC_API_KEY` | [Anthropic Console](https://console.anthropic.com/) |
+| `codex` | `OPENAI_API_KEY` | [OpenAI Platform](https://platform.openai.com/) |
+
+### Correct Usage
+
+```yaml
+- uses: moonrunnerkc/swarm-orchestrator@main
+  with:
+    goal: ${{ inputs.goal }}
+    tool: claude-code
+    pr: review
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+### Artifact Redaction
+
+The Action's Docker entrypoint automatically redacts known secret values from all session artifacts (transcripts, session state files) at the end of every run. This covers `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN`, `COPILOT_TOKEN`, and `GOOGLE_APPLICATION_CREDENTIALS`.
+
 ## Limitations
 
 - The Docker container uses Node.js 20 with git installed

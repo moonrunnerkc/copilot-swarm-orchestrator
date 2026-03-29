@@ -173,6 +173,10 @@ on:
         description: 'What should the swarm do?'
         default: 'Add comprehensive unit tests for all untested modules'
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   swarm:
     runs-on: ubuntu-latest
@@ -182,8 +186,12 @@ jobs:
         id: swarm
         with:
           goal: ${{ github.event.inputs.goal }}
-          tool: copilot
+          tool: claude-code
           pr: review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Add other adapter keys as needed:
+          # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       - name: Check Results
         if: always()
         run: echo "${{ steps.swarm.outputs.result }}"

@@ -40,25 +40,25 @@ describe('GitHub Action', () => {
     it('constructs goal-only command correctly', () => {
       // Dry-parse the script to verify the if/elif/else branching
       const content = fs.readFileSync(SCRIPT, 'utf8');
-      assert.ok(content.includes('run --goal'), 'should construct run --goal command');
+      assert.ok(content.includes('"run"') && content.includes('"--goal"'), 'should construct run --goal command via array dispatch');
       assert.ok(content.includes('INPUT_GOAL'), 'should read INPUT_GOAL env var');
     });
 
     it('constructs plan-only command correctly', () => {
       const content = fs.readFileSync(SCRIPT, 'utf8');
-      assert.ok(content.includes('swarm $PLAN'), 'should pass plan file to swarm subcommand');
+      assert.ok(content.includes('"swarm"') && content.includes('"$PLAN"'), 'should pass plan file to swarm subcommand via array dispatch');
       assert.ok(content.includes('INPUT_PLAN'), 'should read INPUT_PLAN env var');
     });
 
     it('constructs recipe command correctly', () => {
       const content = fs.readFileSync(SCRIPT, 'utf8');
-      assert.ok(content.includes('use $RECIPE'), 'should invoke use subcommand for recipes');
+      assert.ok(content.includes('"use"') && content.includes('"$RECIPE"'), 'should invoke use subcommand for recipes via array dispatch');
       assert.ok(content.includes('INPUT_RECIPE'), 'should read INPUT_RECIPE env var');
     });
 
     it('passes model flag when set', () => {
       const content = fs.readFileSync(SCRIPT, 'utf8');
-      assert.ok(content.includes('--model $MODEL'), 'should append --model when MODEL is set');
+      assert.ok(content.includes('"--model"') && content.includes('"$MODEL"'), 'should append --model when MODEL is set');
     });
 
     it('errors when no goal, plan, or recipe provided', () => {
@@ -78,18 +78,47 @@ describe('GitHub Action', () => {
 
     it('includes --tool flag in constructed commands', () => {
       const content = fs.readFileSync(SCRIPT, 'utf8');
-      assert.ok(content.includes('--tool $TOOL'), 'should thread --tool into every command path');
+      assert.ok(content.includes('"--tool"') && content.includes('"$TOOL"'), 'should thread --tool into every command path via array dispatch');
     });
 
     it('includes --pr flag in constructed commands', () => {
       const content = fs.readFileSync(SCRIPT, 'utf8');
-      assert.ok(content.includes('--pr $PR'), 'all command branches should include the PR flag');
+      assert.ok(content.includes('"--pr"') && content.includes('"$PR"'), 'all command branches should include the PR flag via array dispatch');
     });
 
     it('writes result to GITHUB_OUTPUT when result file exists', () => {
       const content = fs.readFileSync(SCRIPT, 'utf8');
       assert.ok(content.includes('GITHUB_OUTPUT'), 'should reference GITHUB_OUTPUT');
       assert.ok(content.includes('swarm-result.json'), 'should check for result file');
+    });
+
+    it('uses array dispatch instead of eval for shell injection safety', () => {
+      const content = fs.readFileSync(SCRIPT, 'utf8');
+      assert.ok(content.includes('CMD=('), 'should build command as a bash array');
+      assert.ok(content.includes('"${CMD[@]}"'), 'should execute via array expansion');
+      // eval should only appear in comments, never as a shell command
+      const lines = content.split('\n');
+      const evalCommands = lines.filter(l => {
+        const trimmed = l.trim();
+        return trimmed.startsWith('eval') && !trimmed.startsWith('#');
+      });
+      assert.strictEqual(evalCommands.length, 0, 'should not contain eval commands');
+    });
+
+    it('does not echo raw user input in log lines', () => {
+      const content = fs.readFileSync(SCRIPT, 'utf8');
+      // The old script had: echo "Running: $CMD" which leaked the goal text
+      assert.ok(!content.includes('echo "Running: $CMD"'), 'should not echo the raw command string');
+      assert.ok(!content.includes('echo "Running: ${CMD"'), 'should not echo raw array contents');
+    });
+
+    it('redacts known secret env vars from session artifacts', () => {
+      const content = fs.readFileSync(SCRIPT, 'utf8');
+      assert.ok(content.includes('REDACT_KEYS'), 'should define redaction key list');
+      assert.ok(content.includes('ANTHROPIC_API_KEY'), 'should redact Anthropic keys');
+      assert.ok(content.includes('OPENAI_API_KEY'), 'should redact OpenAI keys');
+      assert.ok(content.includes('GITHUB_TOKEN'), 'should redact GitHub tokens');
+      assert.ok(content.includes('[REDACTED:'), 'should replace secrets with tagged placeholders');
     });
   });
 

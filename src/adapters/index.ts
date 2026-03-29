@@ -6,7 +6,7 @@ import { CopilotAdapter } from './copilot-adapter';
 import { ClaudeCodeAdapter } from './claude-code-adapter';
 import { CodexAdapter } from './codex-adapter';
 
-export { AgentAdapter, AgentResult, AgentSpawnOptions } from './agent-adapter';
+export { AgentAdapter, AgentResult, AgentSpawnOptions, buildRestrictedEnv } from './agent-adapter';
 
 const ADAPTER_REGISTRY: Record<string, () => AgentAdapter> = {
   'copilot': () => new CopilotAdapter(),

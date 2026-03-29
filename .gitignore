@@ -21,6 +21,7 @@ proof/
 *.key
 *.p12
 *.pfx
+service-account*.json
 
 # Allow committed, sanitized sample artifacts for judges
 !examples/completed-run/
@@ -34,3 +35,6 @@ proof/
 .mcp.json
 quality-gates.json
 quality-gates.md
+
+# Security review (internal only, never push)
+.github/security-recommendations.md

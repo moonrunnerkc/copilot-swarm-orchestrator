@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { AgentAdapter, AgentResult, AgentSpawnOptions } from '../src/adapters/agent-adapter';
+import { AgentAdapter, AgentResult, AgentSpawnOptions, buildRestrictedEnv } from '../src/adapters/agent-adapter';
 import { CopilotAdapter, hasFatalStderrError } from '../src/adapters/copilot-adapter';
 import { ClaudeCodeAdapter } from '../src/adapters/claude-code-adapter';
 import { CodexAdapter } from '../src/adapters/codex-adapter';
@@ -297,6 +297,51 @@ describe('Agent Adapters', () => {
       assert.ok(content.includes('actual output'), 'stdout should be in transcript');
       // stderr is not included in transcript body when stdout has content
       assert.ok(!content.includes('some warning'), 'stderr should not be in transcript body when stdout present');
+    });
+  });
+
+  describe('buildRestrictedEnv', () => {
+    it('always includes PATH, HOME, and git identity', () => {
+      const env = buildRestrictedEnv([]);
+      assert.ok(env.PATH, 'PATH must be present');
+      assert.ok(env.HOME, 'HOME must be present');
+      assert.strictEqual(env.GIT_AUTHOR_NAME, 'swarm-orchestrator');
+      assert.strictEqual(env.GIT_COMMITTER_NAME, 'swarm-orchestrator');
+    });
+
+    it('forwards only the requested adapter keys from process.env', () => {
+      const original = process.env.ANTHROPIC_API_KEY;
+      process.env.ANTHROPIC_API_KEY = 'test-key-123';
+      try {
+        const env = buildRestrictedEnv(['ANTHROPIC_API_KEY']);
+        assert.strictEqual(env.ANTHROPIC_API_KEY, 'test-key-123');
+        // Other secrets should not leak through
+        assert.strictEqual(env.OPENAI_API_KEY, undefined);
+      } finally {
+        if (original === undefined) delete process.env.ANTHROPIC_API_KEY;
+        else process.env.ANTHROPIC_API_KEY = original;
+      }
+    });
+
+    it('omits keys that are not set in process.env', () => {
+      const original = process.env.OPENAI_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+      try {
+        const env = buildRestrictedEnv(['OPENAI_API_KEY']);
+        assert.strictEqual(env.OPENAI_API_KEY, undefined);
+      } finally {
+        if (original !== undefined) process.env.OPENAI_API_KEY = original;
+      }
+    });
+
+    it('does not include unrelated process.env entries', () => {
+      process.env.__RESTRICTED_ENV_TEST__ = 'should-not-appear';
+      try {
+        const env = buildRestrictedEnv([]);
+        assert.strictEqual(env.__RESTRICTED_ENV_TEST__, undefined);
+      } finally {
+        delete process.env.__RESTRICTED_ENV_TEST__;
+      }
     });
   });
 });

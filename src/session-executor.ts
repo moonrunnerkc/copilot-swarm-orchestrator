@@ -6,6 +6,7 @@ import { AgentProfile } from './config-loader';
 import { FleetWrapper } from './fleet-wrapper';
 import { HookGenerator, GeneratedHooks } from './hook-generator';
 import { PlanStep } from './plan-generator';
+import { redactFile } from './secret-redactor';
 import { ExecutionContext } from './step-runner';
 
 export interface SessionOptions {
@@ -167,6 +168,11 @@ export class SessionExecutor {
         'utf8'
       );
       transcriptPath = options.shareToFile;
+    }
+
+    // Scrub known secret values from the transcript before anything reads it
+    if (transcriptPath) {
+      redactFile(transcriptPath);
     }
 
     const sessionResult: SessionResult = {
