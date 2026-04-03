@@ -290,7 +290,7 @@ function generatePlan(goal: string, copilotMode: boolean = false, opts?: { planC
     console.log('📋 Goal:', goal, '\n');
     console.log('Instructions:');
     console.log('  1. Copy the prompt below');
-    console.log('  2. Start a new Copilot CLI session: gh copilot');
+    console.log('  2. Start a new Copilot CLI session: copilot');
     console.log('  3. Paste the prompt and press Enter');
     console.log('  4. When Copilot responds with JSON, run: /share');
     console.log('  5. Save the /share transcript to a file');
@@ -1115,7 +1115,26 @@ export async function handleBootstrapCommand(args: string[]): Promise<number> {
     return 1;
   }
 
-  const positional = args.slice(1).filter(a => !a.startsWith('--'));
+  // Extract positional args, skipping flags and their values
+  const flagsWithValues = new Set([
+    '--tool', '--model', '--resume', '--pr', '--target',
+    '--quality-gates-config', '--quality-gates-out', '--max-premium-requests',
+  ]);
+  const positional: string[] = [];
+  const raw = args.slice(1);
+  for (let i = 0; i < raw.length; i++) {
+    if (flagsWithValues.has(raw[i])) {
+      i++; // skip the flag's value
+    } else if (!raw[i].startsWith('--')) {
+      positional.push(raw[i]);
+    }
+  }
+
+  if (positional.length < 2) {
+    console.error('Usage: swarm bootstrap <repo-path> [<repo-path2> ...] "Goal description"');
+    return 1;
+  }
+
   const repoPaths = positional.slice(0, -1);
   const goal = positional[positional.length - 1];
 

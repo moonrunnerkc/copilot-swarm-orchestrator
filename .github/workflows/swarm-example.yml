@@ -39,7 +39,7 @@ jobs:
       # Install the agent CLI you chose
       - name: Install Copilot CLI
         if: inputs.tool == 'copilot'
-        run: gh extension install github/gh-copilot
+        run: npm install -g @github/copilot
 
       - name: Install Claude Code
         if: inputs.tool == 'claude-code'

@@ -8,7 +8,8 @@ import { ConfigLoader } from './config-loader';
 import {
   BootstrapAnalysisResult,
   AnnotatedPlanStep,
-  SourceAnnotation
+  SourceAnnotation,
+  GitHubIssueReference
 } from './bootstrap-types';
 import { ExecutionPlan } from './plan-generator';
 
@@ -71,7 +72,7 @@ export class BootstrapOrchestrator {
 
     // Step 3: Ingest GitHub issues
     console.log('Fetching GitHub issues...');
-    let allIssues: any[] = [];
+    let allIssues: GitHubIssueReference[] = [];
     for (const repoPath of repoPaths) {
       const issues = await this.issuesIngester.fetchIssues(repoPath);
       allIssues.push(...issues);

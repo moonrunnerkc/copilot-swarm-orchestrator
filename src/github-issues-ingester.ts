@@ -55,11 +55,11 @@ export class GitHubIssuesIngester {
 
         try {
           const rawIssues = JSON.parse(stdout);
-          const issues: GitHubIssueReference[] = rawIssues.map((issue: any) => ({
+          const issues: GitHubIssueReference[] = rawIssues.map((issue: { number: number; title: string; url: string; labels?: Array<{ name?: string } | string>; createdAt: string }) => ({
             number: issue.number,
             title: issue.title,
             url: issue.url,
-            labels: issue.labels?.map((l: any) => l.name || l) || [],
+            labels: issue.labels?.map((l) => typeof l === 'string' ? l : l.name || '') || [],
             repoName: this.extractRepoName(issue.url),
             createdAt: issue.createdAt
           }));

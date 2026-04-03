@@ -94,6 +94,13 @@ export interface AccessibilityConfig {
   requireHeadingHierarchy: boolean;
   requireAriaLabels: boolean;
   requireFocusStyles: boolean;
+  requireReducedMotion: boolean;
+  requireNoPhantomAssets: boolean;
+  requireMetaTags: boolean;
+  requireResponsiveCSS: boolean;
+  requireColorScheme: boolean;
+  requireSemanticHTML: boolean;
+  requireImgAlt: boolean;
 }
 
 export interface TestCoverageConfig {

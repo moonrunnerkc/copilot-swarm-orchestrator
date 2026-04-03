@@ -1,6 +1,6 @@
 {
   "name": "swarm-orchestrator",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "Verification and governance layer for AI coding agents. Parallel execution with evidence-based quality gates.",
   "main": "dist/src/index.js",
   "bin": {
@@ -16,7 +16,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node -e \"require('fs').chmodSync('dist/src/cli.js', 0o755)\"",
@@ -48,8 +48,6 @@
   },
   "homepage": "https://github.com/moonrunnerkc/swarm-orchestrator#readme",
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
     "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.10",
     "@types/node": "^25.0.10",
@@ -59,9 +57,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "body-parser": "^2.2.2",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
     "ink": "^4.4.1",
     "ink-spinner": "^5.0.0",
     "js-yaml": "^4.1.1",

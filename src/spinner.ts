@@ -120,10 +120,14 @@ export class ProgressTracker {
   }
 
   failStep(stepId: string, message: string): void {
-    const spinner = new Spinner(message, { style: 'dots', prefix: '  ' });
-    this.activeSpinners.set(stepId, spinner);
-    spinner.fail(message);
-    this.activeSpinners.delete(stepId);
+    const existing = this.activeSpinners.get(stepId);
+    if (existing) {
+      existing.fail(message);
+      this.activeSpinners.delete(stepId);
+    } else {
+      const spinner = new Spinner(message, { style: 'dots', prefix: '  ' });
+      spinner.fail(message);
+    }
     this.stepStatus.set(stepId, 'failed');
   }
 

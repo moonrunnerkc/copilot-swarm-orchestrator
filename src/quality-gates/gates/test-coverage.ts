@@ -24,6 +24,10 @@ export async function run_test_coverage_gate(
     if (!/\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)) return false;
     if (/^(test|tests|__tests__)\//.test(f.relativePath)) return false;
     if (/\.test\.|\.spec\./.test(f.relativePath)) return false;
+    // Root-level test scripts (test.js, tests.js) are test files, not source
+    if (/^tests?\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)) return false;
+    // Integration/e2e test files at root level
+    if (/^(integration|e2e)[.-]/i.test(f.relativePath)) return false;
     if (/^(server|config|scripts|examples?|deploy)\//.test(f.relativePath)) return false;
     // Exclude standalone server entry points (e.g. src/server.js that just calls app.listen)
     if (/\bserver\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)) return false;
@@ -38,9 +42,10 @@ export async function run_test_coverage_gate(
     return true;
   });
 
-  // Identify test files
+  // Identify test files: convention-named (.test./.spec.) and root-level test scripts
   const testFiles = ctx.files.filter(f =>
-    /\.(test|spec)\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)
+    /\.(test|spec)\.(tsx?|jsx?|mjs)$/i.test(f.relativePath) ||
+    /^tests?\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)
   );
 
   // Collect all require/import edges from every source and test file so we

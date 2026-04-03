@@ -20,6 +20,7 @@ describe('QualityGates', () => {
       // Disable gates added in v3.1; these fixtures pre-date a11y and test-coverage requirements
       cfg.gates.accessibility = { ...cfg.gates.accessibility, enabled: false };
       cfg.gates.testCoverage = { ...cfg.gates.testCoverage, enabled: false };
+      cfg.gates.runtimeChecks = { ...cfg.gates.runtimeChecks, enabled: false };
       const result = await run_quality_gates(root, cfg);
       assert.strictEqual(result.passed, true, `expected gates to pass for ${root}`);
     }

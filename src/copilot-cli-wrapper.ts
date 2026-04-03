@@ -120,7 +120,7 @@ export class CopilotCliWrapper {
         return {
           success: false,
           output: '',
-          error: 'Copilot CLI is not available. Please install it with: npm install -g @github/copilot-cli',
+          error: 'Copilot CLI is not available. Please install it with: npm install -g @github/copilot',
           exitCode: 127,
           degraded: false,
           capabilities
@@ -147,8 +147,8 @@ export class CopilotCliWrapper {
           degraded: false,
           capabilities
         };
-      } catch (error: any) {
-        lastError = error.message;
+      } catch (error: unknown) {
+        lastError = error instanceof Error ? error.message : String(error);
 
         if (attempt < (this.options.maxRetries || 1)) {
           // Wait before retry with exponential backoff
@@ -204,7 +204,7 @@ export class CopilotCliWrapper {
     }
 
     message += 'To use this feature:\n';
-    message += '1. Install Copilot CLI: npm install -g @github/copilot-cli\n';
+    message += '1. Install Copilot CLI: npm install -g @github/copilot\n';
     message += '2. Authenticate: copilot auth\n';
     message += '3. Re-run this command\n\n';
     message += 'Or, execute the prompt manually in your terminal.';

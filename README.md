@@ -22,15 +22,15 @@ _This is not an autonomous system builder. It orchestrates external AI agents (C
 &nbsp;&nbsp;
 [![CI](https://github.com/moonrunnerkc/swarm-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/moonrunnerkc/swarm-orchestrator/actions/workflows/ci.yml)
 &nbsp;&nbsp;
-![Tests: 1112 passing](https://img.shields.io/badge/tests-1112%20passing-brightgreen.svg)
+![Tests: 1159 passing](https://img.shields.io/badge/tests-1159%20passing-brightgreen.svg)
 &nbsp;&nbsp;
-![Node.js 18+](https://img.shields.io/badge/node-18%2B-green.svg)
+![Node.js 20+](https://img.shields.io/badge/node-20%2B-green.svg)
 &nbsp;&nbsp;
 ![TypeScript 5.x](https://img.shields.io/badge/TypeScript-5.x-blue.svg)
 
 <br>
 
-[Quick Start](#quick-start) · [What Is This](#what-is-this) · [Usage](#usage) · [GitHub Action](#github-action) · [Recipes](#recipes) · [Architecture](#architecture) · [Contributing](#contributing)
+[Quick Start](#quick-start) · [What Is This](#what-is-this) · [Quality Benchmarks](#quality-benchmarks) · [Usage](#usage) · [GitHub Action](#github-action) · [Recipes](#recipes) · [Architecture](#architecture) · [Contributing](#contributing)
 
 <br>
 
@@ -72,11 +72,11 @@ See it work before pointing it at your code:
 swarm demo demo-fast    # two parallel agents, ~1 min
 ```
 
-Requires Node.js 18+, Git, and at least one supported agent CLI installed.
+Requires Node.js 20+, Git, and at least one supported agent CLI installed.
 
 | Agent | Install | Auth |
 |-------|---------|------|
-| GitHub Copilot CLI | `gh extension install github/gh-copilot` | `gh auth login` |
+| GitHub Copilot CLI | `npm install -g @github/copilot` | Launch `copilot` and run `/login` (requires Node.js 22+) |
 | Claude Code | `npm install -g @anthropic-ai/claude-code` | `ANTHROPIC_API_KEY` |
 | Codex | `npm install -g @openai/codex` | `OPENAI_API_KEY` |
 
@@ -106,6 +106,49 @@ Also available as a [GitHub Action](#github-action) for CI/CD integration and wi
 
 <br>
 
+## Quality Benchmarks
+
+The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting. The same goal run through the orchestrator produces output that would take 17-25 follow-up prompts to reach with a standalone agent.
+
+The following comparison used the same goal run through Claude Code unassisted and through the orchestrator. Both outputs were evaluated by an independent reviewer against identical criteria.
+
+**Goal:** _"Create a simple browser-based tic-tac-toe game with HTML, CSS, and vanilla JavaScript. Include a 3x3 grid, alternating X and O turns, win detection, and a reset button."_
+
+### Results: Orchestrator vs Claude Code (unassisted)
+
+| Category | Claude Code | Orchestrator |
+|----------|-------------|--------------|
+| Architecture | A (factory pattern, logic/DOM separation) | A+ (pure ES module + DOM controller, new-array-per-move state) |
+| Tests | A- (11 tests, custom harness, storage mock required) | A+ (19 tests, zero dependencies, edge case + error coverage) |
+| Accessibility | F (no ARIA, no focus management, no keyboard support) | A+ (skip link, aria-live, positional labels, focus-visible) |
+| Responsive design | F (fixed 100px cells, no handling) | A (clamp on all sizes, dvh, edge padding) |
+| CSS architecture | C (hardcoded colors, no variables, no media queries) | A+ (20+ custom properties, dark mode, reduced-motion) |
+| HTML semantics | C+ (buttons, no landmarks, no meta tags) | A+ (meta description, dual theme-color, SVG favicon, landmarks) |
+| Project scaffolding | F (no package.json, no README) | A (zero-dep test runner, structured README) |
+| Audio feedback | None | A (Web Audio API, lazy init, per-event frequencies) |
+
+### What the orchestrator included that Claude Code did not
+
+17 specific quality attributes were present in orchestrator output and absent from Claude Code output: skip link, aria-live region, positional aria-labels (row/column), focus-visible styles, responsive clamp sizing, CSS custom properties (50+ variable references), `prefers-reduced-motion` media query, `prefers-color-scheme` dark mode with full variable overrides, `<meta name="description">`, dual `<meta name="theme-color">` (light and dark), inline SVG favicon, pure logic module separation, copy-on-move game state, audio feedback via Web Audio, separate DOM controller, zero-dependency Node test runner, and structured README with file table.
+
+Each attribute requires at least one follow-up prompt to add when using a standalone agent. Several (full dark mode variable overrides, responsive clamp system, module extraction) require 2-3 rounds. Conservative total: 17-25 prompts eliminated per project.
+
+> **Note:** These results are from a representative run. The underlying agent is non-deterministic, so exact grades and counts may vary between runs. The quality attributes are enforced by prompt injection and gate verification, so they are reliably present, but the specific implementation details (e.g., test count, number of CSS variables) can differ.
+
+### How it works
+
+The orchestrator injects quality requirements into every agent prompt before execution begins: accessibility standards (ARIA labels, keyboard navigation, focus-visible, skip links), CSS requirements (custom properties, reduced-motion, color-scheme), HTML metadata (description, theme-color, viewport), and code structure rules (pure logic separation, DOM controller pattern, semantic HTML). Quality gates then verify the output and reject work that doesn't meet the bar, triggering targeted repair with specific failure context.
+
+Standalone agents optimize for "correct and working." The orchestrator adds "accessible, responsive, themed, and structured" before the agent writes a single line. The quality bar comes from the system, not from the user's prompt.
+
+> **Note:** This benchmark covers frontend web projects using Claude Code as the baseline. Copilot CLI and Codex comparisons are in progress and will be added here. Backend, API, and CLI project benchmarks are planned.
+
+<br>
+
+---
+
+<br>
+
 ## Usage
 
 ### Commands
@@ -118,7 +161,7 @@ Also available as a [GitHub Action](#github-action) for CI/CD integration and wi
 | `swarm quick "task"` | Single-agent quick task |
 | `swarm use <recipe>` | Run a built-in recipe against current project |
 | `swarm recipes` | List available recipes |
-| `swarm recipe-info <name>` | Show recipe details and parameters |
+| `swarm recipe-info <n>` | Show recipe details and parameters |
 | `swarm gates [path]` | Run quality gates on a project |
 
 
@@ -126,7 +169,7 @@ Also available as a [GitHub Action](#github-action) for CI/CD integration and wi
 
 | Flag | Effect |
 |------|--------|
-| `--tool <name>` | Agent to use: `copilot` (default), `claude-code`, `codex` |
+| `--tool <n>` | Agent to use: `copilot` (default), `claude-code`, `codex` |
 | `--governance` | Enable Critic review wave with scoring and auto-pause |
 | `--lean` | Enable Delta Context Engine (KB-backed prompt references) |
 | `--cost-estimate-only` | Print cost estimate and exit without running |
@@ -165,6 +208,8 @@ swarm swarm plan.json --cost-estimate-only
 ## GitHub Action
 
 Run the orchestrator in CI without installing anything. Outcome-based verification provides the trust layer for unattended execution.
+
+> **Security note:** Always pass credentials via the `env:` block, never via `with:` inputs. GitHub Actions may expose input values in workflow logs. Always set minimal `permissions:` to limit `GITHUB_TOKEN` scope. See [SECURITY.md](SECURITY.md) for full credential handling guidance.
 
 ```yaml
 name: AI Swarm - Add Tests
@@ -209,7 +254,7 @@ jobs:
 | `max-retries` | `3` | Max retry attempts per step |
 | `model` | | Model to pass to the agent CLI |
 
-The Action outputs `result` (JSON with per-step verification status), `plan-path`, and `pr-url`. The agent CLI must be available in the runner; the Action does not install it. See [docs/github-action.md](docs/github-action.md) for setup instructions.
+The Action outputs `result` (JSON with per-step verification status), `plan-path`, and `pr-url`. Session artifacts are automatically redacted for known secret values (API keys, tokens) at the end of every run. The agent CLI must be available in the runner; the Action does not install it. See [docs/github-action.md](docs/github-action.md) for setup instructions.
 
 <br>
 
@@ -264,7 +309,7 @@ Goal ──> Plan ──> Waves ──> Branches ──> Agents ──> Verify �
 
 6. **Failure repair.** Failed steps are classified (build failure, test failure, missing files, no changes) and retried up to three times. Each retry receives structured failure context: which checks failed, the relevant build/test output, and what to fix. The RepairAgent uses outcome-based root causes, not guesswork.
 
-7. **Merge.** Verified branches merge to main. Quality gates check the result for scaffold leftovers, duplicate blocks, hardcoded config, README accuracy, test isolation, and runtime correctness.
+7. **Merge.** Verified branches merge to main. Quality gates check the result for scaffold leftovers, duplicate blocks, hardcoded config, README accuracy, test isolation, runtime correctness, accessibility, and test coverage.
 
 <details>
 <summary><strong>Verification checks</strong></summary>
@@ -290,7 +335,9 @@ When outcome checks are present, transcript-based checks are demoted to non-requ
 
 | Module | Responsibility |
 |--------|----------------|
-| `swarm-orchestrator.ts` | Greedy scheduler, dependency resolution, merge orchestration, cost tracking |
+| `swarm-orchestrator.ts` | Greedy scheduler, dependency resolution, merge delegation, cost tracking |
+| `worktree-manager.ts` | Git worktree lifecycle: creation, removal, branch operations |
+| `branch-merger.ts` | Branch merge strategies: rebase-and-merge, conflict resolution, wave merges |
 | `verifier-engine.ts` | Outcome-based verification (git diff, build, test, file existence) + transcript analysis |
 | `session-executor.ts` | Agent adapter integration, AgentResult-to-SessionResult mapping |
 | `adapters/` | Pluggable agent adapters (copilot, claude-code, codex) |
@@ -335,7 +382,7 @@ Six built-in scenarios for verifying your setup or seeing the pipeline end-to-en
 ```bash
 swarm demo list
 swarm demo-fast          # ~1 min, two parallel agents
-swarm demo <name>        # any scenario
+swarm demo <n>        # any scenario
 
 # Preview cost before running
 swarm demo api-server --cost-estimate-only

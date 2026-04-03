@@ -57,7 +57,7 @@ export class DemoMode {
         },
         {
           stepNumber: 2,
-          agentName: 'tester_elite',
+          agentName: 'frontend_expert',
           task: 'Create a tiny TypeScript utility module at src/number-utils.ts that exports a function double(n: number): number which returns n * 2. Keep it boring. No new deps. Add a short top-of-file comment. Commit your work.',
           dependencies: [],
           expectedOutputs: [

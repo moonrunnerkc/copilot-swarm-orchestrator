@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Copilot CLI
-        run: gh extension install github/gh-copilot
+        run: npm install -g @github/copilot
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: moonrunnerkc/swarm-orchestrator@main
@@ -82,7 +82,7 @@ The GitHub Action does not install agent CLIs. You must install them in a prior 
 
 ```yaml
 - name: Install Copilot CLI
-  run: gh extension install github/gh-copilot
+  run: npm install -g @github/copilot
   env:
     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```

@@ -157,14 +157,14 @@ export class QuickFixMode {
           reason: 'Agent not found'
         };
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         success: false,
         agentUsed: agentName,
-        output: `Failed to load agents: ${error.message}`,
+        output: `Failed to load agents: ${error instanceof Error ? error.message : String(error)}`,
         duration: Date.now() - startTime,
         wasQuickFixEligible: true,
-        reason: error.message
+        reason: error instanceof Error ? error.message : String(error)
       };
     }
 
@@ -210,14 +210,15 @@ export class QuickFixMode {
     let sessionResult: SessionResult;
     try {
       sessionResult = await this.sessionExecutor.executeSession(prompt, sessionOptions);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
       return {
         success: false,
         agentUsed: agentProfile.name,
-        output: `Session execution failed: ${error.message}`,
+        output: `Session execution failed: ${msg}`,
         duration: Date.now() - startTime,
         wasQuickFixEligible: true,
-        reason: error.message
+        reason: msg
       };
     }
 
@@ -250,9 +251,9 @@ export class QuickFixMode {
         );
 
         verificationPassed = verificationResult.passed;
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Verification error - don't fail hard in quick-fix mode
-        console.warn(`⚠️  Verification skipped: ${error.message}`);
+        console.warn(`⚠️  Verification skipped: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 

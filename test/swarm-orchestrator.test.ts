@@ -269,9 +269,9 @@ describe('SwarmOrchestrator', () => {
         plan.steps[0], agent, context, ''
       );
 
-      assert.ok(prompt.includes('SCOPE: src/'));
-      assert.ok(prompt.includes('BOUNDARIES: do not touch config/'));
-      assert.ok(prompt.includes('DONE WHEN: tests pass'));
+      assert.ok(prompt.includes('- src/'), 'prompt should list agent scope items');
+      assert.ok(prompt.includes('- do not touch config/'), 'prompt should list agent boundaries');
+      assert.ok(prompt.includes('- tests pass'), 'prompt should list done definition');
     });
 
     it('includes branch isolation warning', () => {

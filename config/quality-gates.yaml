@@ -33,10 +33,10 @@ gates:
     enabled: true
 
   # Runtime checks run the project's own tests, linter, and security audit.
-  # Disabled by default because they require the target project to have
-  # npm scripts and dependencies installed. Enable for production swarm runs.
+  # Each sub-check (test, lint, audit) is skipped gracefully when the target
+  # project lacks the relevant script, config, or package.json.
   runtimeChecks:
-    enabled: false
+    enabled: true
     retries: 1
     runTests: true
     runLint: true
@@ -49,6 +49,13 @@ gates:
     requireHeadingHierarchy: true
     requireAriaLabels: true
     requireFocusStyles: true
+    requireReducedMotion: true
+    requireNoPhantomAssets: true
+    requireMetaTags: true
+    requireResponsiveCSS: true
+    requireColorScheme: true
+    requireSemanticHTML: true
+    requireImgAlt: true
 
   testCoverage:
     enabled: true

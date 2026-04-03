@@ -111,6 +111,26 @@ function hasEslintConfig(projectRoot: string): boolean {
 }
 
 /**
+ * Build the test command, appending ignore patterns for orchestrator
+ * artifact directories when the project uses Jest. Without this, Jest
+ * discovers duplicate test files inside runs/worktrees and fails on
+ * port collisions or stale references.
+ */
+function buildTestCommand(projectRoot: string): string {
+  const pkgPath = path.join(projectRoot, 'package.json');
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    const testScript: string = pkg.scripts?.test || '';
+    const isJest = testScript.includes('jest') || !!pkg.jest;
+    if (isJest) {
+      // Pass ignore patterns after -- so npm forwards them to jest
+      return 'npm test -- --testPathIgnorePatterns=runs/ --testPathIgnorePatterns=coverage/';
+    }
+  } catch { /* fall through to plain npm test */ }
+  return 'npm test';
+}
+
+/**
  * Runtime quality gate: executes the project's own test suite, linter,
  * and security audit to validate the generated code actually works.
  *
@@ -134,7 +154,11 @@ export async function run_runtime_checks_gate(
   // --- npm test ---
   if (config.runTests) {
     if (hasScript(projectRoot, 'test')) {
-      const result = runCommand('npm test', projectRoot, config.timeoutMs, config.retries);
+      // Orchestrator artifacts (runs/, worktrees) can contain duplicate test
+      // files that confuse recursive test runners like Jest. Append ignore
+      // patterns so the gate only evaluates the project's own tests.
+      const testCmd = buildTestCommand(projectRoot);
+      const result = runCommand(testCmd, projectRoot, config.timeoutMs, config.retries);
       stats.testsRun = 1;
       if (!result.success) {
         const excerpt = (result.stderr || result.stdout).split('\n').slice(-15).join('\n').trim();
@@ -165,8 +189,8 @@ export async function run_runtime_checks_gate(
 
   // --- npm audit ---
   if (config.runAudit) {
-    if (fs.existsSync(path.join(projectRoot, 'package-lock.json')) ||
-        fs.existsSync(path.join(projectRoot, 'package.json'))) {
+    // npm audit requires a lockfile; skip for projects with no dependencies
+    if (fs.existsSync(path.join(projectRoot, 'package-lock.json'))) {
       const result = runCommand(
         'npm audit --audit-level=moderate --omit=dev',
         projectRoot,

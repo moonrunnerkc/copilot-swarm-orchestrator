@@ -88,6 +88,9 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
         '^test/fixtures/',
         '^(test|tests|__tests__)/',
         '\\.(test|spec)\\.(ts|js|tsx|jsx|mjs)$',
+        '^(integration|e2e)[.-]',
+        '^test\\.(js|ts|mjs)$',
+        '^tests\\.(js|ts|mjs)$',
         '^(deploy|scripts)/',
         '\\.(sh|bash|bat|cmd|ps1)$',
         'vite\\.config\\.(js|ts|mjs|mts)$',
@@ -155,7 +158,7 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
       ]
     },
     runtimeChecks: {
-      enabled: false,
+      enabled: true,
       retries: 1,
       runTests: true,
       runLint: true,
@@ -167,7 +170,14 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
       requireSkipLink: true,
       requireHeadingHierarchy: true,
       requireAriaLabels: true,
-      requireFocusStyles: true
+      requireFocusStyles: true,
+      requireReducedMotion: true,
+      requireNoPhantomAssets: true,
+      requireMetaTags: true,
+      requireResponsiveCSS: true,
+      requireColorScheme: true,
+      requireSemanticHTML: true,
+      requireImgAlt: true
     },
     testCoverage: {
       enabled: true,

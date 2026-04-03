@@ -18,7 +18,14 @@ function fullConfig(): AccessibilityConfig {
     requireSkipLink: true,
     requireHeadingHierarchy: true,
     requireAriaLabels: true,
-    requireFocusStyles: true
+    requireFocusStyles: true,
+    requireReducedMotion: true,
+    requireNoPhantomAssets: true,
+    requireMetaTags: true,
+    requireResponsiveCSS: true,
+    requireColorScheme: true,
+    requireSemanticHTML: true,
+    requireImgAlt: true
   };
 }
 
@@ -27,22 +34,32 @@ describe('AccessibilityGate', () => {
   it('passes when all checks are satisfied', async () => {
     const html = `<!DOCTYPE html>
 <html lang="en">
-<head><title>App</title></head>
+<head>
+  <title>App</title>
+  <meta name="description" content="A real app">
+  <meta name="theme-color" content="#333">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
 <body>
   <a href="#main-content" class="skip-link">Skip to content</a>
-  <h1>Main Title</h1>
-  <h2>Section</h2>
-  <main id="main-content"></main>
+  <header><h1>Main Title</h1></header>
+  <nav aria-label="Main"><a href="/">Home</a></nav>
+  <main id="main-content">
+    <h2>Section</h2>
+  </main>
 </body>
 </html>`;
-    const css = `button:focus-visible { outline: 2px solid blue; outline-offset: 2px; }`;
+    const css = `:root { --color-bg: #fff; --color-text: #000; }
+button:focus-visible { outline: 2px solid blue; outline-offset: 2px; }
+body { font-size: 1rem; }
+@media (prefers-color-scheme: dark) { :root { --color-bg: #111; --color-text: #eee; } }`;
     const ctx = makeCtx([
       makeFile('index.html', html),
       makeFile('styles.css', css)
     ]);
 
     const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
-    assert.strictEqual(result.status, 'pass');
+    assert.strictEqual(result.status, 'pass', `Expected pass but got issues: ${result.issues.map(i => i.message).join('; ')}`);
     assert.strictEqual(result.issues.length, 0);
   });
 

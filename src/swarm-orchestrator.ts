@@ -1,4 +1,4 @@
-import { execSync, spawn } from 'child_process';
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { resolveAdapter, defaultModelForAdapter } from './adapters';
@@ -17,7 +17,7 @@ import PRAutomation from './pr-automation';
 import { load_quality_gates_config, run_quality_gates } from './quality-gates';
 import RepairAgent, { RepairContext } from './repair-agent';
 import SessionExecutor, { SessionOptions, SessionResult } from './session-executor';
-import ShareParser from './share-parser';
+import ShareParser, { ShareIndex } from './share-parser';
 import { Spinner } from './spinner';
 import { CriticResult, SessionState } from './types';
 import VerifierEngine, { VerificationResult } from './verifier-engine';
@@ -27,6 +27,8 @@ import { HookGenerator, GeneratedHooks } from './hook-generator';
 import FleetExecutor from './fleet-executor';
 import { CostAttribution, CostHistoryEvidence, StepCostRecord } from './metrics-types';
 import PRManager from './pr-manager';
+import { WorktreeManager } from './worktree-manager';
+import { BranchMerger, MergeContext } from './branch-merger';
 
 export interface ParallelStepResult {
   stepNumber: number;
@@ -124,6 +126,8 @@ export class SwarmOrchestrator {
   private shareParser: ShareParser;
   private verifier: VerifierEngine;
   private workingDir: string;
+  private worktreeManager: WorktreeManager;
+  private branchMerger: BranchMerger;
   private pauseRequested: boolean = false;
   private resumeRequested: boolean = false;
 
@@ -132,6 +136,8 @@ export class SwarmOrchestrator {
     this.sessionExecutor = new SessionExecutor(this.workingDir);
     this.shareParser = new ShareParser();
     this.verifier = new VerifierEngine(this.workingDir);
+    this.worktreeManager = new WorktreeManager(this.workingDir);
+    this.branchMerger = new BranchMerger(this.workingDir, this.worktreeManager);
   }
 
   /**
@@ -615,7 +621,7 @@ export class SwarmOrchestrator {
             gatesResult.results.find(r => r.id === 'accessibility'),
             gatesConfig.autoAddAccessibilityFixStepOnAccessibility,
             'accessibilityFixAdded', context, agentMap,
-            'Quality gates flagged accessibility issues. Add missing accessibility attributes: skip-to-content link, heading hierarchy, aria-labels on nav/icon-only buttons, focus-visible styles. Remove bare outline:none without a replacement. Use the gate report as the source of truth. Re-run tests and ensure quality gates pass.',
+            'Quality gates flagged accessibility issues. Fix all items from the gate report: skip-to-content link, heading hierarchy, aria-labels, focus-visible styles, meta description + theme-color tags, responsive CSS (viewport meta, media queries or relative units), CSS custom properties on :root with prefers-color-scheme:dark override, semantic HTML landmarks (main, nav, header), img alt attributes. Use the gate report as the source of truth. Re-run tests and ensure quality gates pass.',
             '⚠️  Final quality gates: accessibility issues detected; scheduling fix',
             maxStep, lastAgent,
           );
@@ -652,6 +658,44 @@ export class SwarmOrchestrator {
           if (addSteps.length > 0) {
             await this.executeReplan(context, { retrySteps: [], addSteps }, agentMap, options);
             gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut);
+
+            // Second remediation attempt if gates still fail after first fix
+            if (!gatesResult.passed && gatesConfig.failOnIssues) {
+              const stillFailed = gatesResult.results.filter(r => r.status === 'fail');
+              if (stillFailed.length > 0) {
+                const findings = stillFailed.flatMap(gate =>
+                  gate.issues.map(issue => {
+                    let desc = `[${gate.id}] ${issue.message}`;
+                    if (issue.filePath) desc += ` (${issue.filePath})`;
+                    if (issue.hint) desc += ` -- hint: ${issue.hint}`;
+                    return desc;
+                  })
+                ).join('\n');
+
+                const retryTask = [
+                  'The previous remediation attempt did not fully resolve the quality gate failures.',
+                  'The following issues remain. Fix each one specifically:',
+                  '',
+                  findings,
+                  '',
+                  'Verify your fixes by checking that the specific issues listed above are resolved.',
+                  'Run tests to ensure nothing is broken.',
+                ].join('\n');
+
+                const retryAgent = this.resolveAgent(agentMap, 'integrator_finalizer')
+                  ? 'integrator_finalizer'
+                  : lastAgent;
+                const retryMaxStep = Math.max(...context.plan.steps.map(s => s.stepNumber));
+
+                console.warn('⚠️  First remediation did not resolve all gate failures. Running second attempt with specific findings...');
+                await this.executeReplan(context, {
+                  retrySteps: [],
+                  addSteps: [{ agent: retryAgent, task: retryTask, afterStep: retryMaxStep }]
+                }, agentMap, options);
+
+                gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut);
+              }
+            }
           }
         }
 
@@ -801,9 +845,10 @@ export class SwarmOrchestrator {
    * Shared auto-remediation logic for quality gate failures.
    * Returns a remediation step descriptor if the gate failed and auto-fix
    * is both enabled and not already triggered; otherwise returns null.
+   * Includes specific gate findings in the task so the fix agent knows exactly what to address.
    */
   private buildRemediationStep(
-    gateResult: { status: string } | undefined,
+    gateResult: { status: string; issues?: Array<{ message: string; filePath?: string; hint?: string }> } | undefined,
     configEnabled: boolean,
     triggeredFlag: keyof NonNullable<SwarmExecutionContext['qualityGatesTriggered']>,
     context: SwarmExecutionContext,
@@ -824,7 +869,19 @@ export class SwarmOrchestrator {
     console.warn(warningMessage);
     context.qualityGatesTriggered[triggeredFlag] = true;
 
-    return { agent: preferredAgent, task: taskDescription, afterStep };
+    // Append specific findings so the remediation agent knows exactly what to fix
+    let taskWithFindings = taskDescription;
+    if (gateResult.issues && gateResult.issues.length > 0) {
+      const findings = gateResult.issues.map(issue => {
+        let finding = `- ${issue.message}`;
+        if (issue.filePath) finding += ` (${issue.filePath})`;
+        if (issue.hint) finding += ` -- hint: ${issue.hint}`;
+        return finding;
+      }).join('\n');
+      taskWithFindings += `\n\nSpecific findings from the gate:\n${findings}`;
+    }
+
+    return { agent: preferredAgent, task: taskWithFindings, afterStep };
   }
 
   /**
@@ -1030,6 +1087,19 @@ export class SwarmOrchestrator {
         }
       });
       await Promise.allSettled(replanPromises);
+
+      // Merge completed replan branches to main so quality gate re-checks
+      // see the remediation changes. Without this, replan work stays on
+      // unmerged branches and gate re-runs read stale code.
+      const completedReplan = newSteps
+        .map(s => context.results.find(r => r.stepNumber === s.stepNumber))
+        .filter((r): r is ParallelStepResult =>
+          !!r && r.status === 'completed' && !!r.branchName
+        );
+      if (completedReplan.length > 0) {
+        context.contextBroker.forceReleaseStaleLocks();
+        await this.mergeWaveBranches(completedReplan, context, options);
+      }
     }
 
     // save replan state to run directory
@@ -1458,7 +1528,8 @@ export class SwarmOrchestrator {
   ): string {
     const sections: string[] = [];
 
-    sections.push(`Step ${step.stepNumber}/${context.plan.steps.length} | Agent: ${agent.name}\n`);
+    sections.push(`Step ${step.stepNumber}/${context.plan.steps.length} | Agent: ${agent.name}`);
+    sections.push(`Role: ${agent.purpose}\n`);
 
     sections.push('TASK:');
     sections.push(step.task + '\n');
@@ -1471,9 +1542,33 @@ export class SwarmOrchestrator {
     sections.push('BRANCH: you are already on your correct branch in a dedicated git worktree.');
     sections.push('Do NOT run git checkout or switch branches.\n');
 
-    sections.push(`SCOPE: ${agent.scope.join(', ')}`);
-    sections.push(`BOUNDARIES: ${agent.boundaries.join(', ')}`);
-    sections.push(`DONE WHEN: ${agent.done_definition.join(', ')}`);
+    sections.push('Scope (what you ARE responsible for):');
+    agent.scope.forEach(item => sections.push('- ' + item));
+    sections.push('');
+
+    sections.push('Boundaries (what you must NOT do):');
+    agent.boundaries.forEach(item => sections.push('- ' + item));
+    sections.push('');
+
+    sections.push('Done when:');
+    agent.done_definition.forEach(item => sections.push('- ' + item));
+    sections.push('');
+
+    if (agent.refusal_rules.length > 0) {
+      sections.push('Refusal rules (stop and explain instead of proceeding):');
+      agent.refusal_rules.forEach(rule => sections.push('- ' + rule));
+      sections.push('');
+    }
+
+    // Hard rules, quality standards, git/comment conventions live in
+    // .copilot-instructions.md (written once per run). Not duplicated here
+    // to keep prompt tokens low and avoid double-loading by Claude Code.
+
+    sections.push('Expected outputs:');
+    step.expectedOutputs.forEach(output => sections.push('- ' + output));
+    sections.push('');
+
+    sections.push('When finished, verify your work actually works before committing. Run tests if applicable. Check that files you created are syntactically valid.');
 
     return sections.join('\n');
   }
@@ -1526,10 +1621,7 @@ export class SwarmOrchestrator {
   }
 
   /**
-   * Create a git worktree for an agent - enables true parallel execution
-   * Each agent gets its own isolated working directory with its branch checked out.
-   * When repoDir differs from this.workingDir, the worktree is forked from the
-   * target repo's git history (e.g. bootstrap targeting an external project).
+   * Create a git worktree for an agent - delegates to WorktreeManager.
    */
   private async createAgentWorktree(
     branchName: string,
@@ -1538,143 +1630,21 @@ export class SwarmOrchestrator {
     stepNumber: number,
     repoDir?: string
   ): Promise<string> {
-    // repoDir is the git repo to fork from; defaults to the orchestrator's own repo
-    const gitDir = repoDir || this.workingDir;
-    const worktreePath = path.join(runDir, 'worktrees', `step-${stepNumber}`);
-
-    // Ensure worktrees directory exists
-    const worktreesDir = path.dirname(worktreePath);
-    if (!fs.existsSync(worktreesDir)) {
-      fs.mkdirSync(worktreesDir, { recursive: true });
-    }
-
-    // Ensure the target repo has at least one commit (handles freshly-init'd repos)
-    try {
-      execSync('git rev-parse HEAD', { cwd: gitDir, stdio: 'pipe' });
-    } catch {
-      // No commits yet; create an initial empty commit so branch/worktree ops work
-      try {
-        execSync('git add -A', { cwd: gitDir, stdio: 'pipe' });
-        execSync('git commit --allow-empty -m "chore: initialize repository"', { cwd: gitDir, stdio: 'pipe' });
-      } catch {
-        // Already has staged content or other edge case; try allow-empty as last resort
-        try {
-          execSync('git commit --allow-empty -m "chore: initialize repository"', { cwd: gitDir, stdio: 'pipe' });
-        } catch {
-          // Truly cannot commit; worktree add will fail with a clear error
-        }
-      }
-    }
-
-    // Resolve fromBranch: the target repo may not have the same branch name as the orchestrator
-    let resolvedFromBranch = fromBranch;
-    if (gitDir !== this.workingDir) {
-      try {
-        // Use whatever branch the target repo is currently on
-        const targetBranch = execSync('git branch --show-current', { cwd: gitDir, encoding: 'utf8', stdio: 'pipe' }).trim();
-        if (targetBranch) {
-          resolvedFromBranch = targetBranch;
-        } else {
-          // Detached HEAD; fall back to the default branch
-          resolvedFromBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: gitDir, encoding: 'utf8', stdio: 'pipe' }).trim();
-        }
-      } catch {
-        // Keep the original fromBranch as best-effort fallback
-      }
-    }
-
-    // Create the branch first (without checkout)
-    try {
-      execSync(`git branch ${branchName} ${resolvedFromBranch}`, { cwd: gitDir, stdio: 'pipe' });
-    } catch {
-      // Branch already exists from a prior retry; safe to reuse
-    }
-
-    // Clean up existing worktree if present (e.g. from a retry)
-    if (fs.existsSync(worktreePath)) {
-      try {
-        execSync(`git worktree remove "${worktreePath}" --force`, { cwd: gitDir, stdio: 'pipe' });
-      } catch {
-        // Worktree entry may be stale or already removed; prune and force-delete the directory
-        try {
-          execSync('git worktree prune', { cwd: gitDir, stdio: 'pipe' });
-        } catch {
-          // Prune is best-effort cleanup; the rmSync below handles the directory
-        }
-        fs.rmSync(worktreePath, { recursive: true, force: true });
-      }
-    }
-
-    // Create worktree with the branch
-    return new Promise((resolve, reject) => {
-      const proc = spawn('git', ['worktree', 'add', worktreePath, branchName], {
-        cwd: gitDir
-      });
-
-      let stderr = '';
-      if (proc.stderr) {
-        proc.stderr.on('data', (data) => {
-          stderr += data.toString();
-        });
-      }
-
-      proc.on('close', (code) => {
-        if (code === 0) {
-          resolve(worktreePath);
-        } else {
-          reject(new Error(`Failed to create worktree: ${stderr}`));
-        }
-      });
-    });
+    return this.worktreeManager.createAgentWorktree(branchName, fromBranch, runDir, stepNumber, repoDir);
   }
 
   /**
-   * Remove a git worktree after merge
+   * Remove a git worktree after merge - delegates to WorktreeManager.
    */
   private async removeAgentWorktree(worktreePath: string): Promise<void> {
-    return new Promise((resolve) => {
-      const proc = spawn('git', ['worktree', 'remove', worktreePath, '--force'], {
-        cwd: this.workingDir
-      });
-
-      proc.on('close', () => {
-        // Don't fail if worktree removal fails - it's cleanup
-        resolve();
-      });
-    });
+    return this.worktreeManager.removeAgentWorktree(worktreePath);
   }
 
   /**
-   * Create a new git branch for an agent (legacy - kept for compatibility)
+   * Create a new git branch for an agent - delegates to WorktreeManager.
    */
   private async createAgentBranch(branchName: string, fromBranch: string): Promise<void> {
-    // stash any uncommitted changes before switching (avoids conflicts from parallel agents)
-    try {
-      execSync('git stash --include-untracked', { cwd: this.workingDir, stdio: 'pipe' });
-    } catch {
-      // Stash fails when working tree is clean; expected during normal execution
-    }
-
-    return new Promise((resolve, reject) => {
-      const proc = spawn('git', ['checkout', '-b', branchName, fromBranch], {
-        cwd: this.workingDir
-      });
-
-      let stderr = '';
-      if (proc.stderr) {
-        proc.stderr.on('data', (data) => {
-          stderr += data.toString();
-        });
-      }
-
-      proc.on('close', (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(`Failed to create branch: ${stderr}`));
-        }
-      });
-    });
+    return this.worktreeManager.createAgentBranch(branchName, fromBranch);
   }
 
   /**
@@ -1758,252 +1728,55 @@ export class SwarmOrchestrator {
   }
 
   /**
-   * Merge completed branches to main. When a PRManager is configured on the
-   * context, creates pull requests with verification evidence instead of
-   * direct git merges. Falls back to sequential merge otherwise.
+   * Merge completed branches to main. Delegates to BranchMerger with
+   * the appropriate context and tracks unmerged branches on the context.
    */
   private async mergeWaveBranches(
     completedResults: ParallelStepResult[],
     context: SwarmExecutionContext,
     options?: SwarmExecutionOptions
   ): Promise<void> {
-    const branches = completedResults
-      .filter(r => r.branchName)
-      .map(r => r.branchName!);
-
-    if (branches.length === 0) return;
-
-    // PR-based merge: create a PR for each branch instead of direct git merge
-    if (context.prManager) {
-      for (const result of completedResults) {
-        if (!result.branchName) continue;
-
-        const step = context.plan.steps.find(s => s.stepNumber === result.stepNumber);
-        const taskDesc = step?.task || `Step ${result.stepNumber}`;
-        const costRecord = context.stepCostRecords?.find(r => r.stepNumber === result.stepNumber);
-
-        const prResult = context.prManager.createStepPR(
-          result.branchName,
-          context.mainBranch,
-          result.stepNumber,
-          result.agentName,
-          taskDesc,
-          {
-            verification: result.verificationResult,
-            costRecord
-          }
-        );
-
-        if (prResult.success && prResult.url) {
-          context.prUrls?.set(result.stepNumber, prResult.url);
-          console.log(`  📋 PR created for step ${result.stepNumber}: ${prResult.url}`);
-
-          if (options?.prMode === 'auto' && prResult.number) {
-            const merged = context.prManager.autoMergePR(prResult.number);
-            if (merged) {
-              console.log(`  ✅ Auto-merged PR #${prResult.number}`);
-            } else {
-              console.warn(`  ⚠️  Auto-merge failed for PR #${prResult.number}; manual merge required`);
-            }
-          } else if (options?.prMode === 'review' && prResult.number) {
-            console.log(`  ⏳ Waiting for approval on PR #${prResult.number}...`);
-            const status = await context.prManager.waitForApproval(prResult.number);
-            if (status.approved || status.state === 'MERGED') {
-              console.log(`  ✅ PR #${prResult.number} approved`);
-              if (status.state !== 'MERGED') {
-                context.prManager.autoMergePR(prResult.number);
-              }
-            } else {
-              console.warn(`  ⚠️  PR #${prResult.number} review timed out or was not approved`);
-            }
-          }
-        } else {
-          console.warn(`  ⚠️  PR creation failed for ${result.branchName}: ${prResult.error}`);
-          // Fall back to direct merge
-          try {
-            await this.mergeBranch(result.branchName, context);
-            console.log(`  ✅ Merged ${result.branchName} (fallback)`);
-          } catch (error: unknown) {
-            const err = error as Error;
-            console.warn(`  ⚠️  Merge conflict for ${result.branchName}: ${err.message}`);
-          }
-        }
-      }
-      return;
-    }
-
-    try {
-      await this.switchBranch(context.mainBranch);
-
-      // Sequential merge with conflict resolution. Octopus merge was removed
-      // because parallel agents nearly always touch shared files (package.json,
-      // README, etc.), making octopus fail every time. Sequential merge with
-      // the 3-strategy fallback (rebase, -X theirs, modify/delete) handles
-      // all real-world conflict patterns correctly.
-      for (const result of completedResults) {
-        if (result.branchName) {
-          try {
-            await this.mergeBranch(result.branchName, context);
-            console.log(`  ✅ Merged ${result.branchName}`);
-          } catch (error: unknown) {
-            const err = error as Error;
-            // Merge conflict: abort, rebase the branch onto updated main, retry
-            try {
-              execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' });
-            } catch {
-              // No merge in progress to abort
-            }
-
-            console.log(`  🔄 Merge conflict for ${result.branchName}, rebasing onto ${context.mainBranch}...`);
-            const rebased = this.tryRebaseAndMerge(result.branchName, context);
-            if (rebased) {
-              console.log(`  ✅ Merged ${result.branchName} (rebased)`);
-            } else {
-              console.warn(`  ⚠️  Could not merge ${result.branchName} after rebase: ${err.message}`);
-              console.warn(`     Step ${result.stepNumber} work preserved on branch ${result.branchName}`);
-              // Track the failure so callers can surface it
-              if (!context.unmergedBranches) {
-                context.unmergedBranches = [];
-              }
-              context.unmergedBranches.push({
-                stepNumber: result.stepNumber,
-                branchName: result.branchName,
-                agentName: result.agentName,
-                reason: err.message,
-              });
-            }
-          }
-        }
-      }
-    } finally {
-      // switchBranch and mergeBranch pass cwd explicitly; no global state to restore
+    const mergeCtx: MergeContext = {
+      mainBranch: context.mainBranch,
+      contextBroker: context.contextBroker,
+      prManager: context.prManager,
+    };
+    const unmerged = await this.branchMerger.mergeWaveBranches(
+      completedResults, mergeCtx, options?.prMode,
+      context.prUrls, context.stepCostRecords, context.plan
+    );
+    if (unmerged.length > 0) {
+      if (!context.unmergedBranches) context.unmergedBranches = [];
+      context.unmergedBranches.push(...unmerged);
     }
   }
 
   /**
    * Merge all agent branches back to main and clean up worktrees
    */
+  /**
+   * Merge all agent branches back to main - delegates to BranchMerger.
+   */
   private async mergeAllBranches(context: SwarmExecutionContext): Promise<void> {
-    // First, remove all worktrees (must be done before branch operations)
-    const worktreesDir = path.join(context.runDir, 'worktrees');
-    if (fs.existsSync(worktreesDir)) {
-      for (const result of context.results) {
-        if (result.branchName) {
-          const worktreePath = path.join(worktreesDir, `step-${result.stepNumber}`);
-          await this.removeAgentWorktree(worktreePath);
-        }
-      }
-    }
-
-    // switch back to main branch
-    await this.switchBranch(context.mainBranch);
-
-    // Stash only tracked modifications in the working directory
-    // (e.g. from npm install during post-execution setup).
-    // IMPORTANT: do NOT stash untracked files -- the runs/ directory contains
-    // transcripts, verification reports, and other artifacts that must persist.
-    let stashed = false;
-    try {
-      const stashResult = execSync('git stash push --no-include-untracked', { cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe' });
-      stashed = !stashResult.includes('No local changes');
-    } catch {
-      // Stash fails when working tree is clean; expected during normal execution
-    }
-
-    // Determine which branches are already merged to avoid double-merge
-    let mergedBranches: string[] = [];
-    try {
-      const merged = execSync(`git branch --merged ${context.mainBranch}`, {
-        cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe'
-      });
-      mergedBranches = merged.split('\n').map(b => b.trim().replace(/^\* /, ''));
-    } catch {
-      // Branch listing can fail in shallow clones or empty repos; safe to attempt all merges
-    }
-
-    for (const result of context.results) {
-      if (result.status === 'completed' && result.branchName) {
-        // Skip branches already merged during wave completion
-        if (mergedBranches.includes(result.branchName)) {
-          console.log(`  ✅ ${result.branchName} (already merged)`);
-          continue;
-        }
-        const mergeSpinner = new Spinner(`Merging ${result.branchName}...`, { style: 'dots', prefix: '  ' });
-        mergeSpinner.start();
-        try {
-          await this.mergeBranch(result.branchName, context);
-          mergeSpinner.succeed(`Merged ${result.branchName}`);
-        } catch (error: unknown) {
-          const err = error as Error;
-          // Abort the failed merge, then try rebase-and-merge recovery
-          try {
-            execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' });
-          } catch {
-            // No merge in progress to abort
-          }
-
-          const rebased = this.tryRebaseAndMerge(result.branchName, context);
-          if (rebased) {
-            mergeSpinner.succeed(`Merged ${result.branchName} (rebased)`);
-          } else {
-            mergeSpinner.fail(`Conflict merging ${result.branchName}: ${err.message}`);
-            console.error(`     Work preserved on branch ${result.branchName}`);
-            if (!context.unmergedBranches) {
-              context.unmergedBranches = [];
-            }
-            context.unmergedBranches.push({
-              stepNumber: result.stepNumber,
-              branchName: result.branchName,
-              agentName: result.agentName,
-              reason: err.message,
-            });
-          }
-        }
-      }
-    }
-
-    // Restore stashed changes if any
-    if (stashed) {
-      try {
-        execSync('git stash pop', { cwd: this.workingDir, stdio: 'pipe' });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[merge] Stash pop conflict after final merge (non-fatal): ${msg}`);
-      }
+    const mergeCtx: MergeContext = {
+      mainBranch: context.mainBranch,
+      contextBroker: context.contextBroker,
+      prManager: context.prManager,
+    };
+    const unmerged = await this.branchMerger.mergeAllBranches(
+      context.results, context.runDir, mergeCtx
+    );
+    if (unmerged.length > 0) {
+      if (!context.unmergedBranches) context.unmergedBranches = [];
+      context.unmergedBranches.push(...unmerged);
     }
   }
 
   /**
-   * Switch to a git branch
+   * Switch to a git branch - delegates to WorktreeManager.
    */
   private async switchBranch(branchName: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const proc = spawn('git', ['checkout', branchName], {
-        cwd: this.workingDir,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
-      });
-
-      // timeout: if checkout takes longer than 15s, something is wrong
-      const timeout = setTimeout(() => {
-        proc.kill('SIGKILL');
-        reject(new Error(`Timeout switching to branch ${branchName}`));
-      }, 15000);
-
-      proc.on('close', (code) => {
-        clearTimeout(timeout);
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(`Failed to switch to branch ${branchName}`));
-        }
-      });
-
-      proc.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
+    return this.worktreeManager.switchBranch(branchName);
   }
 
   /**
@@ -2025,180 +1798,41 @@ export class SwarmOrchestrator {
   }
 
   /**
-   * Rebase a branch onto main and retry the merge. Used when a direct merge
-   * fails due to conflicts with a sibling branch that merged first.
-   * Returns true if the rebase + merge succeeded.
+   * Rebase a branch onto main and retry the merge - delegates to BranchMerger.
    */
   private tryRebaseAndMerge(branchName: string, context: SwarmExecutionContext): boolean {
-    const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
-    const mergeEnv = { ...gitEnv, GIT_MERGE_AUTOEDIT: 'no' };
-
-    // Strategy 1: rebase onto main, then fast-forward merge
-    try {
-      execSync(`git rebase ${context.mainBranch} "${branchName}"`, {
-        cwd: this.workingDir, stdio: 'pipe', timeout: 120000, env: gitEnv
-      });
-      execSync(`git checkout "${context.mainBranch}"`, {
-        cwd: this.workingDir, stdio: 'pipe', env: gitEnv
-      });
-      execSync(`git merge --no-ff "${branchName}" -m "Merge ${branchName} (rebased)"`, {
-        cwd: this.workingDir, stdio: 'pipe', timeout: 120000, env: mergeEnv
-      });
-      return true;
-    } catch {
-      // Clean up failed rebase/merge before trying next strategy
-      try { execSync('git rebase --abort', { cwd: this.workingDir, stdio: 'pipe' }); } catch { /* none in progress */ }
-      try { execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' }); } catch { /* none in progress */ }
-      try { execSync(`git checkout "${context.mainBranch}"`, { cwd: this.workingDir, stdio: 'pipe', env: gitEnv }); } catch { /* best-effort */ }
-    }
-
-    // Strategy 2: merge with -X theirs to auto-resolve conflicts by
-    // accepting the branch's version of conflicting hunks. This is safe
-    // because each branch's agent owns its changes, and common files
-    // like package.json/package-lock.json/.gitignore will be reconciled
-    // by the IntegratorFinalizer step.
-    try {
-      console.log(`  🔀 Retrying merge of ${branchName} with conflict auto-resolution...`);
-      execSync(`git merge -X theirs --no-ff "${branchName}" -m "Merge ${branchName} (auto-resolved)"`, {
-        cwd: this.workingDir, stdio: 'pipe', timeout: 120000, env: mergeEnv
-      });
-      return true;
-    } catch {
-      // -X theirs can't resolve modify/delete conflicts (e.g. branch deleted
-      // a file that master modified). Attempt manual resolution: accept the
-      // branch's intent for each conflicting path, then commit.
-      try {
-        const statusOutput = execSync('git status --porcelain', {
-          cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe'
-        });
-        const conflictLines = statusOutput.split('\n').filter(l => l.startsWith('UD') || l.startsWith('DU'));
-
-        if (conflictLines.length > 0) {
-          for (const line of conflictLines) {
-            const filePath = line.slice(3).trim();
-            if (line.startsWith('UD')) {
-              // Modified locally, deleted by branch: accept deletion
-              execSync(`git rm -f "${filePath}"`, { cwd: this.workingDir, stdio: 'pipe' });
-            } else {
-              // Deleted locally, modified by branch: accept the branch version
-              execSync(`git checkout --theirs "${filePath}" && git add "${filePath}"`, {
-                cwd: this.workingDir, stdio: 'pipe', shell: '/bin/bash'
-              });
-            }
-          }
-
-          // Any remaining unresolved conflicts? Let git add -u handle them
-          try {
-            execSync('git add -u', { cwd: this.workingDir, stdio: 'pipe' });
-          } catch { /* ignore */ }
-
-          execSync(
-            `git commit --no-edit -m "Merge ${branchName} (auto-resolved with modify/delete fix)"`,
-            { cwd: this.workingDir, stdio: 'pipe', env: mergeEnv }
-          );
-          console.log(`  ✅ Resolved modify/delete conflicts for ${branchName}`);
-          return true;
-        }
-      } catch {
-        // Manual resolution failed; fall through to abort
-      }
-
-      try { execSync('git merge --abort', { cwd: this.workingDir, stdio: 'pipe' }); } catch { /* none in progress */ }
-      try { execSync(`git checkout "${context.mainBranch}"`, { cwd: this.workingDir, stdio: 'pipe', env: gitEnv }); } catch { /* best-effort */ }
-      return false;
-    }
-  }
-
-  private async mergeBranch(branchName: string, context: SwarmExecutionContext): Promise<void> {
-    // acquire git lock
-    const lockId = await context.contextBroker.acquireGitLock('orchestrator', `merge ${branchName}`);
-    if (!lockId) {
-      throw new Error('Failed to acquire git lock for merge');
-    }
-
-    try {
-      execSync(`git merge --no-ff "${branchName}" -m "Merge ${branchName}"`, {
-        cwd: this.workingDir,
-        stdio: 'pipe',
-        timeout: 120000, // 2 min -- integrator merges can be large
-        env: {
-          ...process.env,
-          GIT_TERMINAL_PROMPT: '0',
-          GIT_MERGE_AUTOEDIT: 'no'
-        }
-      });
-    } catch (err: unknown) {
-      const e = err as { killed?: boolean; stderr?: Buffer | string; message?: string };
-      if (e.killed) {
-        throw new Error(`Timeout merging ${branchName}`);
-      }
-      throw new Error(`Merge conflict: ${e.stderr?.toString() || e.message || 'unknown error'}`);
-    } finally {
-      context.contextBroker.releaseGitLock(lockId);
-    }
+    const mergeCtx: MergeContext = {
+      mainBranch: context.mainBranch,
+      contextBroker: context.contextBroker,
+      prManager: context.prManager,
+    };
+    return this.branchMerger.tryRebaseAndMerge(branchName, mergeCtx);
   }
 
   /**
-   * Get current git branch
+   * Merge a single branch via git merge --no-ff - delegates to BranchMerger.
+   */
+  private async mergeBranch(branchName: string, context: SwarmExecutionContext): Promise<void> {
+    const mergeCtx: MergeContext = {
+      mainBranch: context.mainBranch,
+      contextBroker: context.contextBroker,
+      prManager: context.prManager,
+    };
+    return this.branchMerger.mergeBranch(branchName, mergeCtx);
+  }
+
+  /**
+   * Get current git branch - delegates to WorktreeManager.
    */
   private getCurrentBranch(): string {
-    const result = execSync('git branch --show-current', {
-      cwd: this.workingDir,
-      encoding: 'utf8'
-    });
-    return result.trim() || 'main';
+    return this.worktreeManager.getCurrentBranch();
   }
 
   /**
-   * Ensure repo has at least one commit (required for branch creation)
-   * Creates an initial commit if repo is empty
+   * Ensure repo has at least one commit - delegates to WorktreeManager.
    */
   private ensureInitialCommit(): void {
-    // check if repo has any commits
-    try {
-      execSync('git rev-parse HEAD', {
-        cwd: this.workingDir,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
-      // repo has commits, nothing to do
-      return;
-    } catch {
-      // rev-parse fails when repo has no commits; fall through to create one
-    }
-
-    console.log('  📝 Empty repo detected, creating initial commit...');
-
-    // create a minimal .gitignore so there's something to commit
-    const gitignorePath = path.join(this.workingDir, '.gitignore');
-
-    if (!fs.existsSync(gitignorePath)) {
-      fs.writeFileSync(gitignorePath, `# Swarm orchestrator artifacts
-plans/
-runs/
-proof/
-.quickfix/
-.context/
-.locks/
-node_modules/
-`);
-    }
-
-    try {
-      execSync('git add .gitignore', { cwd: this.workingDir, stdio: 'pipe' });
-      execSync('git commit -m "chore: initialize repository"', { cwd: this.workingDir, stdio: 'pipe' });
-      console.log('  ✅ Initial commit created');
-    } catch (err: unknown) {
-      // if commit fails (maybe .gitignore already staged), try committing anything
-      try {
-        execSync('git add -A', { cwd: this.workingDir, stdio: 'pipe' });
-        execSync('git commit --allow-empty -m "chore: initialize repository"', { cwd: this.workingDir, stdio: 'pipe' });
-        console.log('  ✅ Initial commit created (empty)');
-      } catch (innerErr: unknown) {
-        const msg = innerErr instanceof Error ? innerErr.message : String(innerErr);
-        console.warn(`[init] Could not create initial commit: ${msg}`);
-      }
-    }
+    this.worktreeManager.ensureInitialCommit();
   }
 
   private generateExecutionId(): string {
@@ -2209,7 +1843,7 @@ node_modules/
    * Analyze commit quality and flag anti-patterns
    */
   private async analyzeCommitQuality(
-    commits: any[],
+    commits: ShareIndex['gitCommits'],
     stepNumber: number,
     agentName: string,
     context: SwarmExecutionContext
@@ -2218,13 +1852,17 @@ node_modules/
 
     const detector = new CommitPatternDetector();
 
-    // Convert to CommitMessage format
-    const commitMessages: CommitMessage[] = commits.map(c => ({
-      hash: c.sha || 'unknown',
-      message: c.message || '',
-      timestamp: c.timestamp ? new Date(c.timestamp) : new Date(),
-      files: c.files || []
-    }));
+    // Convert to CommitMessage format; parsed commits may carry extra
+    // fields (timestamp, files) beyond the ShareIndex schema
+    const commitMessages: CommitMessage[] = commits.map(c => {
+      const extra = c as Record<string, unknown>;
+      return {
+        hash: c.sha || 'unknown',
+        message: c.message || '',
+        timestamp: extra.timestamp ? new Date(extra.timestamp as string) : new Date(),
+        files: (extra.files as string[]) || []
+      };
+    });
 
     const result = detector.analyzeCommits(commitMessages);
 
@@ -2269,17 +1907,35 @@ node_modules/
       'You are running inside a git worktree on a dedicated branch. Do NOT run `git checkout`.',
       'Make incremental commits with natural, varied messages.',
       '',
+      '## Hard Rules',
+      '- Do not invent features, flags, APIs, or tool behavior not in your task.',
+      '- Do not claim tests passed unless you ran them and can show the output.',
+      '- Do not say "done" unless all required artifacts exist and you verified them.',
+      '- If uncertain about anything, say so explicitly.',
+      '- Never reference files, images, fonts, or assets that do not exist in the repo.',
+      '- Encapsulate JS: wrap in IIFE, module, or DOMContentLoaded. No bare globals in script scope.',
+      '',
       '## Quality Bar',
+      '- Code reads as human-written. No AI-typical patterns: no over-commented obvious logic, no generic variable names, no boilerplate filler.',
       '- Extract before repeat: if you copy the same logic more than twice, refactor into a shared util/hook/middleware.',
       '- Config first: do not hardcode API base URLs, timeouts, retry counts, or environment-specific values.',
-      '- README truth: do not claim features that are not implemented.',
+      '- README truth: do not claim features that are not implemented. Do not add sections that do not apply (no troubleshooting tables for trivial projects).',
       '- Keep it verifiable: request logging, correlation id propagation, and consistent error responses for HTTP APIs.',
-      '- For frontends: real HTML title, responsive meta viewport, centralized fetch error handling.',
+      '- For frontends: semantic HTML, ARIA labels on interactive elements, responsive layout (320px to 1920px), :focus-visible styles, real HTML title, responsive meta viewport.',
+      '- For frontends with CSS animations or custom properties: add @media (prefers-reduced-motion: reduce) to disable animations and @media (prefers-color-scheme: dark) overriding custom properties.',
+      '- Include <meta name="description"> and <meta name="theme-color"> in HTML pages.',
+      '- Define all colors, spacing, and font sizes as CSS custom properties on :root. Never use raw hex/rgb values in rules.',
+      '- Separate business logic from presentation. Game rules, validators, data transforms belong in standalone modules testable without the DOM.',
+      '- Functions that do pure computation must accept values as parameters, not reach into the DOM.',
+      '- Guard one-time operations (permission requests, init) so they run once per session, not on every user action.',
+      '- If you choose one browser event over another (change vs input), add a one-line comment explaining why.',
+      '- Persist user-visible counters or preferences to localStorage when losing them on reload would annoy a user.',
+      '- Error messages must be specific and actionable with relevant values.',
       '',
       '## Code Comments',
       '- Add a 1-2 line purpose comment at the top of each new file.',
       '- Add brief inline comments for non-obvious logic (not every line).',
-      '- Use natural, casual language.',
+      '- Use natural, casual language. Good: "// bail early if empty". Bad: "// Check if the array has zero length".',
       '',
       '## Commit Messages',
       'Use varied, natural messages like:',

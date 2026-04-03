@@ -32,6 +32,7 @@ service-account*.json
 # Copilot instructions contain internal prompts, not for public
 .github/copilot-instructions.md
 .github/cso-upgrade-plan.md
+.github/cso-upgrade.md
 
 # Local MCP config and gate output artifacts
 .mcp.json
@@ -40,3 +41,4 @@ quality-gates.md
 
 # Security review (internal only, never push)
 .github/security-recommendations.md
+.copilot-instructions.md

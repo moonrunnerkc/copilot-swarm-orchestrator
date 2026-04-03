@@ -180,32 +180,34 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
   /**
    * Validate plan structure matches expected schema
    */
-  private validatePlanSchema(plan: any): asserts plan is ExecutionPlan {
+  private validatePlanSchema(plan: unknown): asserts plan is ExecutionPlan {
     if (!plan || typeof plan !== 'object') {
       throw new Error('Plan must be an object');
     }
 
-    if (!plan.goal || typeof plan.goal !== 'string') {
+    const p = plan as Record<string, unknown>;
+
+    if (!p.goal || typeof p.goal !== 'string') {
       throw new Error('Plan must have a goal string');
     }
 
-    if (!plan.createdAt || typeof plan.createdAt !== 'string') {
+    if (!p.createdAt || typeof p.createdAt !== 'string') {
       throw new Error('Plan must have a createdAt timestamp');
     }
 
-    if (!Array.isArray(plan.steps)) {
+    if (!Array.isArray(p.steps)) {
       throw new Error('Plan must have a steps array');
     }
 
-    if (plan.steps.length === 0) {
+    if (p.steps.length === 0) {
       throw new Error('Plan must have at least one step');
     }
 
-    if (plan.steps.length > 20) {
+    if (p.steps.length > 20) {
       throw new Error('Plan has too many steps (max 20)');
     }
 
-    plan.steps.forEach((step: any, index: number) => {
+    p.steps.forEach((step: Record<string, unknown>, index: number) => {
       if (typeof step.stepNumber !== 'number') {
         throw new Error(`Step ${index}: stepNumber must be a number`);
       }
@@ -231,9 +233,104 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       }
     });
 
-    if (!plan.metadata || typeof plan.metadata !== 'object') {
-      plan.metadata = { totalSteps: plan.steps.length };
+    if (!p.metadata || typeof p.metadata !== 'object') {
+      p.metadata = { totalSteps: (p.steps as unknown[]).length };
     }
+  }
+
+  /**
+   * Acceptance criteria that get appended to the primary build step for each goal type.
+   * These force the agent to address quality dimensions that AI code gen typically skips.
+   */
+  private getAcceptanceCriteria(goalType: GoalType): string {
+    const shared = [
+      'Code must read as human-written: no over-commented obvious logic, no generic variable names, no boilerplate filler.',
+      'README must only contain sections relevant to this project. Do not add troubleshooting, FAQ, or contributing sections unless the project warrants them.',
+    ];
+
+    const byType: Record<GoalType, string[]> = {
+      'web-app': [
+        'Semantic HTML: use appropriate elements (nav, main, article, button) not generic divs.',
+        'Accessible: ARIA labels on interactive elements, keyboard navigable, :focus-visible styles on all clickable elements.',
+        'Responsive: layout works from 320px to 1920px without horizontal overflow. Use relative units, clamp(), or media queries.',
+        'No default/placeholder content: real page title, real meta description, favicon link if appropriate.',
+        'Include <meta name="description"> and <meta name="theme-color"> in the HTML head.',
+        'Add @media (prefers-reduced-motion: reduce) to disable all animations and set transition durations to 0s.',
+        'Define CSS custom properties on :root for all colors, spacing, font sizes. Never use raw hex/rgb in rules; always reference a custom property.',
+        'Add @media (prefers-color-scheme: dark) that overrides the :root custom properties for full dark mode support.',
+        'Separate state management from presentation. Business logic (game rules, validation, computation) must live in a standalone module testable without the DOM.',
+        'Wrap all JS in an IIFE or module scope. No bare globals in script scope. Separate pure logic from DOM reads.',
+        'Functions that do pure computation must accept values as parameters, not reach into the DOM internally.',
+        'Persist counters, preferences, or user state to localStorage when losing them on page reload would be annoying.',
+        'Provide an audio signal (Web Audio API beep, no audio file needed) for events that use only visual notification, so background tabs get feedback.',
+        'Never reference files, images, fonts, or icons that do not exist in the repo.',
+      ],
+      'api': [
+        'All error responses return specific, actionable messages with relevant values (not "something went wrong").',
+        'Input validation on all endpoints with proper 4xx status codes.',
+        'No hardcoded config: base URLs, ports, timeouts, secrets in env vars or config module.',
+        'Request/response types fully defined (TypeScript interfaces or JSON schema).',
+      ],
+      'cli-tool': [
+        'Helpful --help output with examples for each command.',
+        'Specific error messages with context when commands fail (what failed, why, what to try).',
+        'Exit codes: 0 for success, non-zero for failure.',
+      ],
+      'library': [
+        'Public API is minimal and well-typed. No internal implementation details exposed.',
+        'JSDoc on all exported functions with parameter descriptions and return type.',
+        'At least one usage example per major feature in README.',
+      ],
+      'infrastructure': [
+        'All secrets and credentials use environment variables or secrets manager references.',
+        'Resources tagged with project name and environment.',
+        'Rollback procedure documented.',
+      ],
+      'data-pipeline': [
+        'Input validation and schema checks at pipeline entry point.',
+        'Error handling with specific context for each transform stage.',
+        'Idempotent: safe to re-run without duplicating data.',
+      ],
+      'mobile-app': [
+        'Touch targets minimum 44x44 points.',
+        'Accessible: labels on all interactive elements, VoiceOver/TalkBack compatible.',
+        'Handle offline state gracefully with clear user feedback.',
+      ],
+      'generic': [
+        'Separate pure logic from I/O. Business rules must be testable without side effects.',
+        'Error messages must be specific and actionable with relevant values.',
+        'If the project produces HTML, use semantic elements (nav, main, header, footer, button) not generic divs.',
+        'If the project produces CSS, define colors and spacing as CSS custom properties on :root.',
+        'If the project produces HTML, include <meta name="description"> and a meaningful <title>.',
+        'Never reference files, images, fonts, or icons that do not exist in the repo.',
+      ],
+    };
+
+    const criteria = [...shared, ...(byType[goalType] || [])];
+    return criteria.map(c => '- ' + c).join('\n');
+  }
+
+  /**
+   * Integrator review criteria appended to the final integration/review step.
+   * Turns the integrator from a rubber-stamp documenter into an active reviewer.
+   */
+  private getIntegratorReviewCriteria(): string {
+    return [
+      'Review all code from prior steps for quality issues before documenting:',
+      '- Remove AI-typical patterns: over-commenting, generic variable names, templated README sections that do not apply, placeholder content.',
+      '- Fix package.json metadata: fill author with a relevant value or remove the field entirely. Remove empty keywords array. Remove main field if the project is browser-only with no Node entry point. Description must be accurate.',
+      '- Verify no phantom file references: scan for src=, href=, icon: attributes that point to files not in the repo (e.g. favicon.ico that was never created).',
+      '- Verify README claims match what is actually implemented. Remove any claims about features that do not exist.',
+      '- If test scripts exist in package.json, README must include test instructions (npm install && npm test).',
+      '- Check for missing error handling, hardcoded values, or copy-pasted logic that should be extracted.',
+      '- If CSS has animations or custom properties: verify @media (prefers-reduced-motion) and @media (prefers-color-scheme: dark) exist.',
+      '- Verify JS state is encapsulated (IIFE or module), no bare globals in script scope.',
+      '- Verify architecture: business logic (game rules, validation, data transforms) lives in its own module, separate from DOM/UI code, and is testable without a browser.',
+      '- Verify tests import and exercise the real module exports, not reimplemented copies of the logic.',
+      '- Verify semantic HTML: headings, nav, main, button, etc. not div-with-role or span-as-button.',
+      '- Strip any boilerplate that does not serve this specific project.',
+      'Then write concise, accurate documentation. Only include sections the project actually needs.',
+    ].join('\n');
   }
 
   /**
@@ -289,7 +386,12 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       return 'api';
     }
 
-    if (goalLower.match(/\b(web app|website|frontend|react|vue|angular|next\.js|dashboard)\b/)) {
+    if (goalLower.match(/\b(web app|website|frontend|react|vue|angular|next\.js|dashboard|browser.based|game|interactive|single.page|landing.page)\b/)) {
+      return 'web-app';
+    }
+
+    // Secondary signal: goal mentions HTML+CSS+JS file combo
+    if (goalLower.match(/\b(index\.html|html.+css|css.+js|\.html.+\.js)\b/)) {
       return 'web-app';
     }
 
@@ -317,11 +419,13 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
   }
 
   private generateApiSteps(goal: string, startNumber: number): PlanStep[] {
+    const criteria = this.getAcceptanceCriteria('api');
+    const reviewCriteria = this.getIntegratorReviewCriteria();
     return [
       {
         stepNumber: startNumber,
         agentName: 'BackendMaster',
-        task: `Design and implement API routes, controllers, and data models for: ${goal}`,
+        task: `Design and implement API routes, controllers, and data models for: ${goal}\n\nAcceptance criteria:\n${criteria}`,
         dependencies: [],
         expectedOutputs: ['API endpoint definitions', 'Request/response schemas', 'Database models']
       },
@@ -349,21 +453,47 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       {
         stepNumber: startNumber + 4,
         agentName: 'IntegratorFinalizer',
-        task: 'Verify API integration, add documentation, and confirm deployment readiness',
+        task: `Review API implementation, verify integration, and write accurate documentation.\n\n${reviewCriteria}`,
         dependencies: [startNumber + 1, startNumber + 2, startNumber + 3],
-        expectedOutputs: ['API documentation', 'Integration verification', 'Deployment checklist']
+        expectedOutputs: ['Cleaned-up code', 'Accurate API documentation', 'Quality review notes']
       }
     ];
   }
 
   private generateWebAppSteps(goal: string, startNumber: number): PlanStep[] {
+    const criteria = this.getAcceptanceCriteria('web-app');
+    const reviewCriteria = this.getIntegratorReviewCriteria();
+
+    // Simple web apps (vanilla HTML/CSS/JS, no framework, no backend) get a
+    // lean 2-step plan: the frontend expert builds everything with tests,
+    // and the integrator reviews. Burning 5 premium requests on backend/devops
+    // steps that produce nothing useful wastes time and money.
+    if (this.isSimpleProject(goal)) {
+      return [
+        {
+          stepNumber: startNumber,
+          agentName: 'FrontendExpert',
+          task: `Build the complete application with tests for: ${goal}\n\nAcceptance criteria:\n${criteria}\n\nYou must also write tests. Include a test file and a package.json with a working npm test script.`,
+          dependencies: [],
+          expectedOutputs: ['UI components', 'Styling', 'Accessible markup', 'Tests', 'Working functionality']
+        },
+        {
+          stepNumber: startNumber + 1,
+          agentName: 'IntegratorFinalizer',
+          task: `Review all code for quality, then write accurate documentation.\n\n${reviewCriteria}`,
+          dependencies: [startNumber],
+          expectedOutputs: ['Cleaned-up code', 'Accurate documentation', 'Quality review notes']
+        }
+      ];
+    }
+
     return [
       {
         stepNumber: startNumber,
         agentName: 'FrontendExpert',
-        task: `Build UI components and pages for: ${goal}`,
+        task: `Build UI components and pages for: ${goal}\n\nAcceptance criteria:\n${criteria}`,
         dependencies: [],
-        expectedOutputs: ['React/Vue components', 'Page layouts', 'Styling']
+        expectedOutputs: ['UI components', 'Page layouts', 'Styling', 'Accessible markup']
       },
       {
         stepNumber: startNumber + 1,
@@ -389,19 +519,21 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       {
         stepNumber: startNumber + 4,
         agentName: 'IntegratorFinalizer',
-        task: 'Final integration verification and documentation',
+        task: `Final integration review, cleanup, and documentation.\n\n${reviewCriteria}`,
         dependencies: [startNumber + 3],
-        expectedOutputs: ['User documentation', 'Integration tests', 'Release notes']
+        expectedOutputs: ['Cleaned-up code', 'Accurate documentation', 'Quality review notes']
       }
     ];
   }
 
   private generateCliToolSteps(goal: string, startNumber: number): PlanStep[] {
+    const criteria = this.getAcceptanceCriteria('cli-tool');
+    const reviewCriteria = this.getIntegratorReviewCriteria();
     return [
       {
         stepNumber: startNumber,
         agentName: 'BackendMaster',
-        task: `Implement CLI core functionality for: ${goal}`,
+        task: `Implement CLI core functionality for: ${goal}\n\nAcceptance criteria:\n${criteria}`,
         dependencies: [],
         expectedOutputs: ['CLI commands', 'Argument parsing', 'Core logic']
       },
@@ -415,19 +547,21 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       {
         stepNumber: startNumber + 2,
         agentName: 'IntegratorFinalizer',
-        task: 'Add documentation, examples, and publish preparation',
+        task: `Review implementation, add accurate documentation and examples.\n\n${reviewCriteria}`,
         dependencies: [startNumber],
-        expectedOutputs: ['README with examples', 'Help text', 'Package metadata']
+        expectedOutputs: ['Cleaned-up code', 'README with examples', 'Quality review notes']
       }
     ];
   }
 
   private generateLibrarySteps(goal: string, startNumber: number): PlanStep[] {
+    const criteria = this.getAcceptanceCriteria('library');
+    const reviewCriteria = this.getIntegratorReviewCriteria();
     return [
       {
         stepNumber: startNumber,
         agentName: 'BackendMaster',
-        task: `Implement library core API for: ${goal}`,
+        task: `Implement library core API for: ${goal}\n\nAcceptance criteria:\n${criteria}`,
         dependencies: [],
         expectedOutputs: ['Public API', 'Type definitions', 'Core implementation']
       },
@@ -441,19 +575,21 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       {
         stepNumber: startNumber + 2,
         agentName: 'IntegratorFinalizer',
-        task: 'Add documentation, examples, and package config',
+        task: `Review implementation, write accurate documentation with usage examples.\n\n${reviewCriteria}`,
         dependencies: [startNumber],
-        expectedOutputs: ['API documentation', 'Usage examples', 'Package.json config']
+        expectedOutputs: ['Cleaned-up code', 'API documentation with examples', 'Quality review notes']
       }
     ];
   }
 
   private generateInfrastructureSteps(goal: string, startNumber: number): PlanStep[] {
+    const criteria = this.getAcceptanceCriteria('infrastructure');
+    const reviewCriteria = this.getIntegratorReviewCriteria();
     return [
       {
         stepNumber: startNumber,
         agentName: 'DevOpsPro',
-        task: `Design and implement infrastructure for: ${goal}`,
+        task: `Design and implement infrastructure for: ${goal}\n\nAcceptance criteria:\n${criteria}`,
         dependencies: [],
         expectedOutputs: ['Infrastructure as code', 'Configuration files', 'Deployment scripts']
       },
@@ -474,19 +610,21 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       {
         stepNumber: startNumber + 3,
         agentName: 'IntegratorFinalizer',
-        task: 'Verify deployment and create runbooks',
+        task: `Verify deployment, review configs, and write accurate runbooks.\n\n${reviewCriteria}`,
         dependencies: [startNumber + 1, startNumber + 2],
-        expectedOutputs: ['Deployment verification', 'Runbooks', 'Documentation']
+        expectedOutputs: ['Deployment verification', 'Accurate runbooks', 'Quality review notes']
       }
     ];
   }
 
   private generateDataPipelineSteps(goal: string, startNumber: number): PlanStep[] {
+    const criteria = this.getAcceptanceCriteria('data-pipeline');
+    const reviewCriteria = this.getIntegratorReviewCriteria();
     return [
       {
         stepNumber: startNumber,
         agentName: 'BackendMaster',
-        task: `Implement data pipeline for: ${goal}`,
+        task: `Implement data pipeline for: ${goal}\n\nAcceptance criteria:\n${criteria}`,
         dependencies: [],
         expectedOutputs: ['Pipeline code', 'Data transformations', 'Storage layer']
       },
@@ -507,21 +645,23 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       {
         stepNumber: startNumber + 3,
         agentName: 'IntegratorFinalizer',
-        task: 'Verify end-to-end pipeline and documentation',
+        task: `Verify end-to-end pipeline and write accurate documentation.\n\n${reviewCriteria}`,
         dependencies: [startNumber + 1, startNumber + 2],
-        expectedOutputs: ['Pipeline verification', 'Documentation', 'Runbooks']
+        expectedOutputs: ['Pipeline verification', 'Accurate documentation', 'Quality review notes']
       }
     ];
   }
 
   private generateMobileAppSteps(goal: string, startNumber: number): PlanStep[] {
+    const criteria = this.getAcceptanceCriteria('mobile-app');
+    const reviewCriteria = this.getIntegratorReviewCriteria();
     return [
       {
         stepNumber: startNumber,
         agentName: 'FrontendExpert',
-        task: `Build mobile UI and screens for: ${goal}`,
+        task: `Build mobile UI and screens for: ${goal}\n\nAcceptance criteria:\n${criteria}`,
         dependencies: [],
-        expectedOutputs: ['Mobile screens', 'Navigation', 'UI components']
+        expectedOutputs: ['Mobile screens', 'Navigation', 'Accessible UI components']
       },
       {
         stepNumber: startNumber + 1,
@@ -540,24 +680,68 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       {
         stepNumber: startNumber + 3,
         agentName: 'IntegratorFinalizer',
-        task: 'App store preparation and documentation',
+        task: `Review app quality, prepare store metadata, and write accurate documentation.\n\n${reviewCriteria}`,
         dependencies: [startNumber + 2],
-        expectedOutputs: ['App metadata', 'Screenshots', 'Documentation']
+        expectedOutputs: ['Cleaned-up code', 'App metadata', 'Quality review notes']
       }
     ];
   }
 
+  /**
+   * Detect whether the goal describes a small, self-contained project that
+   * doesn't need a separate testing step. Indicators: explicit file list,
+   * "no framework", "no build step", or very short goal with few deliverables.
+   */
+  private isSimpleProject(goal: string): boolean {
+    const lower = goal.toLowerCase();
+    // Explicit signals that the project is small/self-contained
+    const simpleSignals = [
+      /no (build step|framework|dependencies)/,
+      /just (index\.html|html|css|js)/,
+      /single.page/,
+      /vanilla (js|javascript|html|css)/,
+      /no.frameworks/,
+    ];
+    const fileListMention = (lower.match(/\b(index\.html|style\.css|app\.js|main\.js|script\.js)\b/g) || []).length;
+    const hasSimpleSignal = simpleSignals.some(re => re.test(lower));
+    // Small file count + simple signal = skip separate test step
+    return hasSimpleSignal || fileListMention >= 2;
+  }
+
   private generateGenericSteps(goal: string, startNumber: number): PlanStep[] {
-    // for generic goals, create a simple 3-step plan
     const primaryAgent = this.assignAgent(goal);
+    const criteria = this.getAcceptanceCriteria('generic');
+    const reviewCriteria = this.getIntegratorReviewCriteria();
+
+    // For simple projects (few files, no framework, no build step), skip
+    // the dedicated TesterElite step. The primary agent's acceptance criteria
+    // already require tests, and the IntegratorFinalizer verifies test coverage.
+    if (this.isSimpleProject(goal)) {
+      return [
+        {
+          stepNumber: startNumber,
+          agentName: primaryAgent,
+          task: `Implement core functionality with tests for: ${goal}\n\nAcceptance criteria:\n${criteria}\n\nYou must also write tests. Include a test file and a package.json with a working npm test script.`,
+          dependencies: [],
+          expectedOutputs: ['Implementation', 'Core files', 'Tests', 'Working functionality']
+        },
+        {
+          stepNumber: startNumber + 1,
+          agentName: 'IntegratorFinalizer',
+          task: `Review all code for quality, then write accurate documentation.\n\n${reviewCriteria}`,
+          dependencies: [startNumber],
+          expectedOutputs: ['Cleaned-up code', 'Accurate documentation', 'Quality review notes']
+        }
+      ];
+    }
 
     return [
       {
         stepNumber: startNumber,
         agentName: primaryAgent,
-        task: `Implement core functionality for: ${goal}`,
+        task: `Implement core functionality for: ${goal}\n\nAcceptance criteria:\n${criteria}`,
         dependencies: [],
-        expectedOutputs: ['Implementation', 'Core files', 'Basic functionality']
+        expectedOutputs: ['Implementation', 'Core files', 'Working functionality']
       },
       {
         stepNumber: startNumber + 1,
@@ -569,9 +753,9 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
       {
         stepNumber: startNumber + 2,
         agentName: 'IntegratorFinalizer',
-        task: 'Integration verification and documentation',
+        task: `Review all code for quality, then write accurate documentation.\n\n${reviewCriteria}`,
         dependencies: [startNumber + 1],
-        expectedOutputs: ['Documentation', 'Integration verification', 'Final review']
+        expectedOutputs: ['Cleaned-up code', 'Accurate documentation', 'Quality review notes']
       }
     ];
   }
