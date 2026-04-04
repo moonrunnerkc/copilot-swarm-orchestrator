@@ -243,4 +243,47 @@ describe('TestCoverageGate', () => {
     const componentIssue = result.issues.find(i => i.message.includes('component-level'));
     assert.strictEqual(componentIssue, undefined, 'non-React project should not require component tests');
   });
+
+  it('skips coverage check for pre-existing files in baseline', async () => {
+    const preExisting = makeFile('script.js', 'document.getElementById("app");');
+    const agentCreated = makeFile('api/routes.js', 'module.exports = function routes(app) { app.get("/health", (req, res) => res.json({ ok: true })); }');
+    const ctx: GateContext = {
+      projectRoot: '/fake',
+      files: [preExisting, agentCreated],
+      baselineFiles: new Set(['script.js']),
+    };
+
+    const result = await run_test_coverage_gate(ctx, defaultConfig(), MAX_FILE_SIZE);
+    // script.js is pre-existing; gate should NOT flag it
+    const scriptIssue = result.issues.find(i => i.filePath === 'script.js');
+    assert.strictEqual(scriptIssue, undefined, 'pre-existing file should not be flagged');
+    // api/routes.js is agent-created; gate SHOULD flag it
+    const routesIssue = result.issues.find(i => i.filePath === 'api/routes.js');
+    assert.ok(routesIssue, 'agent-created file without tests should be flagged');
+  });
+
+  it('skips assertion density check for pre-existing test files', async () => {
+    const oldTest = makeFile('test/legacy.test.js', '// no assertions, old stub');
+    const newTest = makeFile('test/api.test.js', '// no assertions, new stub');
+    const ctx: GateContext = {
+      projectRoot: '/fake',
+      files: [oldTest, newTest],
+      baselineFiles: new Set(['test/legacy.test.js']),
+    };
+
+    const result = await run_test_coverage_gate(ctx, defaultConfig(), MAX_FILE_SIZE);
+    const legacyIssue = result.issues.find(i => i.filePath === 'test/legacy.test.js');
+    assert.strictEqual(legacyIssue, undefined, 'pre-existing test file assertion density should not be flagged');
+    const apiIssue = result.issues.find(i => i.filePath === 'test/api.test.js');
+    assert.ok(apiIssue, 'agent-created test file with no assertions should be flagged');
+  });
+
+  it('checks all files when no baseline is provided', async () => {
+    const src = makeFile('script.js', 'document.getElementById("app");');
+    const ctx = makeCtx([src]);
+
+    const result = await run_test_coverage_gate(ctx, defaultConfig(), MAX_FILE_SIZE);
+    const issue = result.issues.find(i => i.filePath === 'script.js');
+    assert.ok(issue, 'without baseline, all files should be checked');
+  });
 });

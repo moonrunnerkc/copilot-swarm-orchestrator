@@ -12,10 +12,13 @@ export async function run_accessibility_gate(
   const start = Date.now();
   const issues: GateIssue[] = [];
 
-  const htmlFiles = ctx.files.filter(f => /\.html?$/i.test(f.relativePath));
-  const jsxFiles = ctx.files.filter(f => /\.(jsx|tsx)$/i.test(f.relativePath));
-  const cssFiles = ctx.files.filter(f => /\.css$/i.test(f.relativePath));
-  const componentFiles = [...jsxFiles, ...ctx.files.filter(f => /\.(js|ts)$/i.test(f.relativePath) && !f.relativePath.startsWith('test'))];
+  // Only check files created by agents; pre-existing project files are the owner's concern
+  const baseline = ctx.baselineFiles;
+  const isAgentFile = (f: { relativePath: string }) => !baseline || !baseline.has(f.relativePath);
+  const htmlFiles = ctx.files.filter(f => /\.html?$/i.test(f.relativePath) && isAgentFile(f));
+  const jsxFiles = ctx.files.filter(f => /\.(jsx|tsx)$/i.test(f.relativePath) && isAgentFile(f));
+  const cssFiles = ctx.files.filter(f => /\.css$/i.test(f.relativePath) && isAgentFile(f));
+  const componentFiles = [...jsxFiles, ...ctx.files.filter(f => /\.(js|ts)$/i.test(f.relativePath) && !f.relativePath.startsWith('test') && isAgentFile(f))];
 
   // 1. Check lang attribute on <html> in all .html files
   for (const file of htmlFiles) {

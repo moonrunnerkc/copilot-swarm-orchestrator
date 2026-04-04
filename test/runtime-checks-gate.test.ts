@@ -118,7 +118,7 @@ describe('RuntimeChecksGate', () => {
   });
 });
 
-import { buildTestCommand } from '../src/quality-gates/gates/runtime-checks.js';
+import { buildTestCommand, buildEslintCommand } from '../src/quality-gates/gates/runtime-checks.js';
 
 describe('buildTestCommand', () => {
   let tmpDir: string;
@@ -204,5 +204,79 @@ describe('buildTestCommand', () => {
     }));
     const cmd = buildTestCommand(tmpDir);
     assert.ok(cmd.includes('--testPathIgnorePatterns=runs/'));
+  });
+});
+
+import { execSync } from 'child_process';
+
+describe('buildEslintCommand', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(__dirname, 'test-eslint-cmd-'));
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('includes ignore patterns for artifact dirs when no baseCommit', () => {
+    const cmd = buildEslintCommand(tmpDir);
+    assert.ok(cmd, 'should return a command');
+    assert.ok(cmd!.includes('--ignore-pattern'), 'should include ignore patterns');
+    assert.ok(cmd!.includes("'dist/'"), 'should ignore dist/');
+    assert.ok(cmd!.includes("'runs/'"), 'should ignore runs/');
+    assert.ok(cmd!.includes("'build/'"), 'should ignore build/');
+  });
+
+  it('scopes to changed files when baseCommit is provided', () => {
+    // Set up a git repo with a base commit and a new file
+    execSync('git init && git config user.email "t@t" && git config user.name "t"', { cwd: tmpDir, stdio: 'pipe' });
+    fs.writeFileSync(path.join(tmpDir, 'old.js'), 'var x = 1;');
+    execSync('git add . && git commit -m "initial"', { cwd: tmpDir, stdio: 'pipe' });
+    const baseCommit = execSync('git rev-parse HEAD', { cwd: tmpDir, encoding: 'utf-8' }).trim();
+
+    // Add a new file after baseline
+    fs.writeFileSync(path.join(tmpDir, 'server.js'), 'const express = require("express");');
+    execSync('git add . && git commit -m "add server"', { cwd: tmpDir, stdio: 'pipe' });
+
+    const cmd = buildEslintCommand(tmpDir, baseCommit);
+    assert.ok(cmd, 'should return a command');
+    assert.ok(cmd!.includes('server.js'), 'should include the changed file');
+    assert.ok(!cmd!.includes('old.js'), 'should NOT include the pre-existing file');
+  });
+
+  it('returns null when no lintable files changed', () => {
+    execSync('git init && git config user.email "t@t" && git config user.name "t"', { cwd: tmpDir, stdio: 'pipe' });
+    fs.writeFileSync(path.join(tmpDir, 'readme.md'), '# Hello');
+    execSync('git add . && git commit -m "initial"', { cwd: tmpDir, stdio: 'pipe' });
+    const baseCommit = execSync('git rev-parse HEAD', { cwd: tmpDir, encoding: 'utf-8' }).trim();
+
+    // Only change a non-JS file
+    fs.writeFileSync(path.join(tmpDir, 'readme.md'), '# Updated');
+    execSync('git add . && git commit -m "update readme"', { cwd: tmpDir, stdio: 'pipe' });
+
+    const cmd = buildEslintCommand(tmpDir, baseCommit);
+    assert.strictEqual(cmd, null, 'should return null when no JS/TS files changed');
+  });
+
+  it('excludes files in artifact directories from diff results', () => {
+    execSync('git init && git config user.email "t@t" && git config user.name "t"', { cwd: tmpDir, stdio: 'pipe' });
+    fs.writeFileSync(path.join(tmpDir, 'app.js'), 'var x = 1;');
+    execSync('git add . && git commit -m "initial"', { cwd: tmpDir, stdio: 'pipe' });
+    const baseCommit = execSync('git rev-parse HEAD', { cwd: tmpDir, encoding: 'utf-8' }).trim();
+
+    // Add files in artifact dirs and a real file
+    fs.mkdirSync(path.join(tmpDir, 'dist'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'dist', 'bundle.js'), 'compiled code');
+    fs.writeFileSync(path.join(tmpDir, 'api.js'), 'const api = {};');
+    execSync('git add . && git commit -m "add dist and api"', { cwd: tmpDir, stdio: 'pipe' });
+
+    const cmd = buildEslintCommand(tmpDir, baseCommit);
+    assert.ok(cmd, 'should return a command');
+    assert.ok(cmd!.includes('api.js'), 'should include the real changed file');
+    assert.ok(!cmd!.includes('dist/bundle.js'), 'should exclude files in dist/');
   });
 });

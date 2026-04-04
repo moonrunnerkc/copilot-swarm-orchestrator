@@ -86,11 +86,27 @@ describe('BaselineScanner', () => {
       assert.ok(result.allFiles.includes('tracked.js'));
       assert.ok(!result.allFiles.includes('untracked.js'));
     });
+
+    it('captures HEAD commit sha', () => {
+      fs.writeFileSync(path.join(tmpDir, 'app.js'), '// app');
+      execSync('git add -A && git commit -m "init"', { cwd: tmpDir, stdio: 'pipe' });
+      const expectedSha = execSync('git rev-parse HEAD', { cwd: tmpDir, encoding: 'utf-8' }).trim();
+
+      const result = scanBaseline(tmpDir);
+      assert.strictEqual(result.headCommit, expectedSha);
+      assert.ok(result.headCommit.length >= 7, 'headCommit should be a valid SHA');
+    });
+
+    it('returns empty headCommit for repo with no commits', () => {
+      // git init creates a repo but HEAD points to nothing until first commit
+      const result = scanBaseline(tmpDir);
+      assert.strictEqual(result.headCommit, '');
+    });
   });
 
   describe('formatPreservationRules', () => {
     it('returns empty string for empty snapshot', () => {
-      const result = formatPreservationRules({ allFiles: [], testFiles: [] });
+      const result = formatPreservationRules({ allFiles: [], testFiles: [], headCommit: '' });
       assert.strictEqual(result, '');
     });
 
@@ -98,6 +114,7 @@ describe('BaselineScanner', () => {
       const result = formatPreservationRules({
         allFiles: ['index.js'],
         testFiles: [],
+        headCommit: '',
       });
       assert.ok(result.includes('## Pre-existing Code'));
       assert.ok(result.includes('1 existing file'));
@@ -107,6 +124,7 @@ describe('BaselineScanner', () => {
       const result = formatPreservationRules({
         allFiles: ['src/app.js', 'tests/app.test.js', 'tests/calc.test.js'],
         testFiles: ['tests/app.test.js', 'tests/calc.test.js'],
+        headCommit: '',
       });
       assert.ok(result.includes('### Protected Test Files'));
       assert.ok(result.includes('tests/app.test.js'));
@@ -117,6 +135,7 @@ describe('BaselineScanner', () => {
       const result = formatPreservationRules({
         allFiles: ['src/app.js'],
         testFiles: [],
+        headCommit: '',
       });
       assert.ok(result.includes('Do NOT break existing tests'));
     });

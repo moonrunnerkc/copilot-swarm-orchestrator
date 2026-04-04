@@ -143,6 +143,51 @@ export function buildTestCommand(projectRoot: string): string {
 }
 
 /**
+ * Build the ESLint command, scoping to agent-changed files when a baseline
+ * commit is available. Without a baseline, falls back to scanning everything
+ * but excludes common build-output and orchestrator artifact directories.
+ */
+export function buildEslintCommand(
+  projectRoot: string,
+  baseCommit?: string
+): string | null {
+  const ignoreDirs = ['dist', 'build', 'coverage', 'runs', 'plans',
+    '.next', '.turbo', '.cache', 'proof', '.quickfix', 'node_modules'];
+
+  if (baseCommit) {
+    try {
+      const diffOutput = execSync(
+        `git diff --name-only --diff-filter=ACMR ${baseCommit} HEAD`,
+        { cwd: projectRoot, encoding: 'utf-8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim();
+
+      if (!diffOutput) return null;
+
+      const lintableExts = /\.(js|ts|jsx|tsx|mjs|cjs)$/i;
+      const changedFiles = diffOutput.split('\n')
+        .filter(f => lintableExts.test(f))
+        .filter(f => !ignoreDirs.some(d => f.startsWith(d + '/')));
+
+      if (changedFiles.length === 0) return null;
+
+      // Large diffs: fall back to full scan with directory exclusions
+      if (changedFiles.length > 100) {
+        const ignoreArgs = ignoreDirs.map(d => `--ignore-pattern '${d}/'`).join(' ');
+        return `npx eslint . ${ignoreArgs} --max-warnings=0`;
+      }
+
+      const fileArgs = changedFiles.map(f => `'${f}'`).join(' ');
+      return `npx eslint ${fileArgs} --max-warnings=0`;
+    } catch {
+      // git diff unavailable; fall through to full scan with ignores
+    }
+  }
+
+  const ignoreArgs = ignoreDirs.map(d => `--ignore-pattern '${d}/'`).join(' ');
+  return `npx eslint . ${ignoreArgs} --max-warnings=0`;
+}
+
+/**
  * Runtime quality gate: executes the project's own test suite, linter,
  * and security audit to validate the generated code actually works.
  *
@@ -150,7 +195,8 @@ export function buildTestCommand(projectRoot: string): string {
  */
 export async function run_runtime_checks_gate(
   projectRoot: string,
-  config: RuntimeChecksConfig
+  config: RuntimeChecksConfig,
+  baseCommit?: string
 ): Promise<GateResult> {
   const start = Date.now();
   const id = 'runtime-checks';
@@ -186,15 +232,18 @@ export async function run_runtime_checks_gate(
   // --- eslint ---
   if (config.runLint) {
     if (hasEslintConfig(projectRoot)) {
-      const result = runCommand('npx eslint . --max-warnings=0', projectRoot, config.timeoutMs, config.retries);
-      stats.lintRun = 1;
-      if (!result.success) {
-        const excerpt = (result.stdout || result.stderr).split('\n').slice(0, 20).join('\n').trim();
-        issues.push({
-          message: '`npx eslint .` reported errors',
-          hint: 'Fix lint errors before merge.',
-          excerpt: excerpt.substring(0, 500)
-        });
+      const eslintCmd = buildEslintCommand(projectRoot, baseCommit);
+      if (eslintCmd) {
+        const result = runCommand(eslintCmd, projectRoot, config.timeoutMs, config.retries);
+        stats.lintRun = 1;
+        if (!result.success) {
+          const excerpt = (result.stdout || result.stderr).split('\n').slice(0, 20).join('\n').trim();
+          issues.push({
+            message: '`npx eslint` reported errors on agent-changed files',
+            hint: 'Fix lint errors before merge.',
+            excerpt: excerpt.substring(0, 500)
+          });
+        }
       }
     }
   }

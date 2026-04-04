@@ -265,4 +265,54 @@ body { font-size: 1rem; }
     assert.strictEqual(result.stats?.jsxFiles, 1);
     assert.strictEqual(result.stats?.cssFiles, 1);
   });
+
+  it('skips all checks for pre-existing files in baseline', async () => {
+    // This HTML has many accessibility issues: no lang, no skip link, no meta tags
+    const badHtml = `<!DOCTYPE html><html><head><title>App</title></head><body><div>Content</div></body></html>`;
+    const badCss = `body { transition: all 0.3s; }`;
+    const ctx: GateContext = {
+      projectRoot: '/fake',
+      files: [
+        makeFile('index.html', badHtml),
+        makeFile('style.css', badCss),
+      ],
+      baselineFiles: new Set(['index.html', 'style.css']),
+    };
+
+    const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
+    assert.strictEqual(result.status, 'pass', 'pre-existing files should not trigger accessibility failures');
+    assert.strictEqual(result.issues.length, 0, 'no issues should be reported for baseline files');
+    assert.strictEqual(result.stats?.htmlFiles, 0, 'baseline HTML files should be excluded from scan');
+    assert.strictEqual(result.stats?.cssFiles, 0, 'baseline CSS files should be excluded from scan');
+  });
+
+  it('checks agent-created files while skipping baseline files', async () => {
+    const oldHtml = `<!DOCTYPE html><html><head><title>App</title></head><body><div>Old</div></body></html>`;
+    const newCss = `body { transition: all 0.3s; }`;
+    const ctx: GateContext = {
+      projectRoot: '/fake',
+      files: [
+        makeFile('index.html', oldHtml),
+        makeFile('api.css', newCss),
+      ],
+      baselineFiles: new Set(['index.html']),
+    };
+
+    const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
+    // index.html is baseline: its issues should NOT be flagged
+    const htmlIssue = result.issues.find(i => i.filePath === 'index.html');
+    assert.strictEqual(htmlIssue, undefined, 'pre-existing HTML issues should not be flagged');
+    // api.css is agent-created: its animation-without-reduced-motion SHOULD be flagged
+    const cssIssue = result.issues.find(i => i.filePath === 'api.css');
+    assert.ok(cssIssue, 'agent-created CSS with issues should be flagged');
+  });
+
+  it('checks all files when no baseline is provided', async () => {
+    const html = `<!DOCTYPE html><html><head><title>App</title></head><body><div>Content</div></body></html>`;
+    const ctx = makeCtx([makeFile('index.html', html)]);
+
+    const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
+    assert.strictEqual(result.stats?.htmlFiles, 1, 'without baseline all HTML files should be scanned');
+    assert.ok(result.issues.length > 0, 'without baseline, issues should be flagged');
+  });
 });

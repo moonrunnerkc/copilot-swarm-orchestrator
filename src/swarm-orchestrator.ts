@@ -571,8 +571,14 @@ export class SwarmOrchestrator {
           : path.join(runDir, options.qualityGatesOutDir)
         : path.join(runDir, 'quality-gates');
 
-      // Reuse cached gatesConfig from top of executeSwarm
-      let gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut);
+      // Reuse cached gatesConfig from top of executeSwarm.
+      // Pass baseline so gates only flag issues on agent-created files,
+      // not pre-existing project code the agents weren't asked to change.
+      const baselineFiles = context.baselineSnapshot
+        ? new Set(context.baselineSnapshot.allFiles)
+        : undefined;
+      const baseCommit = context.baselineSnapshot?.headCommit || undefined;
+      let gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut, baselineFiles, baseCommit);
 
       if (!gatesResult.passed && gatesConfig.failOnIssues) {
         const failedIds = new Set(gatesResult.results.filter(r => r.status === 'fail').map(r => r.id));
@@ -673,7 +679,7 @@ export class SwarmOrchestrator {
 
           if (addSteps.length > 0) {
             await this.executeReplan(context, { retrySteps: [], addSteps }, agentMap, options);
-            gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut);
+            gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut, baselineFiles, baseCommit);
 
             // Second remediation attempt if gates still fail after first fix
             if (!gatesResult.passed && gatesConfig.failOnIssues) {
@@ -709,7 +715,7 @@ export class SwarmOrchestrator {
                   addSteps: [{ agent: retryAgent, task: retryTask, afterStep: retryMaxStep }]
                 }, agentMap, options);
 
-                gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut);
+                gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut, baselineFiles, baseCommit);
               }
             }
           }

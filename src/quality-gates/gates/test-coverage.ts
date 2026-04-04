@@ -130,8 +130,10 @@ export async function run_test_coverage_gate(
     }
   }
 
-  // 1. Check that each source file has a corresponding test or is imported by a test
+  // 1. Check that each source file has a corresponding test or is imported by a test.
+  //    Only flag files created by agents; pre-existing files are the project owner's concern.
   for (const src of sourceFiles) {
+    if (ctx.baselineFiles?.has(src.relativePath)) continue;
     const baseName = src.relativePath
       .replace(/^src\//, '')
       .replace(/\.(tsx?|jsx?|mjs)$/, '');
@@ -163,8 +165,10 @@ export async function run_test_coverage_gate(
     }
   }
 
-  // 2. Check that test files contain real assertions (not empty stubs)
+  // 2. Check that test files contain real assertions (not empty stubs).
+  //    Only validate agent-created test files, not pre-existing ones.
   for (const tf of testFiles) {
+    if (ctx.baselineFiles?.has(tf.relativePath)) continue;
     const text = tf.text ?? maybe_read_text(tf, maxFileSizeBytes);
     if (!text) continue;
 

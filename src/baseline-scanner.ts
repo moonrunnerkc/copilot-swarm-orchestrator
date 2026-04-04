@@ -8,6 +8,7 @@ const TEST_PATTERN = /(?:^|\/)(?:test|tests|__tests__|spec)\/|\.(?:test|spec)\.\
 export interface BaselineSnapshot {
   allFiles: string[];
   testFiles: string[];
+  headCommit: string;
 }
 
 /**
@@ -21,14 +22,22 @@ export function scanBaseline(workingDir: string): BaselineSnapshot {
       cwd: workingDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
     }).trim();
   } catch {
-    return { allFiles: [], testFiles: [] };
+    return { allFiles: [], testFiles: [], headCommit: '' };
   }
 
-  if (!output) return { allFiles: [], testFiles: [] };
+  // Capture HEAD so quality gates can scope checks to agent-changed files
+  let headCommit = '';
+  try {
+    headCommit = execSync('git rev-parse HEAD', {
+      cwd: workingDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+    }).trim();
+  } catch { /* empty repo with no commits yet */ }
+
+  if (!output) return { allFiles: [], testFiles: [], headCommit };
 
   const allFiles = output.split('\n').filter(f => f.length > 0);
   const testFiles = allFiles.filter(f => TEST_PATTERN.test(f));
-  return { allFiles, testFiles };
+  return { allFiles, testFiles, headCommit };
 }
 
 /**

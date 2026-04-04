@@ -20,6 +20,8 @@ export interface GateResult {
 export interface GateContext {
   projectRoot: string;
   files: ProjectFile[];
+  /** Files that existed before agents ran; gates only flag issues on files NOT in this set */
+  baselineFiles?: Set<string> | undefined;
 }
 
 export interface ProjectFile {

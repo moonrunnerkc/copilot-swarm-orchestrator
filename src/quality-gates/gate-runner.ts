@@ -34,7 +34,9 @@ function format_issue(issue: { message: string; filePath?: string; line?: number
 export async function run_quality_gates(
   projectRoot: string,
   config: QualityGatesConfig,
-  outDir?: string
+  outDir?: string,
+  baselineFiles?: Set<string>,
+  baseCommit?: string
 ): Promise<QualityGatesRunResult> {
   const start = Date.now();
 
@@ -60,7 +62,8 @@ export async function run_quality_gates(
     files: files.map(f => {
       const text = maybe_read_text(f, config.maxFileSizeBytes);
       return text === undefined ? { ...f } : { ...f, text };
-    })
+    }),
+    baselineFiles,
   };
 
   const gateResults: GateResult[] = [];
@@ -86,7 +89,7 @@ export async function run_quality_gates(
   }
 
   if (config.gates.runtimeChecks.enabled) {
-    gateResults.push(await run_runtime_checks_gate(projectRoot, config.gates.runtimeChecks));
+    gateResults.push(await run_runtime_checks_gate(projectRoot, config.gates.runtimeChecks, baseCommit));
   }
 
   if (config.gates.accessibility.enabled) {
