@@ -125,7 +125,7 @@ Flags:
   --quality-gates-config <path> Path to quality gates YAML (default: config/quality-gates.yaml)
   --quality-gates-out <dir>    Where to write gate reports (default: <runDir>/quality-gates)
   --pr <auto|review>   Create PRs instead of direct merge (auto: merge on pass, review: wait for approval)
-  --target <dir>       Run execution in specified directory instead of cwd or temp dir
+  --target <dir>       Run execution in specified directory instead of cwd (alias: --dir)
   --hooks              Enable per-step hook injection for scope enforcement (default: on)
   --no-hooks           Disable hook injection for debugging
   --tool <name>        Select CLI agent (copilot, claude-code, codex). Default: copilot
@@ -261,7 +261,9 @@ export function parseSwarmFlags(args: string[]): ExecuteSwarmCliOptions {
     opts.prMode = mode;
   }
 
-  const targetIndex = args.indexOf('--target');
+  const targetIndex = args.indexOf('--target') !== -1
+    ? args.indexOf('--target')
+    : args.indexOf('--dir');
   if (targetIndex !== -1 && args[targetIndex + 1]) {
     opts.targetDir = args[targetIndex + 1];
   }
@@ -627,6 +629,10 @@ async function executeSwarm(
     || plan.steps.find(s => s.repo)?.repo
     || inferredFromPlan
     || undefined;
+
+  if (targetDir) {
+    console.log(`📂 Target directory: ${targetDir}`);
+  }
 
   const orchestrator = new SwarmOrchestrator(targetDir);
 
@@ -1119,7 +1125,7 @@ export async function handleBootstrapCommand(args: string[]): Promise<number> {
 
   // Extract positional args, skipping flags and their values
   const flagsWithValues = new Set([
-    '--tool', '--model', '--resume', '--pr', '--target',
+    '--tool', '--model', '--resume', '--pr', '--target', '--dir',
     '--quality-gates-config', '--quality-gates-out', '--max-premium-requests',
   ]);
   const positional: string[] = [];
