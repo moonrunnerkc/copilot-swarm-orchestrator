@@ -108,13 +108,66 @@ Also available as a [GitHub Action](#github-action) for CI/CD integration and wi
 
 ## Quality Benchmarks
 
-The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting. The same goal run through the orchestrator produces output that would take 17-25 follow-up prompts to reach with a standalone agent.
+The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting. The same goal run through the orchestrator produces output that would take 30-40 follow-up prompts to reach with a standalone agent.
 
-The following comparison used the same goal run through Claude Code unassisted and through the orchestrator. Both outputs were evaluated by an independent reviewer against identical criteria.
+Two head-to-head comparisons below, each using a different agent CLI and a different project goal. Both used the same orchestrator configuration with default quality gates.
+
+### Benchmark 1: Copilot CLI, Markdown Note-Taking App
+
+**Goal:** _"Create a browser-based markdown note-taking app with vanilla HTML, CSS, and JavaScript. Features: a text editor panel on the left, a live rendered preview panel on the right, a note list sidebar that lets users create, select, rename, and delete notes. Notes should persist across page reloads. Include a word count and character count display that updates as the user types."_
+
+#### Attribute comparison (30 criteria)
+
+| Attribute | Copilot CLI | Orchestrator |
+|-----------|:-----------:|:------------:|
+| All requested features (editor, preview, sidebar, CRUD, persistence, word/char count) | Yes | Yes |
+| Custom markdown renderer (no CDN dependency) | No (uses marked.js CDN) | Yes (80-line pure function with HTML escaping) |
+| Module separation | No (single file, bare globals) | Yes (5 modules: notes, markdown, storage, audio, app) |
+| Pure logic testable without DOM | No | Yes (notes.js, markdown.js, storage.js all pure) |
+| Tests | None | 60+ across 5 test files |
+| Zero runtime dependencies | No (marked.js CDN) | Yes |
+| IIFE/module encapsulation | No (bare globals) | Yes (IIFE inside ES module) |
+| `type="module"` on script | No | Yes |
+| Skip link | No | Yes |
+| `aria-label` on interactive elements | No | Yes (sidebar, note list, editor, preview, buttons, delete per-note, rename input) |
+| `aria-live` / `role="status"` on stats | No | Yes |
+| `aria-pressed` on note selection | No | Yes |
+| `aria-expanded` / `aria-controls` on sidebar toggle | No | Yes |
+| `aria-hidden` on decorative elements | No | Yes |
+| `:focus-visible` on all interactive elements | No | Yes (buttons, note titles, delete buttons, links in preview) |
+| Keyboard navigation (note titles are `<button>`) | No (list items with click handlers) | Yes |
+| `prefers-reduced-motion` | No | Yes (sets duration vars to 0s, kills all animations) |
+| `prefers-color-scheme` dark mode | No (dark only) | Yes (light default, full dark override via variables) |
+| CSS custom properties | Yes (colors, spacing, radii) | Yes (colors, spacing, typography, layout, motion durations) |
+| Responsive layout | No (fixed sidebar, three panels squeeze) | Yes (sidebar slides off-screen on mobile, editor/preview stack vertically, two breakpoints at 767px and 479px) |
+| Mobile sidebar toggle button | No | Yes (hamburger with `aria-expanded`, click-outside-to-close) |
+| `<meta name="description">` | No | Yes |
+| `<meta name="theme-color">` | No | Yes (light + dark variants) |
+| Inline SVG favicon | No | Yes |
+| Semantic landmarks (`<main>`, `<nav>`, `<header>`) | Partial (`<aside>` only) | Yes (`<nav>`, `<main>`, `<header>`, `<article>`, `<section>`) |
+| Audio feedback | No | Yes (Web Audio, create/delete sounds, lazy context init) |
+| Empty state UI | No (loads welcome note instead) | Yes (dedicated empty state with "New Note" button) |
+| CDN/SRI resilience | No (unmarked CDN dependency, breaks if CDN is down) | Yes (zero external dependencies) |
+| `package.json` | No | Yes (name, description, type, scripts, engines) |
+| README | No | Yes (features, usage, test instructions, troubleshooting) |
+
+**Score: Copilot CLI 3/30. Orchestrator 30/30.**
+
+#### Notable gaps
+
+**Markdown renderer.** Copilot CLI pulled in marked.js from a CDN with no integrity hash and no fallback. The orchestrator built an 80-line pure-function renderer handling headings, paragraphs, bold, italic, strikethrough, links, images, inline code, fenced code blocks with language classes, blockquotes, ordered and unordered lists, horizontal rules, and HTML escaping. Tested with 30 individual assertions covering every syntax type plus edge cases (HTML injection in code blocks, inline code not processed for bold). Zero runtime dependencies.
+
+**Responsive layout.** Copilot CLI's three-panel layout has no breakpoint handling; on a phone, the sidebar, editor, and preview all compete for viewport width. The orchestrator has a sidebar-toggle button that appears at 767px, the sidebar slides off-screen with `transform: translateX(-100%)`, the editor and preview stack vertically, and clicking outside the sidebar on mobile closes it. A second breakpoint at 479px tightens padding.
+
+**Test coverage.** The widest gap in any comparison so far. Copilot CLI: zero tests. Orchestrator: 60+ tests across five files covering note CRUD, immutability, rename edge cases (blank input falls back to "Untitled"), word counting edge cases (whitespace-only, irregular spacing), markdown rendering for every supported syntax, storage round-trip and corruption handling, audio API stubbing, and app-level integration (boot, empty state visibility, button wiring, sidebar toggle).
+
+**Reprompt math:** 27 missing attributes at minimum one prompt each. Responsive layout (sidebar toggle + breakpoints + click-outside), custom markdown renderer, and full test suite each take 3-5 rounds. Conservative estimate: **30-40 follow-up prompts** to bring Copilot CLI output to parity. The orchestrator required zero.
+
+### Benchmark 2: Claude Code, Tic-Tac-Toe
 
 **Goal:** _"Create a simple browser-based tic-tac-toe game with HTML, CSS, and vanilla JavaScript. Include a 3x3 grid, alternating X and O turns, win detection, and a reset button."_
 
-### Results: Orchestrator vs Claude Code (unassisted)
+#### Results: Orchestrator vs Claude Code (unassisted)
 
 | Category | Claude Code | Orchestrator |
 |----------|-------------|--------------|
@@ -127,13 +180,13 @@ The following comparison used the same goal run through Claude Code unassisted a
 | Project scaffolding | F (no package.json, no README) | A (zero-dep test runner, structured README) |
 | Audio feedback | None | A (Web Audio API, lazy init, per-event frequencies) |
 
-### What the orchestrator included that Claude Code did not
+#### What the orchestrator included that Claude Code did not
 
 17 specific quality attributes were present in orchestrator output and absent from Claude Code output: skip link, aria-live region, positional aria-labels (row/column), focus-visible styles, responsive clamp sizing, CSS custom properties (50+ variable references), `prefers-reduced-motion` media query, `prefers-color-scheme` dark mode with full variable overrides, `<meta name="description">`, dual `<meta name="theme-color">` (light and dark), inline SVG favicon, pure logic module separation, copy-on-move game state, audio feedback via Web Audio, separate DOM controller, zero-dependency Node test runner, and structured README with file table.
 
 Each attribute requires at least one follow-up prompt to add when using a standalone agent. Several (full dark mode variable overrides, responsive clamp system, module extraction) require 2-3 rounds. Conservative total: 17-25 prompts eliminated per project.
 
-> **Note:** These results are from a representative run. The underlying agent is non-deterministic, so exact grades and counts may vary between runs. The quality attributes are enforced by prompt injection and gate verification, so they are reliably present, but the specific implementation details (e.g., test count, number of CSS variables) can differ.
+> **Note:** These results are from representative runs. The underlying agents are non-deterministic, so exact scores and counts may vary between runs. The quality attributes are enforced by prompt injection and gate verification, so they are reliably present, but specific implementation details (e.g., test count, number of CSS variables) can differ.
 
 ### How it works
 
@@ -141,7 +194,7 @@ The orchestrator injects quality requirements into every agent prompt before exe
 
 Standalone agents optimize for "correct and working." The orchestrator adds "accessible, responsive, themed, and structured" before the agent writes a single line. The quality bar comes from the system, not from the user's prompt.
 
-> **Note:** This benchmark covers frontend web projects using Claude Code as the baseline. Copilot CLI and Codex comparisons are in progress and will be added here. Backend, API, and CLI project benchmarks are planned.
+> **Note:** These benchmarks cover frontend web projects. Codex comparisons are in progress and will be added here. Backend, API, and CLI project benchmarks are planned.
 
 <br>
 
