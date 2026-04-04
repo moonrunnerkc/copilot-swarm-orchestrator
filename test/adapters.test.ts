@@ -168,17 +168,19 @@ describe('Agent Adapters', () => {
       assert.strictEqual(result.transcriptPath, transcriptPath);
     });
 
-    it('does not write transcript when session fails', async () => {
+    it('writes transcript even when session fails so verification can inspect agent work', async () => {
       const dir = tmpDir();
       tempDirs.push(dir);
       const transcriptPath = path.join(dir, 'proof', 'step-1.md');
-      const stub = new StubAdapter({ exitCode: 1, stderr: 'error' });
+      const stub = new StubAdapter({ stdout: '', exitCode: 1, stderr: 'permission denied' });
       const executor = new SessionExecutor(dir, stub);
 
       const result = await executor.executeSession('failing', { shareToFile: transcriptPath });
 
-      assert.ok(!fs.existsSync(transcriptPath), 'no transcript on failure');
-      assert.strictEqual(result.transcriptPath, undefined);
+      assert.ok(fs.existsSync(transcriptPath), 'transcript should exist even on non-zero exit');
+      assert.strictEqual(result.transcriptPath, transcriptPath, 'transcriptPath must be set on failure');
+      const content = fs.readFileSync(transcriptPath, 'utf8');
+      assert.ok(content.includes('permission denied'), 'transcript should include stderr when stdout is empty');
     });
 
     it('passes shareTranscriptPath from adapter result when present', async () => {

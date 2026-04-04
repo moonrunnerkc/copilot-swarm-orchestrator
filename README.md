@@ -252,6 +252,167 @@ The orchestrator missed two: operator precedence (left-to-right chaining instead
 
 **Reprompt math:** 28 missing attributes from Codex. The state machine architecture alone would take 4-5 rounds. Full accessibility, dark mode, tests, audio, and project scaffolding add another 25+. Conservative estimate: **30-40 follow-up prompts** to reach parity.
 
+### Benchmark 4: Claude Code, REST API Backend
+
+**Goal:** _"Build a Node.js REST API backend for the Ledger Calculator. Use Express with these endpoints: GET /api/health for server status, GET /api/calculations to list saved calculations, POST /api/calculations to save a new calculation with expression and result fields, DELETE /api/calculations/:id to remove one entry, DELETE /api/calculations to clear all entries. Store data in a JSON file. Add input validation, error handling middleware, and CORS support. Create server.js as the entry point on port 3000. Write API tests using the Node built-in test runner."_
+
+The first backend comparison. Both tools received the same goal and ran against the same Ledger Calculator frontend project (vanilla HTML/CSS/JS with 13 existing tests).
+
+#### Attribute comparison (36 criteria)
+
+| Attribute | Claude Code | Orchestrator |
+|-----------|:-----------:|:------------:|
+| All 5 endpoints present and correct | Yes | Yes |
+| Module separation (routes, store, app) | Yes (4 files: api.js, store.js, routes/calculations.js, server.js) | Yes (3 files: server.js, store.js, middleware/security-headers.js) |
+| Factory pattern / dependency injection | Yes (createApp(store), createStore(path)) | No (module-level exports, config via env vars) |
+| Config externalization (PORT) | Partial (env var in server.js only) | Yes (env var, documented in README) |
+| Config externalization (DATA_FILE) | Hardcoded path in createDefaultApp() | Yes (DATA_FILE env var with URL-based default) |
+| Config externalization (CORS_ORIGIN) | No (hardcoded cors() with defaults) | Yes (CORS_ORIGIN env var) |
+| Input validation: type check | Yes | Yes |
+| Input validation: empty/whitespace | Yes | Yes |
+| Input validation: max length (expression 500, result 100) | No | Yes |
+| Input validation: character pattern | No | Yes (regex: digits, operators, parens, spaces, scientific notation) |
+| Input validation: non-string type rejection | Implicit (typeof check) | Explicit (tested with numeric input) |
+| Whitespace trimming on POST | Yes (in route) | Yes (in server.js, tested explicitly) |
+| Error handling middleware | Yes | Yes |
+| Error message safety (no internal details leaked) | No (err.message could leak in some paths) | Yes (always returns generic "Internal server error", documented in SECURITY.md) |
+| Request body size limit | No | Yes (express.json({ limit: "10kb" })) |
+| Security headers middleware | No | Yes (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, CSP) |
+| ID parameter sanitization | No | Yes (regex pattern, 400 on invalid format) |
+| SECURITY.md with audit findings | No | Yes (5 findings with before/after, 6 existing controls verified, 5 recommendations) |
+| DELETE /:id returns deleted object | No (204 empty) | Yes (200 with deleted object) |
+| DELETE / returns count | No (204 empty) | Yes (200 with { deleted: count }) |
+| Health endpoint includes timestamp | No ({ status: "ok" } only) | Yes ({ status: "ok", timestamp: "..." }) |
+| Tests: API integration (real HTTP) | 10 | 20 |
+| Tests: store unit | 0 | 11 |
+| Tests: security headers | 0 | 6 |
+| Test: whitespace trimming | No | Yes |
+| Test: max length rejection | No | Yes (both expression and result) |
+| Test: empty-after-trim | No | Yes (both fields) |
+| Test: non-string type input | No | Yes |
+| Test: response field shape verification | Partial | Yes (validates id non-empty, createdAt is valid ISO) |
+| Test: content-type header verification | No | Yes (JSON content-type on POST and GET) |
+| Test: health timestamp format | No | Yes |
+| Test: delete-all on empty store | No | Yes (returns { deleted: 0 }) |
+| README updated for API | No (still says "There is no backend service") | Yes (full API reference with endpoint table, env vars, common issues) |
+| README: env var documentation | No | Yes (PORT, CORS_ORIGIN, DATA_FILE with defaults) |
+| Dockerfile | No | Yes |
+| docker-compose.yml | No | Yes |
+| package.json: author field | No | Yes ("Brad Kinnard") |
+| package.json: description updated | No (still "Browser-based calculator") | Yes ("...and a REST API backend") |
+| Existing frontend preserved | Yes | Yes |
+
+**Score: Claude Code 12/36. Orchestrator 34/36.**
+
+Claude Code scored on: all endpoints, module separation (4 files with route directory), factory/DI pattern, type check validation, empty/whitespace validation, trimming, error middleware, and 10 integration tests.
+
+The orchestrator missed two: the factory/DI pattern (Claude Code's `createApp(store)` is cleaner for test injection) and route file separation (Claude Code split routes into their own directory).
+
+#### Where Claude Code won
+
+**Architecture patterns.** Claude Code produced a factory pattern with `createApp(store)` and `createStore(path)` that cleanly supports dependency injection. Tests can pass a mock store without touching the filesystem. The orchestrator used module-level exports with env var configuration, which works but requires test setup/teardown for the store file rather than simple injection. Claude Code also separated route handlers into a `routes/calculations.js` file, while the orchestrator kept routes inline in `server.js`.
+
+#### Where the orchestrator won
+
+**Security.** The widest gap in this comparison. Claude Code had no security headers, no request body size limit, no ID parameter sanitization, and error messages that could leak internal details via `err.message`. The orchestrator added a dedicated security headers middleware (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, Content-Security-Policy), capped request bodies at 10KB, validated ID parameters against a regex pattern returning 400 on invalid format, and ensured error responses always return a generic "Internal server error" message. A SECURITY.md file documented 5 findings with before/after comparisons, 6 verified existing controls, and 5 forward-looking recommendations.
+
+**Input validation depth.** Claude Code validated types and empty fields. The orchestrator added maximum length enforcement (500 chars for expressions, 100 for results), character pattern validation via regex (allowing only digits, operators, parentheses, spaces, and scientific notation), and explicit non-string type rejection with dedicated test coverage for each case.
+
+**Test coverage.** Claude Code: 10 API integration tests, no unit tests. Orchestrator: 37 tests total (20 API integration, 11 store unit, 6 security header tests). The orchestrator tested edge cases that Claude Code skipped entirely: whitespace trimming, max length rejection, empty-after-trim for both fields, non-string type input, response field shape validation, content-type header verification, health timestamp format, and delete-all on an empty store.
+
+**API response design.** Claude Code returned 204 (empty body) for both DELETE endpoints. The orchestrator returned the deleted object on single delete and `{ deleted: count }` on clear-all, giving callers confirmation of what was removed without requiring a follow-up GET.
+
+**Configuration and documentation.** Claude Code externalized only PORT and hardcoded the data file path and CORS settings. The orchestrator externalized PORT, DATA_FILE, and CORS_ORIGIN as env vars, all documented in the README. Claude Code's README still contained the original "There is no backend service" text. The orchestrator replaced it with a full API reference table, env var documentation, and startup instructions. The orchestrator also added a Dockerfile and docker-compose.yml.
+
+**Reprompt math:** 24 missing attributes from Claude Code. Security hardening alone (headers, body limit, ID sanitization, error safety, SECURITY.md) would take 4-5 rounds. Full test coverage, config externalization, API response improvements, README rewrite, and Docker setup add another 15-20. Conservative estimate: **20-25 follow-up prompts** to bring Claude Code output to parity.
+
+### Benchmark 5: Copilot CLI, REST API Backend
+
+**Goal:** _"Build a Node.js REST API backend for the Markdown Notes app. Use Express with these endpoints: GET /api/health for server status, GET /api/notes to list all saved notes, GET /api/notes/:id to retrieve a single note, POST /api/notes to create a new note with title and content fields, PUT /api/notes/:id to update an existing note, DELETE /api/notes/:id to delete a note. Store data in a JSON file at data/notes.json. Add input validation: reject empty title, reject missing content, enforce max title length of 200 characters, return 400 with specific error messages. Add centralized error handling middleware with JSON error responses. Include CORS middleware. Create server.js as the entry point on port 3000. Write API tests using the Node built-in test runner. Do not modify existing frontend files (index.html, app.js, style.css)."_
+
+The second backend comparison, this time with Copilot CLI. Both tools received the same goal and ran against the same Markdown Notes frontend project (vanilla HTML/CSS/JS, no existing tests or package.json).
+
+#### Attribute comparison (44 criteria)
+
+| Attribute | Copilot CLI | Orchestrator |
+|-----------|:-----------:|:------------:|
+| All requested endpoints present | 4 of 5 (missing DELETE-all) | 5 of 5 (plus GET-by-id and PUT bonus endpoints) |
+| Bonus endpoints beyond prompt | GET /:id, PUT /:id | GET /:id, PUT /:id |
+| Module separation | Yes (routes/, lib/, middleware/) | Yes (src/routes/, src/middleware/, src/validation.js, src/storage.js, src/config.js) |
+| Dedicated validation module | No (inline in route file) | Yes (src/validation.js, exported and independently testable) |
+| Dedicated config module | No (PORT hardcoded in server.js) | Yes (src/config.js: PORT, DATA_FILE, CORS_ORIGIN all from env vars) |
+| Config: PORT externalized | Yes (env var) | Yes (env var via config module) |
+| Config: DATA_FILE externalized | No (hardcoded path) | Yes (env var with sensible default) |
+| Config: CORS_ORIGIN externalized | No (hardcoded cors()) | Yes (env var, default *) |
+| Input validation: missing fields | Yes | Yes |
+| Input validation: empty/whitespace title | Yes | Yes |
+| Input validation: max title length | Yes (200 chars) | Yes (200 chars) |
+| Input validation: max content length | No | Yes (500 KB) |
+| Input validation: non-string type rejection | Implicit (String(title) coerces) | Explicit (typeof check, tested with number and array) |
+| Input validation: UUID format on ID params | No | Yes (regex pattern, rejects before route logic runs) |
+| Validation returns multiple errors simultaneously | No (first error only via next(err)) | Yes (details array with all errors) |
+| Whitespace trimming | Yes (title only) | Yes (title) |
+| Error handler middleware | Yes (leaks err.message on 500s) | Yes (hides internals in production via NODE_ENV check) |
+| Security headers | No | Yes (helmet: X-Content-Type-Options, X-Frame-Options, CSP, removes X-Powered-By, etc.) |
+| Request body size limit | No | Yes (express.json({ limit: '100kb' })) |
+| 404 handler for unknown routes | No | Yes (returns JSON { error: "Route METHOD /path not found" }) |
+| Health endpoint includes timestamp | Yes | Yes |
+| updatedAt on create and update | Yes | Yes |
+| Notes returned newest-first | No (insertion order, oldest first) | Yes (unshift on create, tested) |
+| App exportable without starting listener | Yes (require.main === module) | Yes (separate src/app.js from server.js) |
+| Tests: API integration (real HTTP) | 16 | 30 |
+| Tests: validation unit | 0 | 15 |
+| Tests: storage unit | 0 | 12 |
+| Test: whitespace trimming | Yes | Yes |
+| Test: max length (boundary: exactly 200 OK, 201 rejected) | No (only tests 201 rejected) | Yes (both boundary values) |
+| Test: whitespace-only title | No | Yes |
+| Test: non-string type input | No | Yes (number, array) |
+| Test: empty content allowed | No | Yes |
+| Test: content-type headers | No | Yes (3 endpoints) |
+| Test: note ordering (newest first) | No | Yes |
+| Test: schema field verification (all fields, ISO dates) | No | Yes |
+| Test: createdAt preserved on update | No | Yes |
+| Test: updatedAt changes on update | No | Yes |
+| Test: partial content update (omit content, preserves existing) | No | Yes |
+| Test: data persistence across requests | No | Yes (3 tests: create-then-fetch, delete-then-list, update-then-list) |
+| Test: 404 for unknown routes | No | Yes |
+| Test: malformed JSON body | No | Yes (triggers error handler) |
+| Test isolation (temp directory, cleanup) | Yes (beforeEach resets file) | Yes (temp dir, beforeEach per storage tests, after cleanup) |
+| README with API documentation | No (absent) | Yes (endpoint table, field schema, env vars, common issues, Docker) |
+| Dockerfile | No | Yes (nginx for static frontend, with healthcheck) |
+| docker-compose.yml | No | Yes |
+| nginx.conf | No | Yes |
+| Dev script (--watch) | No | Yes (npm run dev) |
+| Coverage script | No | Yes (npm run test:coverage) |
+| package.json: description updated | Partial ("Markdown Notes REST API") | Yes ("Browser-based markdown notes app with a companion REST API") |
+| package.json: author | No | No |
+| Existing frontend preserved | Yes | Yes |
+| Sync vs async file I/O | Sync (blocks event loop) | Sync (same concern) |
+
+**Score: Copilot CLI 13/44. Orchestrator 41/44.**
+
+Copilot CLI scored on: 4 of 5 endpoints, bonus endpoints, module separation, PORT externalization, missing field validation, empty title validation, max title length, whitespace trimming, error middleware, health timestamp, updatedAt tracking, app export pattern, and test isolation.
+
+The orchestrator missed three: author field in package.json, async file I/O (both use sync `fs` calls), and module-level config reads instead of dependency injection.
+
+#### Where Copilot CLI fell short
+
+The gap on this backend project is wider than the Claude Code backend comparison (13/44 vs 12/36). The orchestrator's advantages fall into four categories.
+
+**Security.** Copilot CLI has no security headers, no body size limit, no ID sanitization, and leaks error messages on 500 responses. The orchestrator uses helmet (comprehensive security headers including CSP, X-Content-Type-Options, X-Frame-Options, and X-Powered-By removal), limits request bodies to 100KB, validates UUID format on ID parameters before they reach route logic, and hides error internals in production via NODE_ENV.
+
+**Test depth.** 57 tests vs 16. The orchestrator has dedicated unit test suites for validation (15 tests covering boundary values, type mismatches, null, empty arrays, whitespace, multi-error returns) and storage (12 tests covering missing files, empty files, corrupt JSON, round-trips, directory creation, pretty-printed output). The API integration tests cover ordering, schema verification, timestamp preservation on update, partial content updates, data persistence across requests, malformed JSON handling, and unknown route 404s. Copilot CLI's 16 tests cover the happy paths and basic validation but none of these edge cases.
+
+**Documentation and infrastructure.** Copilot CLI produced no README. The orchestrator produced a README with endpoint table, field schema, environment variable documentation, Docker instructions, and common issues. It also generated a Dockerfile with healthcheck, docker-compose.yml, nginx.conf for the static frontend, a dev script with --watch, and a coverage script.
+
+**Input validation.** Copilot CLI validates basic cases but coerces types implicitly (String(title)), returns only the first error, and has no content length limit or ID format check. The orchestrator validates types explicitly, returns all errors simultaneously, enforces a 500KB content limit, and rejects malformed UUIDs at the middleware layer.
+
+#### Shared weakness
+
+Both implementations use synchronous file I/O (`fs.readFileSync`/`fs.writeFileSync`) for the JSON store. Neither used `fs/promises`. Under concurrent load this blocks the event loop. There is currently no quality gate for async I/O patterns.
+
+**Reprompt math:** 31 missing attributes from Copilot CLI. Security hardening (helmet, body limit, UUID validation, error hiding) would take 3-4 rounds. The 41 additional tests covering validation edge cases, storage unit tests, boundary values, and persistence verification would take 8-10 rounds. README, Docker, config module, and newest-first ordering add another 8-10. Conservative estimate: **25-30 follow-up prompts** to bring Copilot CLI output to parity.
+
 > **Note:** These results are from representative runs. The underlying agents are non-deterministic, so exact scores and counts may vary between runs. The quality attributes are enforced by prompt injection and gate verification, so they are reliably present, but specific implementation details (e.g., test count, number of CSS variables) can differ.
 
 ### How it works
@@ -260,7 +421,7 @@ The orchestrator injects quality requirements into every agent prompt before exe
 
 Standalone agents optimize for "correct and working." The orchestrator adds "accessible, responsive, themed, and structured" before the agent writes a single line. The quality bar comes from the system, not from the user's prompt.
 
-> **Note:** These benchmarks cover frontend web projects. Backend, API, and CLI project benchmarks are planned.
+> **Note:** CLI project benchmarks are planned. The five benchmarks above cover three frontend projects and two backend APIs.
 
 <br>
 

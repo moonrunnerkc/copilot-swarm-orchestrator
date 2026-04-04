@@ -21,6 +21,8 @@ export interface HookGenerationInput {
   runDir: string;
   stepBranch: string;
   workingDir: string;
+  /** Pre-existing test files to protect from modification by non-testing agents */
+  existingTestFiles?: string[];
 }
 
 /**
@@ -101,7 +103,7 @@ export class HookGenerator {
     }
     const evidenceLogPath = path.join(evidenceDir, `step-${input.step.stepNumber}.jsonl`);
 
-    const scopeRules = this.deriveScopeRules(input.agent);
+    const scopeRules = this.deriveScopeRules(input.agent, input.existingTestFiles);
 
     const hookConfig = this.buildHookConfig(scopeRules, evidenceLogPath, input);
     const hooksFilePath = path.join(hooksDir, `swarm-step-${input.step.stepNumber}.json`);
@@ -157,7 +159,7 @@ export class HookGenerator {
    * "Do not modify frontend components or UI code". These are mapped
    * to file path patterns for hook enforcement.
    */
-  deriveScopeRules(agent: AgentProfile): ScopeRule {
+  deriveScopeRules(agent: AgentProfile, existingTestFiles?: string[]): ScopeRule {
     const allow: string[] = [];
     const deny: string[] = [];
 
@@ -196,6 +198,16 @@ export class HookGenerator {
       }
       if (lower.includes('test framework')) {
         deny.push('jest.config', 'mocha', '.mocharc');
+      }
+    }
+
+    // Protect pre-existing test files from non-testing agents.
+    // TesterElite and IntegratorFinalizer can modify tests; others cannot.
+    const agentLower = agent.name.toLowerCase();
+    const canModifyTests = agentLower.includes('tester') || agentLower.includes('integrator');
+    if (!canModifyTests && existingTestFiles && existingTestFiles.length > 0) {
+      for (const testFile of existingTestFiles) {
+        deny.push(testFile);
       }
     }
 

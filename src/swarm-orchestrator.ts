@@ -29,6 +29,7 @@ import { CostAttribution, CostHistoryEvidence, StepCostRecord } from './metrics-
 import PRManager from './pr-manager';
 import { WorktreeManager } from './worktree-manager';
 import { BranchMerger, MergeContext } from './branch-merger';
+import { BaselineSnapshot, scanBaseline, formatPreservationRules } from './baseline-scanner';
 
 export interface ParallelStepResult {
   stepNumber: number;
@@ -115,6 +116,7 @@ export interface SwarmExecutionContext {
     agentName: string;
     reason: string;
   }>;
+  baselineSnapshot?: BaselineSnapshot;
 }
 
 /**
@@ -306,9 +308,13 @@ export class SwarmOrchestrator {
     });
     context.stepCostRecords = [];
 
+    // Capture existing file inventory before agents run, so preservation rules
+    // can be injected into shared instructions and per-step prompts.
+    context.baselineSnapshot = scanBaseline(this.workingDir);
+
     // Write common prompt instructions to repo root so Copilot CLI picks them up natively.
     // Per-step prompts only carry task-specific content; shared boilerplate lives here.
-    this.writeSharedInstructions();
+    this.writeSharedInstructions(context.baselineSnapshot);
 
     // Cache quality gates config once for the entire run
     const gatesConfig = load_quality_gates_config(this.workingDir, options?.qualityGatesConfigPath);
@@ -543,6 +549,16 @@ export class SwarmOrchestrator {
         console.log(`  • Step ${um.stepNumber} (${um.agentName}): ${um.branchName}`);
       }
     }
+
+    // Remove any remaining worktrees (failed or unmerged steps) so their
+    // leftover test files don't pollute recursive test runners during gates.
+    // mergeWaveBranches already cleaned merged steps; this catches the rest.
+    await this.cleanupRemainingWorktrees(context);
+
+    // Install dependencies if any agent added new ones to package.json.
+    // Without this, quality gates' `npm test` would fail on MODULE_NOT_FOUND
+    // for newly-added packages like express or cors.
+    await this.installDependenciesIfNeeded();
 
     // final quality gates run on the merged state (hard gate)
     // this happens before auto-PR so we don't create a PR for a failing run
@@ -1215,7 +1231,8 @@ export class SwarmOrchestrator {
           executionId: context.executionId,
           runDir: context.runDir,
           stepBranch: branchName,
-          workingDir: worktreePath
+          workingDir: worktreePath,
+          existingTestFiles: context.baselineSnapshot?.testFiles || [],
         });
         // Hooks are auto-loaded by Copilot CLI from <gitRoot>/.github/hooks/
       }
@@ -1259,8 +1276,12 @@ export class SwarmOrchestrator {
 
         result.sessionResult = sessionResult;
 
+        // Non-zero exit code does not mean the agent failed its task.
+        // Claude Code often exits non-zero after completing file changes
+        // (e.g., cleanup command fails, permission prompt at exit).
+        // Let the verification pipeline judge whether the work is acceptable.
         if (!sessionResult.success) {
-          throw new Error(sessionResult.error || 'Session failed');
+          console.warn(`  ⚠️  Step ${step.stepNumber} (${agent.name}) exited with code ${sessionResult.exitCode}; checking committed work`);
         }
       }
 
@@ -1550,6 +1571,18 @@ export class SwarmOrchestrator {
     agent.boundaries.forEach(item => sections.push('- ' + item));
     sections.push('');
 
+    // Surface existing test files so agents know what they must not break.
+    // Full preservation rules live in .copilot-instructions.md; this is a
+    // per-step reminder with the actual filenames.
+    const baseline = context.baselineSnapshot;
+    if (baseline && baseline.testFiles.length > 0) {
+      sections.push('EXISTING TESTS (must still pass after your changes):');
+      for (const f of baseline.testFiles) {
+        sections.push('- ' + f);
+      }
+      sections.push('');
+    }
+
     sections.push('Done when:');
     agent.done_definition.forEach(item => sections.push('- ' + item));
     sections.push('');
@@ -1638,6 +1671,37 @@ export class SwarmOrchestrator {
    */
   private async removeAgentWorktree(worktreePath: string): Promise<void> {
     return this.worktreeManager.removeAgentWorktree(worktreePath);
+  }
+
+  /**
+   * Remove all remaining worktree directories under runs/<id>/worktrees/.
+   * mergeWaveBranches cleans up merged steps, but failed or unmerged steps
+   * leave worktrees containing test files that recursive test runners
+   * (node --test, Jest, etc.) discover during quality gates.
+   */
+  private async cleanupRemainingWorktrees(context: SwarmExecutionContext): Promise<void> {
+    const worktreesDir = path.join(context.runDir, 'worktrees');
+    if (!fs.existsSync(worktreesDir)) return;
+
+    const entries = fs.readdirSync(worktreesDir, { withFileTypes: true });
+    const remainingDirs = entries.filter(e => e.isDirectory());
+    if (remainingDirs.length === 0) return;
+
+    console.log(`\n🧹 Cleaning up ${remainingDirs.length} remaining worktree(s) before quality gates...`);
+    for (const dir of remainingDirs) {
+      const worktreePath = path.join(worktreesDir, dir.name);
+      try {
+        await this.worktreeManager.removeAgentWorktree(worktreePath);
+      } catch (err: unknown) {
+        // Force-remove if git worktree remove fails (e.g., already detached)
+        try {
+          fs.rmSync(worktreePath, { recursive: true, force: true });
+        } catch {
+          // Best-effort cleanup; log but don't block execution
+          console.warn(`  ⚠️  Could not remove worktree ${dir.name}: ${(err as Error).message}`);
+        }
+      }
+    }
   }
 
   /**
@@ -1749,6 +1813,16 @@ export class SwarmOrchestrator {
       if (!context.unmergedBranches) context.unmergedBranches = [];
       context.unmergedBranches.push(...unmerged);
     }
+
+    // Remove worktrees for merged steps so their leftover test files
+    // don't confuse recursive test runners (node --test, Jest, etc.)
+    const worktreesDir = path.join(context.runDir, 'worktrees');
+    for (const result of completedResults) {
+      if (result.branchName) {
+        const worktreePath = path.join(worktreesDir, `step-${result.stepNumber}`);
+        await this.worktreeManager.removeAgentWorktree(worktreePath);
+      }
+    }
   }
 
   /**
@@ -1769,6 +1843,54 @@ export class SwarmOrchestrator {
     if (unmerged.length > 0) {
       if (!context.unmergedBranches) context.unmergedBranches = [];
       context.unmergedBranches.push(...unmerged);
+    }
+  }
+
+  /**
+   * Detect whether agents introduced new dependencies and install them.
+   * Runs after all branches are merged but before quality gates so that
+   * `npm test` has access to any newly-added packages.
+   */
+  private async installDependenciesIfNeeded(): Promise<void> {
+    const pkgPath = path.join(this.workingDir, 'package.json');
+    const nodeModulesPath = path.join(this.workingDir, 'node_modules');
+
+    if (!fs.existsSync(pkgPath)) return;
+
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      const allDeps = {
+        ...pkg.dependencies,
+        ...pkg.devDependencies,
+      };
+
+      if (Object.keys(allDeps).length === 0) return;
+
+      // Check if any declared dependency is missing from node_modules
+      const missing = Object.keys(allDeps).filter(dep => {
+        return !fs.existsSync(path.join(nodeModulesPath, dep));
+      });
+
+      if (missing.length === 0) return;
+
+      console.log(`\n\ud83d\udce6 Installing ${missing.length} new dependenc${missing.length === 1 ? 'y' : 'ies'}: ${missing.join(', ')}`);
+
+      // Use the right package manager for the project
+      const installCmd = fs.existsSync(path.join(this.workingDir, 'yarn.lock'))
+        ? 'yarn install --frozen-lockfile 2>/dev/null || yarn install'
+        : fs.existsSync(path.join(this.workingDir, 'pnpm-lock.yaml'))
+          ? 'pnpm install --no-frozen-lockfile'
+          : 'npm install --loglevel=error';
+
+      execSync(installCmd, {
+        cwd: this.workingDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 120_000,
+      });
+      console.log('  \u2705 Dependencies installed');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`  \u26a0\ufe0f  Dependency install failed (quality gates may report test failures): ${msg}`);
     }
   }
 
@@ -1895,12 +2017,12 @@ export class SwarmOrchestrator {
    * Write .copilot-instructions.md to the repo root with boilerplate every agent needs.
    * Copilot CLI picks this up automatically, so per-step prompts stay minimal.
    */
-  private writeSharedInstructions(): void {
+  private writeSharedInstructions(baseline?: BaselineSnapshot): void {
     const instructionsPath = path.join(this.workingDir, '.copilot-instructions.md');
     // Only write if the file does not already exist (avoid overwriting user content)
     if (fs.existsSync(instructionsPath)) return;
 
-    const content = [
+    const contentParts = [
       '# Swarm Agent Instructions',
       '',
       '## Parallel Execution Context',
@@ -1944,7 +2066,15 @@ export class SwarmOrchestrator {
       '  "update config and deps"',
       '  "implement todo API with tests"',
       '',
-    ].join('\n');
+    ];
+
+    // Append baseline preservation rules when the repo has existing files
+    if (baseline && baseline.allFiles.length > 0) {
+      const rules = formatPreservationRules(baseline);
+      if (rules) contentParts.push(rules);
+    }
+
+    const content = contentParts.join('\n');
 
     fs.writeFileSync(instructionsPath, content, 'utf8');
 

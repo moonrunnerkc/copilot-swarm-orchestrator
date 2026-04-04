@@ -485,4 +485,44 @@ describe('SwarmOrchestrator', () => {
       assert.strictEqual(context.qualityGatesTriggered!.readmeTruthAdded, true);
     });
   });
+
+  describe('cleanupRemainingWorktrees', () => {
+    it('removes all worktree directories under runs/<id>/worktrees/', async () => {
+      const runDir = path.join(testDir, 'runs', 'test-run');
+      const worktreesDir = path.join(runDir, 'worktrees');
+      fs.mkdirSync(path.join(worktreesDir, 'step-1', 'test'), { recursive: true });
+      fs.mkdirSync(path.join(worktreesDir, 'step-4', 'test'), { recursive: true });
+      fs.writeFileSync(path.join(worktreesDir, 'step-4', 'test', 'api.test.js'), 'test file');
+
+      // Stub worktreeManager to throw (not a real git worktree), triggering fs.rmSync fallback
+      orchestrator.worktreeManager = {
+        removeAgentWorktree: async () => { throw new Error('not a worktree'); },
+      };
+
+      const context = { runDir } as any;
+      await orchestrator.cleanupRemainingWorktrees(context);
+
+      assert.ok(!fs.existsSync(path.join(worktreesDir, 'step-1')), 'step-1 worktree should be removed');
+      assert.ok(!fs.existsSync(path.join(worktreesDir, 'step-4')), 'step-4 worktree should be removed');
+    });
+
+    it('is a no-op when worktrees directory does not exist', async () => {
+      const runDir = path.join(testDir, 'runs', 'no-worktrees');
+      fs.mkdirSync(runDir, { recursive: true });
+
+      const context = { runDir } as any;
+      // Should not throw
+      await orchestrator.cleanupRemainingWorktrees(context);
+    });
+
+    it('is a no-op when worktrees directory is empty', async () => {
+      const runDir = path.join(testDir, 'runs', 'empty-worktrees');
+      fs.mkdirSync(path.join(runDir, 'worktrees'), { recursive: true });
+
+      const context = { runDir } as any;
+      await orchestrator.cleanupRemainingWorktrees(context);
+
+      assert.ok(fs.existsSync(path.join(runDir, 'worktrees')), 'worktrees parent dir should remain');
+    });
+  });
 });

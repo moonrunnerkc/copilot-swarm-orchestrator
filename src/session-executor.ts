@@ -2,6 +2,7 @@ import { spawn, SpawnOptions } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AgentAdapter } from './adapters/agent-adapter';
+import { scanBaseline } from './baseline-scanner';
 import { AgentProfile } from './config-loader';
 import { FleetWrapper } from './fleet-wrapper';
 import { HookGenerator, GeneratedHooks } from './hook-generator';
@@ -147,13 +148,14 @@ export class SessionExecutor {
     });
 
     // Write transcript to the share file if the adapter produced one,
-    // or if the caller requested shareToFile and the session succeeded.
+    // or if the caller requested shareToFile. Always capture output even on
+    // non-zero exit so the verification pipeline can inspect agent work.
     // For non-Copilot adapters shareTranscriptPath is always undefined,
     // so we generate a fallback transcript from stdout.
     let transcriptPath: string | undefined;
     if (agentResult.shareTranscriptPath) {
       transcriptPath = agentResult.shareTranscriptPath;
-    } else if (options.shareToFile && agentResult.exitCode === 0) {
+    } else if (options.shareToFile) {
       const dir = path.dirname(options.shareToFile);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
@@ -311,6 +313,17 @@ export class SessionExecutor {
       sections.push('- ' + item);
     });
     sections.push('');
+
+    // Surface existing test files so agents know what not to break
+    const baseline = scanBaseline(this.workingDir);
+    if (baseline.testFiles.length > 0) {
+      sections.push('EXISTING TESTS (must still pass after your changes)');
+      sections.push('---------------------------------------------------');
+      for (const f of baseline.testFiles) {
+        sections.push('- ' + f);
+      }
+      sections.push('');
+    }
 
     // CRITICAL: Human-like commit instructions
     sections.push('Git Commit Requirements (CRITICAL)');

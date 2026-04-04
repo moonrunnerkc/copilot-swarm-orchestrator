@@ -4,20 +4,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * Load variables from a .env file into process.env without overwriting
- * existing values. Supports KEY=value, KEY="value", and KEY='value'.
+ * Parse a single .env file and set any variables not already in process.env.
+ * Supports KEY=value, KEY="value", KEY='value', and `export KEY=value`.
  * Skips blank lines and comments. No external dependencies.
  */
-function loadDotenv(): void {
-  const envPath = path.resolve(process.cwd(), '.env');
-  if (!fs.existsSync(envPath)) return;
+function parseDotenvFile(filePath: string): void {
+  if (!fs.existsSync(filePath)) return;
 
-  const content = fs.readFileSync(envPath, 'utf-8');
+  const content = fs.readFileSync(filePath, 'utf-8');
   for (const raw of content.split('\n')) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
 
-    // Strip optional `export ` prefix
     const stripped = line.startsWith('export ') ? line.slice(7) : line;
     const eqIndex = stripped.indexOf('=');
     if (eqIndex === -1) continue;
@@ -25,16 +23,46 @@ function loadDotenv(): void {
     const key = stripped.slice(0, eqIndex).trim();
     let value = stripped.slice(eqIndex + 1).trim();
 
-    // Remove matched surrounding quotes
     if ((value.startsWith('"') && value.endsWith('"')) ||
         (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1);
     }
 
-    // Only set if not already present so real env vars take precedence
     if (process.env[key] === undefined) {
       process.env[key] = value;
     }
+  }
+}
+
+/**
+ * Load .env from multiple locations so API keys are found regardless
+ * of which target repo the user runs the command from.
+ *
+ * Search order (first match for a given key wins):
+ *   1. cwd (the target project directory)
+ *   2. The orchestrator's own install directory (where cli.js lives)
+ *   3. The user's home directory (~/.env) as a last-resort fallback
+ */
+function loadDotenv(): void {
+  const candidates: string[] = [
+    path.resolve(process.cwd(), '.env'),
+  ];
+
+  // __dirname at runtime is dist/src/, so two levels up reaches the
+  // project root where .env and package.json live.
+  const orchestratorRoot = path.resolve(__dirname, '..', '..');
+  const orchestratorEnv = path.join(orchestratorRoot, '.env');
+  if (orchestratorEnv !== candidates[0]) {
+    candidates.push(orchestratorEnv);
+  }
+
+  const homeEnv = path.join(process.env.HOME || process.env.USERPROFILE || '', '.env');
+  if (homeEnv && !candidates.includes(homeEnv)) {
+    candidates.push(homeEnv);
+  }
+
+  for (const envPath of candidates) {
+    parseDotenvFile(envPath);
   }
 }
 

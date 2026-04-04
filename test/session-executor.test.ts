@@ -1,7 +1,18 @@
 import { strict as assert } from 'assert';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import SessionExecutor from '../src/session-executor';
+import { AgentAdapter, AgentResult, AgentSpawnOptions } from '../src/adapters/agent-adapter';
+
+/** Minimal adapter stub that returns a preconfigured result. */
+class StubAdapter implements AgentAdapter {
+  readonly name = 'stub';
+  constructor(private result: AgentResult) {}
+  async spawn(_opts: AgentSpawnOptions): Promise<AgentResult> {
+    return this.result;
+  }
+}
 
 describe('SessionExecutor', () => {
   const testDir = path.join(process.cwd(), 'test', 'fixtures', 'session-executor');
@@ -246,6 +257,86 @@ describe('SessionExecutor', () => {
 
       assert.strictEqual(result.success, false, 'should fail after all retries');
       assert(result.error?.includes('persistent error'), 'should include error message');
+    });
+  });
+
+  describe('transcript capture on non-zero exit', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'se-transcript-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('should write transcript to shareToFile even when agent exits non-zero', async () => {
+      const adapter = new StubAdapter({
+        stdout: 'Created tests/api.test.js\nAll tests pass',
+        stderr: 'warning: some cleanup failed',
+        exitCode: 1,
+        durationMs: 5000,
+      });
+      const executor = new SessionExecutor(tmpDir, adapter);
+      const shareFile = path.join(tmpDir, 'steps', 'step-4', 'share.md');
+
+      const result = await executor.executeSession('write api tests', { shareToFile: shareFile });
+
+      assert.strictEqual(result.success, false, 'session should report failure');
+      assert.ok(fs.existsSync(shareFile), 'transcript file must exist despite non-zero exit');
+      const content = fs.readFileSync(shareFile, 'utf8');
+      assert.ok(content.includes('Created tests/api.test.js'), 'transcript should contain agent stdout');
+    });
+
+    it('should include stderr in transcript when stdout is empty on failure', async () => {
+      const adapter = new StubAdapter({
+        stdout: '',
+        stderr: 'fatal: model quota exceeded',
+        exitCode: 1,
+        durationMs: 1000,
+      });
+      const executor = new SessionExecutor(tmpDir, adapter);
+      const shareFile = path.join(tmpDir, 'share.md');
+
+      await executor.executeSession('do something', { shareToFile: shareFile });
+
+      const content = fs.readFileSync(shareFile, 'utf8');
+      assert.ok(content.includes('fatal: model quota exceeded'), 'stderr should appear in transcript when stdout is empty');
+    });
+
+    it('should still write transcript on success (no regression)', async () => {
+      const adapter = new StubAdapter({
+        stdout: 'All done successfully',
+        stderr: '',
+        exitCode: 0,
+        durationMs: 3000,
+      });
+      const executor = new SessionExecutor(tmpDir, adapter);
+      const shareFile = path.join(tmpDir, 'share.md');
+
+      const result = await executor.executeSession('test prompt', { shareToFile: shareFile });
+
+      assert.strictEqual(result.success, true);
+      assert.ok(fs.existsSync(shareFile), 'transcript should exist on success');
+      const content = fs.readFileSync(shareFile, 'utf8');
+      assert.ok(content.includes('All done successfully'));
+    });
+
+    it('should set transcriptPath in result even on failure', async () => {
+      const adapter = new StubAdapter({
+        stdout: 'partial work done',
+        stderr: 'timeout',
+        exitCode: 1,
+        durationMs: 600000,
+      });
+      const executor = new SessionExecutor(tmpDir, adapter);
+      const shareFile = path.join(tmpDir, 'share.md');
+
+      const result = await executor.executeSession('do work', { shareToFile: shareFile });
+
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.transcriptPath, shareFile, 'transcriptPath must be set even on failure');
     });
   });
 });

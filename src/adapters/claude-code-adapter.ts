@@ -37,6 +37,8 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     timeout?: number
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve) => {
+      // Forward ANTHROPIC_API_KEY if available; Claude Code also supports
+      // subscription auth via ~/.claude/ when no key is set.
       const spawnOpts: SpawnOptions = {
         cwd: workdir,
         env: buildRestrictedEnv(['ANTHROPIC_API_KEY']),

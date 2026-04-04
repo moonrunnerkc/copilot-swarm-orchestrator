@@ -35,6 +35,14 @@ export function buildRestrictedEnv(adapterKeys: string[]): Record<string, string
     GIT_COMMITTER_NAME: 'swarm-orchestrator',
     GIT_COMMITTER_EMAIL: 'swarm@localhost',
   };
+
+  // Forward config directory vars so CLI tools find their OAuth/session credentials
+  const configVars = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'TMPDIR', 'TERM'];
+  for (const key of configVars) {
+    const val = process.env[key];
+    if (val) env[key] = val;
+  }
+
   for (const key of adapterKeys) {
     const val = process.env[key];
     if (val) env[key] = val;

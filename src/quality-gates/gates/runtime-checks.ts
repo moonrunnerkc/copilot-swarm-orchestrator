@@ -112,19 +112,31 @@ function hasEslintConfig(projectRoot: string): boolean {
 
 /**
  * Build the test command, appending ignore patterns for orchestrator
- * artifact directories when the project uses Jest. Without this, Jest
- * discovers duplicate test files inside runs/worktrees and fails on
- * port collisions or stale references.
+ * artifact directories. Without this, recursive test runners discover
+ * duplicate test files inside runs/worktrees and fail on missing deps
+ * or port collisions.
  */
-function buildTestCommand(projectRoot: string): string {
+export function buildTestCommand(projectRoot: string): string {
   const pkgPath = path.join(projectRoot, 'package.json');
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     const testScript: string = pkg.scripts?.test || '';
     const isJest = testScript.includes('jest') || !!pkg.jest;
     if (isJest) {
-      // Pass ignore patterns after -- so npm forwards them to jest
       return 'npm test -- --testPathIgnorePatterns=runs/ --testPathIgnorePatterns=coverage/';
+    }
+    // Node.js built-in test runner discovers files recursively from cwd.
+    // When the project has conventional test directories, scope discovery
+    // to those directories so orchestrator artifacts are excluded.
+    // Cannot use `npm test -- dir/` because npm rewrites the arg list
+    // into `node dir/` (dropping --test). Use the runner directly.
+    if (testScript.includes('node --test') && !testScript.includes('tests/') && !testScript.includes('test/')) {
+      const testDirs: string[] = [];
+      if (fs.existsSync(path.join(projectRoot, 'tests'))) testDirs.push("'tests/**/*.test.js'");
+      if (fs.existsSync(path.join(projectRoot, 'test'))) testDirs.push("'test/**/*.test.js'");
+      if (testDirs.length > 0) {
+        return `node --test ${testDirs.join(' ')}`;
+      }
     }
   } catch { /* fall through to plain npm test */ }
   return 'npm test';

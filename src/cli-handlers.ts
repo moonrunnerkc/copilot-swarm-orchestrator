@@ -496,9 +496,10 @@ function executePlan(planFilename: string, options?: ExecutionOptions): number {
 // Copilot authenticates via `gh auth login` (filesystem credentials),
 // so it has no hard env var requirement. GITHUB_TOKEN is only used
 // in CI where Actions provides it automatically.
+// Claude Code supports both API key auth and subscription auth (via `claude login`).
+// Only codex strictly requires an env var.
 const ADAPTER_REQUIRED_KEYS: Record<string, string[]> = {
-  'claude-code': ['ANTHROPIC_API_KEY'],
-  codex:        ['OPENAI_API_KEY'],
+  codex: ['OPENAI_API_KEY'],
 };
 
 function validateAdapterSecrets(tool: string): void {
