@@ -155,12 +155,15 @@ export async function run_accessibility_gate(
       });
     }
 
-    // Check for outline: none/0 without replacement focus style
+    // Check for outline: none/0 without replacement focus style.
+    // "0" must be standalone (followed by ; or whitespace-then-;), not a decimal prefix like 0.1875rem.
+    const outlineDisabledRe = /outline\s*:\s*(none|0(?!\.\d))\s*(;|!|$)/m;
+    const outlineReplacementRe = /outline\s*:\s*\d+(\.\d+)?\s*(px|rem|em)\b/;
     for (const file of cssFiles) {
       const text = file.text ?? maybe_read_text(file, maxFileSizeBytes);
       if (!text) continue;
 
-      if (/outline\s*:\s*(none|0)\b/.test(text) && !/outline\s*:\s*\d+px/.test(text.replace(/outline\s*:\s*(none|0)/g, ''))) {
+      if (outlineDisabledRe.test(text) && !outlineReplacementRe.test(text.replace(outlineDisabledRe, ''))) {
         issues.push({
           message: 'outline: none found without replacement focus style',
           filePath: file.relativePath,

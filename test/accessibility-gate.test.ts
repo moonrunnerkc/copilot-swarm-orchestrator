@@ -215,6 +215,34 @@ body { font-size: 1rem; }
     assert.ok(outlineIssue, 'should flag outline: none without replacement');
   });
 
+  it('does not false-positive on outline with decimal rem values', async () => {
+    const css = `button:focus-visible { outline: 0.1875rem solid var(--color-focus-ring); outline-offset: 0.1875rem; }`;
+    const html = `<html lang="en"><body><a href="#main-content">Skip</a><h1>Hi</h1></body></html>`;
+    const ctx = makeCtx([
+      makeFile('styles.css', css),
+      makeFile('index.html', html)
+    ]);
+
+    const config = fullConfig();
+    const result = await run_accessibility_gate(ctx, config, MAX_FILE_SIZE);
+    const outlineIssue = result.issues.find(i => i.message.includes('outline: none'));
+    assert.strictEqual(outlineIssue, undefined, 'should not flag outline: 0.1875rem as outline: 0');
+  });
+
+  it('accepts rem-based outline as valid replacement for outline: none', async () => {
+    const css = `*:focus { outline: none; }\nbutton:focus-visible { outline: 2rem solid blue; }`;
+    const html = `<html lang="en"><body><a href="#main-content">Skip</a><h1>Hi</h1></body></html>`;
+    const ctx = makeCtx([
+      makeFile('styles.css', css),
+      makeFile('index.html', html)
+    ]);
+
+    const config = fullConfig();
+    const result = await run_accessibility_gate(ctx, config, MAX_FILE_SIZE);
+    const outlineIssue = result.issues.find(i => i.message.includes('outline: none'));
+    assert.strictEqual(outlineIssue, undefined, 'rem-based outline should count as replacement');
+  });
+
   it('passes with no HTML or CSS files (nothing to check)', async () => {
     const ctx = makeCtx([makeFile('src/utils.ts', 'export const foo = 1;')]);
     const result = await run_accessibility_gate(ctx, fullConfig(), MAX_FILE_SIZE);
