@@ -716,14 +716,15 @@ async function executeSwarm(
 
     const completed = context.results.filter(r => r.status === 'completed').length;
     const failed = context.results.filter(r => r.status === 'failed').length;
+    const totalSteps = context.results.length;
 
     console.log('\n' + '═'.repeat(60));
     console.log('  SWARM EXECUTION COMPLETE');
     console.log('═'.repeat(60));
-    console.log(`\n  ✅ Completed: ${completed}/${plan.steps.length}`);
+    console.log(`\n  ✅ Completed: ${completed}/${totalSteps}`);
 
     if (failed > 0) {
-      console.log(`  ❌ Failed: ${failed}/${plan.steps.length}`);
+      console.log(`  ❌ Failed: ${failed}/${totalSteps}`);
       console.log('\n  Failed steps:');
       context.results
         .filter(r => r.status === 'failed')
@@ -742,7 +743,7 @@ async function executeSwarm(
     }
 
     console.log(`\n  💰 Cost: ${costEstimate.lowEstimate}-${costEstimate.totalPremiumRequests} estimated premium requests`);
-    console.log(`     ${modelName} (${costEstimate.modelMultiplier}x) | ${plan.steps.length} steps | ${retryPct}% retry buffer`);
+    console.log(`     ${modelName} (${costEstimate.modelMultiplier}x) | ${totalSteps} steps${totalSteps > plan.steps.length ? ` (${plan.steps.length} planned + ${totalSteps - plan.steps.length} remediation)` : ''} | ${retryPct}% retry buffer`);
 
     console.log(`\n  📁 Results: ${runDir}`);
     console.log(`  📊 Reports: ${runDir}/verification/`);
@@ -757,7 +758,7 @@ async function executeSwarm(
 
     console.log('═'.repeat(60));
 
-    if (completed === plan.steps.length) {
+    if (completed === totalSteps) {
       console.log('\n🎉 All steps completed successfully!');
       console.log('   Review the git log to see the natural commit history:');
       console.log('   git log --oneline -20\n');

@@ -122,6 +122,18 @@ export class BranchMerger {
     try {
       await this.worktreeManager.switchBranch(context.mainBranch);
 
+      // Stash all changes (including untracked files like .copilot-instructions.md)
+      // so they don't block incoming merges that introduce files with the same names.
+      let stashed = false;
+      try {
+        const stashResult = execSync('git stash push --include-untracked -m "pre-wave-merge stash"', {
+          cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe'
+        });
+        stashed = !stashResult.includes('No local changes');
+      } catch {
+        // Clean working tree; expected
+      }
+
       for (const result of completedResults) {
         if (result.branchName) {
           try {
@@ -148,6 +160,15 @@ export class BranchMerger {
               });
             }
           }
+        }
+      }
+
+      if (stashed) {
+        try {
+          execSync('git stash pop', { cwd: this.workingDir, stdio: 'pipe' });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[merge] Stash pop conflict after wave merge (non-fatal): ${msg}`);
         }
       }
     } finally {
@@ -181,10 +202,11 @@ export class BranchMerger {
 
     await this.worktreeManager.switchBranch(context.mainBranch);
 
-    // Stash only tracked modifications (preserve untracked artifacts in runs/)
+    // Stash all changes including untracked files so they don't block
+    // incoming merges that introduce files with the same names.
     let stashed = false;
     try {
-      const stashResult = execSync('git stash push --no-include-untracked', {
+      const stashResult = execSync('git stash push --include-untracked -m "pre-final-merge stash"', {
         cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe'
       });
       stashed = !stashResult.includes('No local changes');

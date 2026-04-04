@@ -6,8 +6,10 @@
 import { spawn, SpawnOptions } from 'child_process';
 import { AgentAdapter, AgentResult, AgentSpawnOptions, buildRestrictedEnv } from './agent-adapter';
 
-// Maximum seconds of silence before killing a stalled copilot subprocess
-const STALL_TIMEOUT_MS = 120_000;
+// Maximum silence before killing a stalled copilot subprocess.
+// Copilot CLI can go quiet for several minutes during extended tool-use
+// or thinking phases, so this needs headroom beyond typical inference time.
+const STALL_TIMEOUT_MS = 300_000;
 
 // Copilot CLI outputs these when an agent tries to access paths outside its sandbox
 const SCOPE_NOISE_PATTERNS = [
@@ -79,7 +81,15 @@ export class CopilotAdapter implements AgentAdapter {
       const spawnOpts: SpawnOptions = {
         cwd: workdir,
         env: {
-          ...buildRestrictedEnv(['GITHUB_TOKEN', 'COPILOT_TOKEN', 'GH_TOKEN']),
+          // Copilot CLI authenticates via gh's local keyring, not env-var API keys.
+          // It needs the full user environment (XDG_CONFIG_HOME, DBUS_SESSION_BUS_ADDRESS,
+          // keyring paths, etc.) to locate stored credentials. Restricting the env
+          // like we do for API-key-based adapters breaks auth silently.
+          ...process.env,
+          GIT_AUTHOR_NAME: 'swarm-orchestrator',
+          GIT_AUTHOR_EMAIL: 'swarm@localhost',
+          GIT_COMMITTER_NAME: 'swarm-orchestrator',
+          GIT_COMMITTER_EMAIL: 'swarm@localhost',
           COPILOT_ALLOW_ALL: 'true',
         },
       };

@@ -426,9 +426,10 @@ export class SessionExecutor {
    * A heartbeat indicator prints during quiet periods so users know the agent
    * is still working (e.g. reading large files or thinking).
    */
-  // Maximum seconds of silence before killing a stalled copilot subprocess.
-  // Copilot CLI can hang indefinitely on rate limits, tool approval waits, or network drops.
-  private static readonly STALL_TIMEOUT_MS = 120_000; // 2 minutes of no output
+  // Maximum seconds of silence before killing a stalled subprocess.
+  // Copilot CLI can go quiet for several minutes during extended tool-use
+  // or thinking phases, so this needs headroom beyond typical inference time.
+  private static readonly STALL_TIMEOUT_MS = 300_000; // 5 minutes of no output
 
   private runCommand(
     command: string,

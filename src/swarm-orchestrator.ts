@@ -1947,6 +1947,17 @@ export class SwarmOrchestrator {
     ].join('\n');
 
     fs.writeFileSync(instructionsPath, content, 'utf8');
+
+    // Commit so worktrees (branched from main) inherit the instructions file
+    try {
+      execSync('git add .copilot-instructions.md', { cwd: this.workingDir, stdio: 'pipe' });
+      execSync('git commit -m "add shared copilot instructions for swarm agents"', {
+        cwd: this.workingDir, stdio: 'pipe',
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+      });
+    } catch {
+      // Commit may fail if repo has no initial commit yet; non-fatal
+    }
   }
 
   /**

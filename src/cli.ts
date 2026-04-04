@@ -1,5 +1,45 @@
 #!/usr/bin/env node
 
+import * as fs from 'fs';
+import * as path from 'path';
+
+/**
+ * Load variables from a .env file into process.env without overwriting
+ * existing values. Supports KEY=value, KEY="value", and KEY='value'.
+ * Skips blank lines and comments. No external dependencies.
+ */
+function loadDotenv(): void {
+  const envPath = path.resolve(process.cwd(), '.env');
+  if (!fs.existsSync(envPath)) return;
+
+  const content = fs.readFileSync(envPath, 'utf-8');
+  for (const raw of content.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+
+    // Strip optional `export ` prefix
+    const stripped = line.startsWith('export ') ? line.slice(7) : line;
+    const eqIndex = stripped.indexOf('=');
+    if (eqIndex === -1) continue;
+
+    const key = stripped.slice(0, eqIndex).trim();
+    let value = stripped.slice(eqIndex + 1).trim();
+
+    // Remove matched surrounding quotes
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+
+    // Only set if not already present so real env vars take precedence
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
+
+loadDotenv();
+
 import {
   generatePlan,
   handleAgentsCommand,
