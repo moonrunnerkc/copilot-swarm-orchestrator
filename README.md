@@ -110,7 +110,7 @@ Also available as a [GitHub Action](#github-action) for CI/CD integration and wi
 
 The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting. The same goal run through the orchestrator produces output that would take 30-40 follow-up prompts to reach with a standalone agent.
 
-Two head-to-head comparisons below, each using a different agent CLI and a different project goal. Both used the same orchestrator configuration with default quality gates.
+Three head-to-head comparisons below, each using a different agent CLI and a different project goal. All used the same orchestrator configuration with default quality gates.
 
 ### Benchmark 1: Copilot CLI, Markdown Note-Taking App
 
@@ -186,6 +186,72 @@ Two head-to-head comparisons below, each using a different agent CLI and a diffe
 
 Each attribute requires at least one follow-up prompt to add when using a standalone agent. Several (full dark mode variable overrides, responsive clamp system, module extraction) require 2-3 rounds. Conservative total: 17-25 prompts eliminated per project.
 
+### Benchmark 3: Codex, Calculator App
+
+**Goal:** _"Create a browser-based calculator app with vanilla HTML, CSS, and JavaScript. Features: a display showing current input and result, buttons for digits 0-9, decimal point, operators (+, -, *, /), equals, clear, and backspace. Support chained operations, keyboard input, and prevent invalid sequences like double decimals or leading operators. Include a calculation history panel that shows previous expressions and results."_
+
+#### Attribute comparison (34 criteria)
+
+| Attribute | Codex | Orchestrator |
+|-----------|:-----:|:------------:|
+| Calculator logic correct | Yes | Yes |
+| Operator precedence | Yes (tokenizer) | No (left-to-right chaining) |
+| Keyboard input | Yes | Yes |
+| History panel | Yes | Yes |
+| History persistence (localStorage) | No (in-memory only) | Yes |
+| State machine architecture | No (imperative mutations) | Yes (pure `inputDigit`/`inputOperator`/`evaluate` return new state) |
+| Logic/DOM separation | No (single file) | Yes (`calculator.js` pure, `app.js` DOM) |
+| Immutable state transitions | No | Yes (every function returns new state object) |
+| Tests | None | 13 (calculator state machine + 2 app integration with full DOM mocking) |
+| Zero runtime dependencies | No (Google Fonts CDN) | Yes |
+| Custom favicon | No | Yes (hand-drawn SVG calculator icon) |
+| Skip link | No | Yes |
+| `aria-live` on display | No | Yes (`aria-live="polite"` `aria-atomic="true"` on display panel) |
+| `aria-live` on history | No | Yes (`aria-live="polite"` on history list) |
+| `aria-label` on every button | No (missing on most) | Yes (every key: "Divide", "Multiply", "Backspace", "Clear all", "Decimal point", digits) |
+| `<output>` element for result | No | Yes (`<output for="calculator-keypad">`) |
+| Status messages for screen readers | No | Yes (contextual feedback: "Cannot divide by zero.", "Operator changed to \*.") |
+| `aria-labelledby` on history | No | Yes (`aria-labelledby="history-heading"`) |
+| `:focus-visible` styles | Exists (low contrast, 28% opacity) | Yes (solid `--color-focus`, visible in both themes) |
+| `prefers-reduced-motion` | No | Yes (kills all transitions and animations) |
+| `prefers-color-scheme` dark mode | No (light only) | Yes (full variable overrides, 20+ properties) |
+| CSS custom properties | Yes (colors only) | Yes (colors, spacing, typography, radii, shadows, transitions) |
+| Responsive layout | Yes (two breakpoints) | Yes (two breakpoints with rem-based queries) |
+| `<meta name="description">` | No | Yes |
+| `<meta name="theme-color">` | No | Yes |
+| Favicon | No | Yes (external SVG file) |
+| Semantic landmarks | Partial (`<main>`, `<section>`, `<aside>`) | Yes (`<main>`, `<article>`, `<header>`, `<nav>`, `<section>`, `<output>`) |
+| `type="module"` on script | No | Yes |
+| Error handling with user feedback | Basic (shows "Error") | Yes (specific messages: "Cannot divide by zero.", "Start with a number before choosing an operator.") |
+| Audio feedback | No | Yes (beep on calculation complete, different tone on error) |
+| AudioContext resume handling | No | Yes (checks `context.state === "suspended"`, calls `.resume()`) |
+| History cap | No (unbounded) | Yes (`MAX_HISTORY_ITEMS = 12`) |
+| State restoration validation | No | Yes (`restoreState` filters invalid history entries) |
+| `package.json` | No | Yes |
+| README | No | Yes |
+
+**Score: Codex 6/34. Orchestrator 32/34.**
+
+Codex scored on: calculator logic, keyboard input, history panel, CSS custom properties (colors only), responsive breakpoints, and partial semantic HTML.
+
+The orchestrator missed two: operator precedence (left-to-right chaining instead of MDAS) and the visual polish of Codex's gradient/glassmorphic design (not scored, but worth noting).
+
+#### Where Codex won
+
+**Operator precedence.** Codex built a tokenizer that handles multiplication and division before addition and subtraction. The orchestrator chains left-to-right, so `2 + 3 * 4` gives `20`, not `14`. This is a functional correctness gap; there is currently no quality gate for math correctness.
+
+**Visual design.** Radial gradients, backdrop blur, inset shadows, and Google Fonts create a more striking first impression. The orchestrator's output is clean and functional but less visually elaborate.
+
+#### Where the orchestrator won
+
+**Architecture.** The widest architecture gap in any comparison so far. Codex produced a single file with bare globals and imperative state mutations. The orchestrator produced a pure state machine (`calculator.js`, 326 lines) where every function takes state in and returns new state out, completely separated from the DOM layer (`app.js`). The state machine is tested with 11 focused tests covering digit entry, decimal handling, operator rejection, evaluation, chaining, divide-by-zero, backspace, clear, history clearing, and state restoration with validation. Two app integration tests stub the entire DOM and verify keypad clicks, keyboard input, history rendering, and persistence round-trips.
+
+**Accessibility.** Codex had two `aria-label` attributes. The orchestrator has `aria-label` on every button with descriptive text ("Divide", "Multiply", "Backspace", not just the symbol), `aria-live` on both the display and history, an `<output>` element semantically linked to the keypad via `for="calculator-keypad"`, `aria-labelledby` on the history panel, and a status message element that provides contextual screen reader feedback ("Cannot divide by zero.", "Operator changed to \*.", "Decimal added.").
+
+**Error handling.** Codex shows "Error" for divide-by-zero. The orchestrator shows "Cannot divide by zero." and resets state cleanly. It also rejects leading operators with a specific message, reports when backspace has nothing to delete, and shows "Complete the expression before evaluating." when equals is pressed too early.
+
+**Reprompt math:** 28 missing attributes from Codex. The state machine architecture alone would take 4-5 rounds. Full accessibility, dark mode, tests, audio, and project scaffolding add another 25+. Conservative estimate: **30-40 follow-up prompts** to reach parity.
+
 > **Note:** These results are from representative runs. The underlying agents are non-deterministic, so exact scores and counts may vary between runs. The quality attributes are enforced by prompt injection and gate verification, so they are reliably present, but specific implementation details (e.g., test count, number of CSS variables) can differ.
 
 ### How it works
@@ -194,7 +260,7 @@ The orchestrator injects quality requirements into every agent prompt before exe
 
 Standalone agents optimize for "correct and working." The orchestrator adds "accessible, responsive, themed, and structured" before the agent writes a single line. The quality bar comes from the system, not from the user's prompt.
 
-> **Note:** These benchmarks cover frontend web projects. Codex comparisons are in progress and will be added here. Backend, API, and CLI project benchmarks are planned.
+> **Note:** These benchmarks cover frontend web projects. Backend, API, and CLI project benchmarks are planned.
 
 <br>
 
