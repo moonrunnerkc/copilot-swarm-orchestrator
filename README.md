@@ -110,7 +110,7 @@ Also available as a [GitHub Action](#github-action) for CI/CD integration and wi
 
 The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting. The same goal run through the orchestrator produces output that would take 30-40 follow-up prompts to reach with a standalone agent.
 
-Three head-to-head comparisons below, each using a different agent CLI and a different project goal. All used the same orchestrator configuration with default quality gates.
+Six head-to-head comparisons below. All used the same orchestrator configuration with default quality gates.
 
 ### Benchmark 1: Copilot CLI, Markdown Note-Taking App
 
@@ -413,6 +413,99 @@ Both implementations use synchronous file I/O (`fs.readFileSync`/`fs.writeFileSy
 
 **Reprompt math:** 31 missing attributes from Copilot CLI. Security hardening (helmet, body limit, UUID validation, error hiding) would take 3-4 rounds. The 41 additional tests covering validation edge cases, storage unit tests, boundary values, and persistence verification would take 8-10 rounds. README, Docker, config module, and newest-first ordering add another 8-10. Conservative estimate: **25-30 follow-up prompts** to bring Copilot CLI output to parity.
 
+### Benchmark 6: Codex, REST API Backend
+
+**Goal:** _"Build a Node.js REST API backend for the Vanilla Calculator. Use Express with these endpoints: GET /api/health for server status, GET /api/history to list all saved calculation history entries sorted newest first, POST /api/history to save a calculation with expression (string) and result (number) fields, GET /api/history/:id to retrieve a single entry, DELETE /api/history/:id to delete one entry, DELETE /api/history to clear all entries, GET /api/stats to return aggregate statistics including total calculations count, average result, and most recent calculation timestamp. Store data in a JSON file at data/history.json. Add input validation: reject empty or non-string expression, reject non-numeric or NaN result, enforce max expression length of 500 characters, return 400 with descriptive error messages. Add centralized error handling middleware with safe JSON responses that hide internal details. Include CORS middleware. Create server.js as the entry point on port 3000. Write API tests using the Node built-in test runner. Do not modify existing frontend files (index.html, script.js, style.css)."_
+
+The third backend comparison and the closest architecturally. Both tools received the same goal and ran against the same Vanilla Calculator frontend project (vanilla HTML/CSS/JS with 13 existing tests).
+
+#### Attribute comparison (48 criteria)
+
+| Attribute | Codex | Orchestrator |
+|-----------|:-----:|:------------:|
+| All 5 prompted endpoints present | Yes | Yes |
+| Bonus endpoints (GET /:id, stats) | Yes | Yes |
+| Factory pattern / dependency injection | Yes (createApp()) | Yes (createApp(config) with config injection) |
+| Module separation | No (single 244-line file) | Yes (20 source files across controllers, routes, middleware, models, validators, utils, schemas, errors, config) |
+| Dedicated config module | No (hardcoded constants) | Yes (src/config.js with loadConfig(), PORT validation 1-65535, 6 env vars) |
+| Config: PORT | Hardcoded 3000 | Env var with range validation |
+| Config: data file path | Hardcoded | Env var (HISTORY_FILE_PATH) |
+| Config: CORS origin | Hardcoded cors() | Env var (CORS_ORIGIN) |
+| Config: app title | No | Env var (APP_TITLE) |
+| Config: history limit | No | Env var (CALCULATOR_HISTORY_LIMIT) |
+| Config: API base path | No | Env var (API_BASE_PATH) |
+| Async file I/O | Yes (fs/promises) | Yes (fs/promises) |
+| Array validation on JSON parse | Yes | Yes |
+| Sorted output (newest first) | Yes (sort by timestamp) | Yes (sort by timestamp) |
+| Custom error class | Yes (AppError) | Yes (AppError) |
+| Input validation: type check | Yes | Yes |
+| Input validation: empty/whitespace | Yes | Yes |
+| Input validation: max expression length | Yes (500) | Yes (500) |
+| Input validation: result must be finite number | Yes (!isFinite check) | Yes (!Number.isFinite check) |
+| Input validation: unexpected fields rejected | No | Yes (rejects extra fields with field names listed) |
+| Input validation: body must be object (not array/null) | No | Yes (assertBodyIsObject) |
+| UUID validation on ID params | No | Yes (regex pattern, 400 with received value) |
+| Content-Type enforcement | No | Yes (requireJsonContent middleware, returns 415) |
+| Security headers middleware | No | Yes (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, CSP) |
+| x-powered-by disabled | No | Yes (app.disable('x-powered-by')) |
+| Request body size limit | No | Yes (16kb) |
+| Entity-too-large handling (413) | No | Yes (catches entity.too.large error type) |
+| Error handler: malformed JSON | Yes (catches SyntaxError) | Yes (catches SyntaxError) |
+| Error handler: hides 500 internals | Yes | Yes |
+| Error handler: headersSent guard | No | Yes (res.headersSent check) |
+| 404 handler for unknown routes | Yes | Yes |
+| Whitespace trimming on expression | No (stores raw) | Yes (trims before validation and storage) |
+| Tests: API integration (real HTTP) | 16 | ~25 (5 test blocks covering full CRUD, stats, validation matrix, CORS headers, file persistence) |
+| Tests: store unit | 0 | Yes (history-store.unit.test.js, 122 lines) |
+| Tests: validator unit | 0 | Yes (history-validator.unit.test.js, 60 lines) |
+| Tests: error middleware unit | 0 | Yes (error-middleware.unit.test.js, 86 lines) |
+| Tests: ID validation unit | 0 | Yes (validate-id.unit.test.js, 27 lines) |
+| Tests: config unit | 0 | Yes (config-and-env.unit.test.js, 101 lines) |
+| Tests: schema modules unit | 0 | Yes (schema-modules.unit.test.js, 78 lines) |
+| Tests: frontend integration | 0 | Yes (frontend.integration.test.js, 46 lines) |
+| Test: security headers verified | No | Yes (checks all 5 headers including x-powered-by = null) |
+| Test: CORS header verified | No | Yes (checks access-control-allow-origin) |
+| Test: file persistence verified | No | Yes (reads data file after POST, verifies contents) |
+| Test: 9-case validation matrix | No (individual tests) | Yes (loop over 9 invalid payloads with exact error messages) |
+| Test helper module | No (inline setup) | Yes (test/helpers/test-server.js, reusable across suites) |
+| Coverage reporting | No | Yes (c8 with text/json-summary/lcov, 99.03% line coverage) |
+| QA summary report | No | Yes (reports/qa-summary.md documenting coverage and known gaps) |
+| Build script | No | Yes (scripts/build.mjs) |
+| Validation script | No | Yes (scripts/validate.mjs) |
+| CI script | No | Yes (npm run ci = validate + coverage + build) |
+| README with API docs | No | Yes (all endpoints documented with example responses, config table, Docker, troubleshooting) |
+| Dockerfile | No | Yes (Node 24 alpine, npm ci, build step, production env) |
+| docker-compose.yml | No | Yes (data volume mount for persistence) |
+| package.json: description updated | Partial ("vanilla-calculator-api") | Yes ("Integrated vanilla calculator with an Express API") |
+| package.json: engines field | No | Yes (node >= 24) |
+| Existing frontend preserved | Yes | Yes |
+
+**Score: Codex 14/48. Orchestrator 46/48.**
+
+Codex scored on: all prompted endpoints, bonus endpoints, factory pattern, async file I/O, array validation, sorted output, custom error class, type check validation, empty/whitespace validation, max expression length, finite number check, malformed JSON handling, 500-detail hiding, 404 handler, 16 integration tests, and frontend preservation.
+
+The orchestrator missed two: Codex stores the result field as a number on disk (arguably more correct for a calculator), and the orchestrator's NODE_ENV=production usage differs from Codex's inline error detail check (though the orchestrator's error middleware does hide 500 details).
+
+#### Where Codex stood out
+
+**Strongest baseline of any standalone agent.** This is the closest comparison architecturally across all six benchmarks. Codex produced a factory pattern (`createApp()`), async file I/O (`fs/promises`), a custom error class (`AppError`), a stats endpoint, sorted output, and both array validation on JSON parse and `!isFinite` checks on numeric input. These are patterns that Copilot CLI and Claude Code did not produce unprompted. Codex also wrote 16 integration tests covering the full CRUD lifecycle, corrupted storage handling, and validation edge cases.
+
+#### Where the orchestrator won
+
+**Module structure.** Codex produced a single 244-line file. The orchestrator produced 20 source files organized across controllers, routes, middleware, models, validators, utils, schemas, errors, and config directories. Every module is independently importable and testable.
+
+**Security.** The same category gap as every previous comparison. Codex had no security headers, no body size limit, no content-type enforcement, no entity-too-large handling, no UUID validation on ID params, and no x-powered-by removal. The orchestrator added all six: security headers middleware (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, CSP), 16kb body limit, a `requireJsonContent` middleware returning 415 on non-JSON requests, entity-too-large error handling returning 413, UUID regex validation on route params, and `app.disable('x-powered-by')`.
+
+**Test depth.** 10 test files totaling 812 lines vs 1 file at 285 lines. The orchestrator has dedicated unit test suites for the history store (122 lines), validators (60 lines), error middleware (86 lines), ID validation (27 lines), config loading (101 lines), schema modules (78 lines), and frontend integration (46 lines). The API integration suite includes a 9-case validation matrix that loops over invalid payloads with exact error message assertions, CORS header verification, security header verification, and file persistence verification (reads the data file after POST to confirm contents). A shared test helper module (`test/helpers/test-server.js`) provides reusable server setup across all suites.
+
+**Configuration.** Codex hardcoded every value. The orchestrator externalized six configuration points as environment variables: PORT (with 1-65535 range validation), HISTORY_FILE_PATH, CORS_ORIGIN, APP_TITLE, CALCULATOR_HISTORY_LIMIT, and API_BASE_PATH. All loaded through a dedicated `src/config.js` module with `loadConfig()`.
+
+**Validation depth.** Beyond what both tools shared (type checks, empty strings, max length, finite numbers), the orchestrator added unexpected field rejection (returns the extra field names in the error), body-must-be-object assertion (rejects arrays and null), UUID format validation on ID parameters, content-type enforcement via middleware, and whitespace trimming before validation.
+
+**Production engineering.** The orchestrator went further than any previous run with a CI pipeline (`npm run ci` = validate + coverage + build), a QA summary report documenting 99.03% line coverage and explicitly calling out the frontend integration gap, build and validation scripts, a Dockerfile with Node 24 alpine and healthcheck, docker-compose.yml with data volume mount, and comprehensive README with endpoint documentation, config table, and troubleshooting section.
+
+**Reprompt math:** 34 missing attributes from Codex. Security hardening (headers, body limit, content-type enforcement, entity-too-large, UUID validation, x-powered-by) would take 4-5 rounds. The 9 additional test suites with dedicated unit coverage for every module would take 10-12 rounds. Config externalization, CI pipeline, Docker, README, QA report, and validation scripts add another 10-12. Conservative estimate: **25-30 follow-up prompts** to bring Codex output to parity.
+
 > **Note:** These results are from representative runs. The underlying agents are non-deterministic, so exact scores and counts may vary between runs. The quality attributes are enforced by prompt injection and gate verification, so they are reliably present, but specific implementation details (e.g., test count, number of CSS variables) can differ.
 
 ### How it works
@@ -421,7 +514,7 @@ The orchestrator injects quality requirements into every agent prompt before exe
 
 Standalone agents optimize for "correct and working." The orchestrator adds "accessible, responsive, themed, and structured" before the agent writes a single line. The quality bar comes from the system, not from the user's prompt.
 
-> **Note:** CLI project benchmarks are planned. The five benchmarks above cover three frontend projects and two backend APIs.
+> **Note:** The six benchmarks above cover three frontend projects and three backend APIs, each using a different agent CLI.
 
 <br>
 
