@@ -389,6 +389,17 @@ export class VerifierEngine {
       };
     } catch (err: unknown) {
       const output = this.extractCommandOutput(err);
+
+      // Node.js v24+ has a bug where `node --test <dir>` fails with
+      // MODULE_NOT_FOUND in ESM projects ("type": "module"). The CJS
+      // loader tries to resolve the directory as a require path instead
+      // of discovering test files. Fall back to `node --test` which uses
+      // auto-discovery and works correctly in both CJS and ESM projects.
+      if (testCmd === 'npm test' && output.includes('MODULE_NOT_FOUND')) {
+        const fallback = this.retryTestWithAutoDiscovery(workdir);
+        if (fallback) return fallback;
+      }
+
       return {
         type: 'test_exec',
         description: `Tests failed (${testCmd})`,
@@ -396,6 +407,43 @@ export class VerifierEngine {
         passed: false,
         reason: last20Lines(output),
       };
+    }
+  }
+
+  /**
+   * Retry test execution using `node --test` auto-discovery when `npm test`
+   * fails due to the ESM directory resolution bug in Node.js v24+.
+   * Returns null if the fallback also fails or is not applicable.
+   */
+  private retryTestWithAutoDiscovery(workdir: string): VerificationCheck | null {
+    const pkgPath = path.join(workdir, 'package.json');
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      const testScript: string = pkg.scripts?.test || '';
+      // Only retry when the test script passes a directory to node --test
+      if (!/node\s+--test\s+\S+/.test(testScript)) return null;
+    } catch {
+      return null;
+    }
+
+    const fallbackCmd = 'node --test';
+    try {
+      execSync(fallbackCmd, {
+        cwd: workdir,
+        encoding: 'utf8',
+        timeout: 120_000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return {
+        type: 'test_exec',
+        description: `Tests passed (${fallbackCmd}, auto-discovery fallback)`,
+        required: true,
+        passed: true,
+        evidence: `Original npm test hit ESM directory bug; retried with "${fallbackCmd}"`,
+      };
+    } catch {
+      // Fallback also failed; let the original error propagate
+      return null;
     }
   }
 
