@@ -108,9 +108,9 @@ Also available as a [GitHub Action](#github-action) for CI/CD integration and wi
 
 ## Quality Benchmarks
 
-The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting. The same goal run through the orchestrator produces output that would take 25-40 follow-up prompts to reach with a standalone agent.
+The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting. The same goal run through the orchestrator produces output that would take 10-40 follow-up prompts to reach with a standalone agent.
 
-Six head-to-head comparisons across three agent CLIs, three frontend projects, and three backend APIs. Full attribute tables, gap analysis, and reprompt estimates in [docs/benchmarks.md](docs/benchmarks.md).
+Seven head-to-head comparisons across three agent CLIs, three frontend projects, three backend APIs, and one CLI tool. Full attribute tables, gap analysis, and reprompt estimates in [docs/benchmarks.md](docs/benchmarks.md).
 
 | # | Agent | Project Type | Criteria | Agent Score | Orchestrator Score | Reprompts Saved |
 |---|-------|-------------|----------|:-----------:|:------------------:|:---------------:|
@@ -120,10 +120,11 @@ Six head-to-head comparisons across three agent CLIs, three frontend projects, a
 | 4 | Claude Code | Backend (REST API) | 36 | 12 | 34 | 20-25 |
 | 5 | Copilot CLI | Backend (REST API) | 44 | 13 | 41 | 25-30 |
 | 6 | Codex | Backend (REST API) | 48 | 14 | 46 | 25-30 |
+| 7 | Claude Code | CLI Tool (Logwatch) | 50 | 30 | 35 | 10-15 |
 
 The orchestrator consistently wins on security hardening (headers, body limits, ID validation), test depth (dedicated unit suites per module, not just integration), configuration externalization (env vars with validation), and production scaffolding (Docker, CI scripts, README, coverage reporting). Standalone agents consistently miss these categories regardless of which CLI is used.
 
-Benchmark 6 (Codex backend) was the closest comparison architecturally: Codex produced a factory pattern, async file I/O, custom error classes, and 16 integration tests unprompted. The orchestrator still added 34 attributes on top, primarily in security, test coverage (10 test files vs 1), and config externalization (6 env vars vs 0).
+Benchmark 7 (Claude Code CLI tool) was the narrowest gap overall: Claude Code scored 30/50 with an async tailer, log rotation handling, word-boundary level detection, and 5 end-to-end CLI tests. The orchestrator won 35/50, primarily on module structure, project scaffolding, and unit test depth, but Claude Code's core implementation was more production-resilient. This is the only benchmark where the standalone agent produced arguably stronger systems-level engineering than the orchestrator's output.
 
 <br>
 

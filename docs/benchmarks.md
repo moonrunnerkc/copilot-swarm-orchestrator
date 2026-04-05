@@ -2,7 +2,7 @@
 
 The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting. The same goal run through the orchestrator produces output that would take 30-40 follow-up prompts to reach with a standalone agent.
 
-Six head-to-head comparisons below. All used the same orchestrator configuration with default quality gates.
+Seven head-to-head comparisons below. All used the same orchestrator configuration with default quality gates.
 
 ## Benchmark 1: Copilot CLI, Markdown Note-Taking App
 
@@ -422,7 +422,7 @@ The orchestrator missed two: Codex stores the result field as a number on disk (
 
 ### Where Codex stood out
 
-**Strongest baseline of any standalone agent.** This is the closest comparison architecturally across all six benchmarks. Codex produced a factory pattern (`createApp()`), async file I/O (`fs/promises`), a custom error class (`AppError`), a stats endpoint, sorted output, and both array validation on JSON parse and `!isFinite` checks on numeric input. These are patterns that Copilot CLI and Claude Code did not produce unprompted. Codex also wrote 16 integration tests covering the full CRUD lifecycle, corrupted storage handling, and validation edge cases.
+**Strongest baseline of any standalone agent.** This is the closest comparison architecturally across all seven benchmarks. Codex produced a factory pattern (`createApp()`), async file I/O (`fs/promises`), a custom error class (`AppError`), a stats endpoint, sorted output, and both array validation on JSON parse and `!isFinite` checks on numeric input. These are patterns that Copilot CLI and Claude Code did not produce unprompted. Codex also wrote 16 integration tests covering the full CRUD lifecycle, corrupted storage handling, and validation edge cases.
 
 ### Where the orchestrator won
 
@@ -439,6 +439,120 @@ The orchestrator missed two: Codex stores the result field as a number on disk (
 **Production engineering.** The orchestrator went further than any previous run with a CI pipeline (`npm run ci` = validate + coverage + build), a QA summary report documenting 99.03% line coverage and explicitly calling out the frontend integration gap, build and validation scripts, a Dockerfile with Node 24 alpine and healthcheck, docker-compose.yml with data volume mount, and comprehensive README with endpoint documentation, config table, and troubleshooting section.
 
 **Reprompt math:** 34 missing attributes from Codex. Security hardening (headers, body limit, content-type enforcement, entity-too-large, UUID validation, x-powered-by) would take 4-5 rounds. The 9 additional test suites with dedicated unit coverage for every module would take 10-12 rounds. Config externalization, CI pipeline, Docker, README, QA report, and validation scripts add another 10-12. Conservative estimate: **25-30 follow-up prompts** to bring Codex output to parity.
+
+---
+
+## Benchmark 7: Claude Code, CLI Tool (Logwatch)
+
+**Goal:** _"Create a Node.js CLI tool called "logwatch" that tails a log file in real time and filters lines by severity level. Accept a file path as the first argument and an optional --level flag (debug, info, warn, error) that defaults to info. Lines below the specified level should be excluded. Add --json mode that parses JSON-formatted log lines and pretty-prints them with colored output. Include a --stats flag that prints a summary of line counts per severity level when the user exits with Ctrl+C. Handle missing files, permission errors, and malformed JSON lines gracefully with specific error messages. Write tests using the Node built-in test runner."_
+
+The first CLI tool comparison, and the narrowest gap across all benchmarks. Claude Code produced arguably its strongest output in any comparison we have run.
+
+### Attribute comparison (50 criteria)
+
+| Attribute | Claude Code | Orchestrator |
+|-----------|:-----------:|:------------:|
+| File path argument (required) | Yes | Yes |
+| `--level` flag (debug/info/warn/error) | Yes | Yes |
+| `--level` defaults to info | Yes | Yes |
+| `--json` mode (parse + pretty-print) | Yes | Yes |
+| `--stats` summary on exit | Yes | Yes |
+| `--help` / `-h` | Yes | Yes |
+| `--level=value` syntax (equals sign) | Yes | No (space only, uses `node:util` `parseArgs`) |
+| `--no-color` flag | Yes | No (relies on `NO_COLOR` env + TTY detection) |
+| `--from-start` flag (bonus, not in prompt) | No | Yes |
+| Short flags (`-l`, `-j`, `-s`) | No | Yes (`-l`, `-j`, `-s`, `-h`) |
+| Module separation | Single file (368 lines) + bin entry (74 lines) | 5 modules (colors, formatter, levels, stats, tail) + bin entry |
+| Uses `node:util` `parseArgs` | No (hand-rolled) | Yes |
+| `NO_COLOR` env var support | Yes (in bin entry) | Yes (in colors.js) |
+| TTY detection for color | Yes (`process.stdout.isTTY`) | Yes (`stream.isTTY`) |
+| Unknown flag rejection | Yes (specific error) | Yes (via `parseArgs`) |
+| Extra positional rejection | Yes (specific error) | No check visible |
+| Missing file: specific error | Yes (`file not found: <path>`) | Yes (`File not found: <path>`) |
+| Permission error: specific message | Yes (`permission denied: <path>`) | Yes (`Permission denied reading: <path>`) |
+| Directory-as-file: specific error | Yes (`not a regular file / directory`) | Yes (`is a directory, not a file`) |
+| Malformed JSON: warning + continues | Yes (truncated snippet + parse error message) | Yes (`[malformed json]` prefix, passes through as visible line) |
+| Non-object JSON handling (arrays, nulls) | No (parses successfully, treats as object) | Yes (`[non-object json]` prefix) |
+| JSON field: `severity` alias | Yes | Yes |
+| JSON field: `lvl` alias | Yes | No |
+| JSON field: `log_level` alias | Yes | No |
+| JSON field: `WARNING` to `warn` normalization | Yes | No |
+| JSON field: `err` to `error` normalization | Yes | No |
+| JSON timestamp aliases (`time`, `ts`, `timestamp`) | Yes | Yes |
+| JSON message aliases (`message`, `msg`) | Yes (`message`, `msg`) | Yes (`message`, `msg`) + `text` alias |
+| JSON extra fields: colored per-type | Partial (magenta keys, green values) | Yes (keys cyan, strings yellow, numbers cyan, booleans yellow, null gray, nested objects indented) |
+| Tail: starts from end (no replay) | Yes | Yes |
+| Tail: file truncation/rotation handling | Yes (detects shrinking, resets position) | No |
+| Tail: async file operations | Yes (`fs/promises`, `fd.read`, `fd.stat`) | No (sync `readSync`, `fstatSync`) |
+| Tail: poll-based fallback | No (`fs.watch` only, initial drain handles race) | Yes (200ms poll timer, no `fs.watch`) |
+| Tail: chunk size limit | Yes (64KB max per read) | Yes (64KB chunk) |
+| Tail: `\r\n` handling | Yes (strips trailing `\r`) | No |
+| Tail: `AbortSignal` support | Yes | No |
+| `processStream` helper for testing | Yes (processes a `Readable` stream) | No |
+| `stringStream` helper for testing | Yes | No |
+| Tailer as a class (OOP) | No (factory function returning `{ stop, onError }`) | Yes (`Tail` extends `EventEmitter`) |
+| SIGINT handler | Yes | Yes |
+| SIGTERM handler | Yes | Yes |
+| Shutdown guard (prevents double-exit) | Yes (`shuttingDown` flag) | No |
+| Stats: malformed count | Yes | Yes |
+| Stats: total count | Yes | Yes (in `printStats`) |
+| Stats: filtered lines still counted | Yes (increments stats even when line is excluded) | Yes |
+| Plain text: unrecognized level defaults to info | Yes | Yes |
+| Level detection: word-boundary matching | Yes (regex `(^|[^A-Z0-9])TOKEN([^A-Z0-9]|$)`) | No (`includes()`, would match "information" as "info") |
+| Tests: unit (pure functions) | 13 | 26 |
+| Tests: integration (real file tail) | 3 | 4 |
+| Tests: end-to-end CLI (child process) | 5 | 0 |
+| Test: JSON extra fields rendered | Yes (`extra=42`, `code=500`) | Yes (via `processJsonLine` assertions) |
+| Test: stats formatting | Yes (renders all levels + malformed + total) | Yes (`printStats` output captured) |
+| Test: color stripping helper | No (tests with `color: false`) | Yes (`strip()` function) |
+| README | No | Yes (usage table, examples, JSON format docs, exit codes) |
+| `.env.example` | No | Yes |
+| `.gitignore` | No | Yes |
+| CI workflows | No | Yes (`.github/workflows/ci.yml`, `docker-publish.yml`) |
+| `.dockerignore` | No | Yes |
+| `package.json`: `bin` field | Yes | Yes |
+| `package.json`: author | No | Yes (Brad Kinnard) |
+| `package.json`: license | No | Yes (MIT) |
+| `package.json`: engines | Yes (`>=18`) | Yes (`>=18.0.0`) |
+| `package.json`: description | Yes | Yes |
+
+**Score: Claude Code 30/50. Orchestrator 35/50.**
+
+This is the narrowest gap across all benchmarks. Claude Code's CLI output is strong; arguably its best showing in any comparison we have run.
+
+### Where Claude Code won
+
+**Async tail implementation.** Claude Code uses `fs/promises` with `fd.read` and `fd.stat` throughout the tailer. The orchestrator uses sync `readSync`/`fstatSync` inside a poll loop, which blocks the event loop during reads. For a tool designed to run continuously, async I/O is the correct approach.
+
+**File truncation handling.** Claude Code detects when file size shrinks (log rotation) and resets the read position to the beginning. The orchestrator does not handle truncation; if a log file is rotated, it stops emitting new lines until the file grows past the stale offset.
+
+**Richer JSON field normalization.** Claude Code recognizes `lvl`, `log_level`, `WARNING` to `warn`, and `err` to `error`. The orchestrator only checks `level` and `severity`. Real-world JSON log formats vary widely; Claude Code handles more of them out of the box.
+
+**Word-boundary level detection.** Claude Code uses a regex that matches level tokens at word boundaries (`(^|[^A-Z0-9])TOKEN([^A-Z0-9]|$)`), avoiding false positives when "info" appears inside a word like "information." The orchestrator uses `includes()`, which would incorrectly match "information" as "info."
+
+**End-to-end CLI tests.** Claude Code has 5 tests that spawn the actual binary as a child process and verify exit codes, stdout, stderr, and signal handling. The orchestrator has zero CLI-level integration tests; all 30 tests are unit-level imports.
+
+### Where the orchestrator won
+
+**Module separation.** 5 focused modules (colors, formatter, levels, stats, tail) vs a single 368-line file. Each module is independently importable and testable, which is reflected in the unit test count (26 vs 13).
+
+**Project scaffolding.** README with usage docs, examples, JSON format description, and exit codes. CI workflows, `.env.example`, `.gitignore`, `.dockerignore`. Author and license in `package.json`. Claude Code produced none of these.
+
+**Short flag aliases.** `-l`, `-j`, `-s`, `-h` in addition to the long forms. Built on `node:util` `parseArgs` rather than hand-rolled argument parsing.
+
+**Non-object JSON detection.** The orchestrator identifies arrays and nulls as non-object JSON and prefixes them with `[non-object json]`. Claude Code parses them successfully but treats them as objects, which can produce misleading output.
+
+**Typed JSON value colorization.** The orchestrator applies different ANSI colors per value type (strings yellow, numbers cyan, booleans yellow, null gray, nested objects indented). Claude Code uses a flat two-color scheme (magenta keys, green values).
+
+**`--from-start` flag.** A bonus feature not requested in the prompt. Reads from the beginning of the file instead of tailing from the end. Useful for processing existing log files without a separate tool.
+
+### The honest assessment
+
+Claude Code produced the more technically robust CLI. The async tailer, truncation handling, word-boundary detection, and JSON field normalization are all engineering decisions that matter in production. The orchestrator produced a more complete project (docs, CI, packaging) with better module structure and more unit tests, but the core implementation is less resilient. For a CLI tool that someone would actually use to tail production logs, Claude Code's version handles more real-world scenarios correctly.
+
+This benchmark shows the gap narrowing where the agent's natural strengths (systems programming decisions, edge case handling) align closely with the task. The orchestrator's advantages in scaffolding, accessibility, and security hardening matter less for a CLI tool than they do for a web application or API.
+
+**Reprompt math:** 20 missing attributes from Claude Code. README, CI, packaging, and project scaffolding take 3-4 rounds. Module extraction would take 2-3 rounds. Short flags, non-object JSON handling, and typed colorization add another 3-4. Conservative estimate: **10-15 follow-up prompts** to bring Claude Code output to parity. The lowest reprompt estimate of any benchmark, reflecting how close this comparison was.
 
 ---
 
