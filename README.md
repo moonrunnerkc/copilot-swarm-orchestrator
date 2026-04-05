@@ -115,7 +115,7 @@ Six head-to-head comparisons across three agent CLIs, three frontend projects, a
 | # | Agent | Project Type | Criteria | Agent Score | Orchestrator Score | Reprompts Saved |
 |---|-------|-------------|----------|:-----------:|:------------------:|:---------------:|
 | 1 | Copilot CLI | Frontend (Markdown Notes) | 30 | 3 | 30 | 30-40 |
-| 2 | Claude Code | Frontend (Tic-Tac-Toe) | 17 | 0 | 17 | 17-25 |
+| 2 | Claude Code | Frontend (Tic-Tac-Toe) | 24 | 5 | 23 | 20-28 |
 | 3 | Codex | Frontend (Calculator) | 34 | 6 | 32 | 30-40 |
 | 4 | Claude Code | Backend (REST API) | 36 | 12 | 34 | 20-25 |
 | 5 | Copilot CLI | Backend (REST API) | 44 | 13 | 41 | 25-30 |

@@ -61,24 +61,56 @@ Six head-to-head comparisons below. All used the same orchestrator configuration
 
 **Goal:** _"Create a simple browser-based tic-tac-toe game with HTML, CSS, and vanilla JavaScript. Include a 3x3 grid, alternating X and O turns, win detection, and a reset button."_
 
-### Results: Orchestrator vs Claude Code (unassisted)
+### Attribute comparison (24 criteria)
 
-| Category | Claude Code | Orchestrator |
-|----------|-------------|--------------|
-| Architecture | A (factory pattern, logic/DOM separation) | A+ (pure ES module + DOM controller, new-array-per-move state) |
-| Tests | A- (11 tests, custom harness, storage mock required) | A+ (19 tests, zero dependencies, edge case + error coverage) |
-| Accessibility | F (no ARIA, no focus management, no keyboard support) | A+ (skip link, aria-live, positional labels, focus-visible) |
-| Responsive design | F (fixed 100px cells, no handling) | A (clamp on all sizes, dvh, edge padding) |
-| CSS architecture | C (hardcoded colors, no variables, no media queries) | A+ (20+ custom properties, dark mode, reduced-motion) |
-| HTML semantics | C+ (buttons, no landmarks, no meta tags) | A+ (meta description, dual theme-color, SVG favicon, landmarks) |
-| Project scaffolding | F (no package.json, no README) | A (zero-dep test runner, structured README) |
-| Audio feedback | None | A (Web Audio API, lazy init, per-event frequencies) |
+| Attribute | Claude Code | Orchestrator |
+|-----------|:-----------:|:------------:|
+| All requested features (grid, X/O turns, win detection, reset) | Yes | Yes |
+| Logic/DOM separation | Yes (factory pattern) | Yes (ES module + DOM controller) |
+| Factory pattern / dependency injection | Yes (`createGame()`) | No (module-level exports) |
+| Pure ES module with `type="module"` | No | Yes |
+| Immutable game state (new array per move) | No | Yes (copy-on-move) |
+| Tests | Yes (11 tests, custom harness) | Yes (19 tests, zero dependencies) |
+| Zero-dependency test runner | No (custom harness, storage mock required) | Yes (Node built-in) |
+| Skip link | No | Yes |
+| `aria-live` on game status | No | Yes |
+| Positional `aria-labels` on cells (row/column) | No | Yes |
+| `:focus-visible` styles | No | Yes |
+| Keyboard navigation | No (no keyboard support) | Yes |
+| Responsive layout (clamp, dvh, edge padding) | No (fixed 100px cells) | Yes |
+| CSS custom properties | No (hardcoded colors) | Yes (20+ variables) |
+| `prefers-reduced-motion` | No | Yes |
+| `prefers-color-scheme` dark mode | No | Yes (full variable overrides) |
+| `<meta name="description">` | No | Yes |
+| Dual `<meta name="theme-color">` (light + dark) | No | Yes |
+| Inline SVG favicon | No | Yes |
+| Semantic landmarks (`<main>`, `<header>`, etc.) | No (no landmarks) | Yes |
+| Buttons for grid cells | Yes | Yes |
+| Audio feedback (Web Audio API) | No | Yes (lazy init, per-event frequencies) |
+| `package.json` | No | Yes |
+| README with project documentation | No | Yes (file table, usage, test instructions) |
 
-### What the orchestrator included that Claude Code did not
+**Score: Claude Code 5/24. Orchestrator 23/24.**
 
-17 specific quality attributes were present in orchestrator output and absent from Claude Code output: skip link, aria-live region, positional aria-labels (row/column), focus-visible styles, responsive clamp sizing, CSS custom properties (50+ variable references), `prefers-reduced-motion` media query, `prefers-color-scheme` dark mode with full variable overrides, `<meta name="description">`, dual `<meta name="theme-color">` (light and dark), inline SVG favicon, pure logic module separation, copy-on-move game state, audio feedback via Web Audio, separate DOM controller, zero-dependency Node test runner, and structured README with file table.
+Claude Code scored on: all requested features, logic/DOM separation, factory pattern, 11 tests with custom harness, and buttons for grid cells.
 
-Each attribute requires at least one follow-up prompt to add when using a standalone agent. Several (full dark mode variable overrides, responsive clamp system, module extraction) require 2-3 rounds. Conservative total: 17-25 prompts eliminated per project.
+The orchestrator missed one: Claude Code's factory pattern for dependency injection (the orchestrator used module-level exports instead).
+
+### Where Claude Code won
+
+**Factory pattern.** Claude Code produced a `createGame()` factory that cleanly supports dependency injection. Tests can pass mock dependencies without touching global state. The orchestrator used module-level exports with a separate DOM controller file, which works but lacks the injection flexibility.
+
+### Where the orchestrator won
+
+**Accessibility.** The widest gap in this comparison. Claude Code had zero ARIA attributes, no focus management, and no keyboard support. The orchestrator added a skip link, `aria-live` region on game status, positional `aria-labels` on every cell (identifying row and column), `:focus-visible` styles, and full keyboard navigation.
+
+**CSS architecture.** Claude Code hardcoded all colors with no CSS custom properties and no media queries. The orchestrator used 20+ custom properties, a full `prefers-color-scheme` dark mode with variable overrides, and a `prefers-reduced-motion` query that kills all animations.
+
+**Test depth.** Claude Code: 11 tests requiring a custom harness and storage mocks. Orchestrator: 19 tests with zero dependencies, covering edge cases and error conditions using the Node built-in test runner.
+
+**Responsive design.** Claude Code used fixed 100px cells with no breakpoint handling. The orchestrator used CSS `clamp()` for responsive sizing, `dvh` viewport units, and edge padding for small screens.
+
+**Reprompt math:** 19 missing attributes from Claude Code. Each requires at least one follow-up prompt. Several (dark mode variable overrides, responsive clamp system, module extraction) require 2-3 rounds. Conservative estimate: **20-28 follow-up prompts** to bring Claude Code output to parity.
 
 ---
 
