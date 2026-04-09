@@ -5,32 +5,32 @@
 <p>
   <img src="docs/media/wasp.svg" alt="" width="36" height="36">
   <img src="docs/media/wasp.svg" alt="" width="52" height="52">
-  <img src="docs/media/wasp.svg" alt="Copilot Swarm Orchestrator" width="72" height="72">
+  <img src="docs/media/wasp.svg" alt="Swarm Orchestrator" width="72" height="72">
   <img src="docs/media/wasp.svg" alt="" width="52" height="52">
   <img src="docs/media/wasp.svg" alt="" width="36" height="36">
 </p>
 
-# Copilot Swarm Orchestrator
+# Swarm Orchestrator
 
-**Verified, quality-gated orchestration for GitHub Copilot CLI. Every agent proves its work before anything merges.**
+**Verification and governance layer for AI coding agents. Parallel execution with evidence-based quality gates, not autonomous code generation.**
 
 <br>
 
 [![License: ISC](https://img.shields.io/badge/license-ISC-blue.svg)](LICENSE)
 &nbsp;&nbsp;
-![Node.js 18+](https://img.shields.io/badge/node-18%2B-green.svg)
+![Node.js 20+](https://img.shields.io/badge/node-20%2B-green.svg)
 &nbsp;&nbsp;
 ![TypeScript 5.x](https://img.shields.io/badge/TypeScript-5.x-blue.svg)
 &nbsp;&nbsp;
-![1629 tests passing](https://img.shields.io/badge/tests-1629%20passing-brightgreen.svg)
+![Tests: 50 passing](https://img.shields.io/badge/tests-50%20passing-brightgreen.svg)
 
 <br>
 
-[Quick Start](#quick-start) · [What Is This](#what-is-this) · [Features](#features) · [Installation](#installation) · [Usage](#usage) · [Architecture](#architecture) · [Contributing](#contributing)
+[Quick Start](#quick-start) · [What Is This](#what-is-this) · [Features](#features) · [Installation](#installation) · [Usage](#usage) · [Recipes](#recipes) · [Architecture](#architecture) · [Contributing](#contributing)
 
 <br>
 
-<img src="docs/media/swarm.png" alt="Copilot Swarm Orchestrator TUI dashboard showing parallel agent execution across waves" width="700">
+<img src="docs/media/swarm.png" alt="Swarm Orchestrator TUI dashboard showing parallel agent execution across waves" width="700">
 
 <br>
 
@@ -65,7 +65,7 @@ Want to see it work before pointing it at your code? Run the two-step parallel d
 npm start demo-fast
 ```
 
-Requires Node.js 18+, Git, and GitHub Copilot CLI installed and authenticated (`gh copilot`).
+Requires Node.js 20+, Git, and GitHub Copilot CLI installed and authenticated (`gh copilot`).
 
 <br>
 
@@ -77,7 +77,7 @@ Requires Node.js 18+, Git, and GitHub Copilot CLI installed and authenticated (`
 
 AI coding agents produce code fast. The problem is knowing whether that code actually works before it reaches your codebase. This orchestrator exists to answer that question with evidence, not assumptions.
 
-Every agent runs on its own isolated git branch. Every claim an agent makes is cross-referenced against its Copilot session transcript for concrete evidence: commit SHAs, test output, build results, file changes. Steps that can't prove their work don't merge. Steps that fail get classified, repaired with targeted strategies, and re-verified. After merge, six automated quality gates check the generated code for scaffold leftovers, duplicate blocks, hardcoded config, README claim accuracy, test isolation, and runtime correctness. Nothing reaches main without passing through both the verification engine and the quality gate pipeline.
+Every agent runs on its own isolated git branch. Every claim an agent makes is cross-referenced against its Copilot session transcript for concrete evidence: commit SHAs, test output, build results, file changes. Steps that can't prove their work don't merge. Steps that fail get classified, repaired with targeted strategies, and re-verified. After merge, eight automated quality gates check the generated code for scaffold leftovers, duplicate blocks, hardcoded config, README claim accuracy, test isolation, test coverage, accessibility, and runtime correctness. Nothing reaches main without passing through both the verification engine and the quality gate pipeline.
 
 The orchestrator wraps `copilot -p` (or `/fleet` for native parallel subagent dispatch) as an independent subprocess per step. It runs outside of Copilot's own execution model. You define a goal, it builds a dependency graph, launches steps as dependencies resolve, and manages the full lifecycle: branch creation, agent execution, transcript capture, evidence verification, failure repair, governance review, cost tracking, and merge. The entire execution produces an auditable trail of transcripts, verification reports, and cost attribution that you can inspect after every run.
 
@@ -90,7 +90,7 @@ Started as a submission for the GitHub Copilot CLI Challenge in early 2026 and h
 ## Features
 
 - **Evidence-based verification** parsing Copilot `/share` transcripts for commit SHAs, test output, build markers, and file changes. No unverified code merges.
-- **Quality gates** checking for scaffold leftovers, duplicate code, hardcoded config, README claim drift, test isolation, and runtime correctness
+- **Quality gates** checking for scaffold leftovers, duplicate code, hardcoded config, README claim drift, test isolation, test coverage, accessibility, and runtime correctness
 - **Failure-classified repair** categorizing failures (build, test, missing-artifact, dependency, timeout) and applying targeted fix strategies, up to 3 retries with accumulating context
 - **Governance mode** with a Critic agent that scores steps on weighted axes (build, test, lint, commit, claim) and auto-pauses on flags for human approval
 - **Strict isolation** forcing per-task branching with cross-wave context restricted to transcript-verified entries only
@@ -106,7 +106,7 @@ Started as a submission for the GitHub Copilot CLI Challenge in early 2026 and h
 - **Plan caching and replay** reusing stored plans above 0.85 similarity, or replaying prior verified transcripts for identical steps
 - **Deployment rollback** with tag-deploy-verify-rollback cycle and HTTP health checks
 - **Knowledge base** capturing execution patterns and cost history across runs for confidence-scored future planning and cost calibration
-- **Web dashboard** (single HTML page, dark theme, no build step) with real-time auto-refresh, step badges, wave health, learned patterns, and cost attribution panel with sortable per-step breakdown
+- **Live TUI dashboard** with real-time progress, step badges, wave health, learned patterns, and cost attribution during execution
 - **OWASP ASI compliance mapping** mapping verification results to the OWASP Top 10 for Agentic Applications (ASI-01 through ASI-10). Produces per-risk assessments with evidence and rationale. Triggered via `--owasp-report`. Honest coverage: 6 applicable risks assessed, 4 marked not-applicable with explanation.
 - **Structured run reports** assembling run artifacts (session state, metrics, cost attribution, verification results, OWASP compliance) into a single publishable report. `swarm report <runDir>` generates markdown and JSON from any completed run.
 - **Multi-tool adapter layer** with pluggable agent backends. `--tool copilot` (default), `--tool claude-code`, `--tool claude-code-teams`. Each adapter implements the same `AgentAdapter` contract. All adapters share process supervisor stall detection (5-minute timeout, heartbeat, SIGTERM/SIGKILL).
@@ -124,7 +124,7 @@ Started as a submission for the GitHub Copilot CLI Challenge in early 2026 and h
 
 | Requirement | Version |
 |-------------|---------|
-| Node.js | 18+ |
+| Node.js | 20+ |
 | Git | 2.20+ (worktree support) |
 | GitHub Copilot CLI | Installed and authenticated (`gh copilot`) |
 
@@ -160,7 +160,7 @@ copilot /plugin install moonrunnerkc/copilot-swarm-orchestrator
 
 This installs six specialized agent profiles, three skills (orchestrate, verify, gates), and scope enforcement hooks into your Copilot CLI environment. Scope enforcement hooks detect file operations outside the agent's declared scope and block them at execution time via the SDK's `permissionDecision` deny mechanism. Violations are also logged to the evidence file so the verification layer can independently confirm no out-of-scope changes were made. Use `/agents list` to see the installed agents, and `/swarm gates` to run quality checks from within a Copilot CLI session.
 
-The plugin is the lightweight entry point. For full parallel wave scheduling, cost governance, repair pipeline, and the web dashboard, use the full source install above.
+The plugin is the lightweight entry point. For full parallel wave scheduling, cost governance, and repair pipeline, use the full source install above.
 
 <br>
 
@@ -212,10 +212,15 @@ npm start quick "Fix the race condition in src/worker.ts"
 | `npm start agents export` | Export agent profiles as `.agent.md` files |
 | `npm start audit <session-id>` | Generate Markdown audit report |
 | `npm start metrics <session-id>` | Show metrics summary (supports `--json`) |
-| `npm start web-dashboard [port]` | Start the web dashboard (default: 3002) |
+| `npm start dashboard <execid>` | Show TUI dashboard for a run |
 | `npm start report <run-dir>` | Generate structured run report from artifacts |
 | `npm start templates` | List available plan templates |
 | `npm start status <id>` | Check execution status |
+| `npm start use <recipe>` | Run a built-in recipe against current project |
+| `npm start recipes` | List available recipes |
+| `npm start recipe-info <name>` | Show recipe details and parameters |
+| `npm start agents` | List configured agent profiles |
+| `npm start demo <name>` | Run a demo scenario |
 
 <br>
 
@@ -245,7 +250,10 @@ npm start quick "Fix the race condition in src/worker.ts"
 | `--min-runs <n>` | (`agents export`) Minimum runs required for data-driven export (default: 5) |
 | `--diff` | (`agents export`) Show what changed since the last export |
 | `--owasp-report` | Generate OWASP ASI compliance report after verification (writes to `<runDir>/owasp-compliance.md` and `.json`) |
-| `--tool <name>` | Agent backend: `copilot` (default), `claude-code`, `claude-code-teams`. Default is `copilot`; existing behavior unchanged without this flag |
+| `--tool <name>` | Agent backend: `copilot` (default), `claude-code`, `codex`, `claude-code-teams` |
+| `--param key=value` | Set recipe parameters (with `use` command) |
+| `--yes` / `-y` | Skip interactive confirmation prompts |
+| `--pr auto\|review` | PR behavior after execution |
 | `--team-size <n>` | Max concurrent teammates per wave when using `claude-code-teams` (1-5, default 5). Only applies with `--tool claude-code-teams` |
 
 <br>
@@ -294,6 +302,12 @@ Using Claude Code backend with Agent Teams:
 npm start swarm plan.json --tool claude-code-teams --team-size 3
 ```
 
+Run a recipe:
+
+```bash
+npm start use add-tests --tool codex --param framework=vitest --param coverage-target=90
+```
+
 Generate a run report from a completed execution:
 
 ```bash
@@ -329,7 +343,7 @@ To set a hard budget that aborts execution if the estimate exceeds it:
 swarm swarm plan.json --max-premium-requests 20
 ```
 
-After execution, per-step cost attribution (estimated vs actual requests, retry counts, prompt tokens, fleet mode, duration) is saved to `cost-attribution.json` in the run directory and displayed in the web dashboard.
+After execution, per-step cost attribution (estimated vs actual requests, retry counts, prompt tokens, fleet mode, duration) is saved to `cost-attribution.json` in the run directory.
 
 </details>
 
@@ -376,6 +390,36 @@ gates:
     minLines: 12
     maxOccurrences: 2
 ```
+## Recipes
+
+Reusable, parameterized plans for common tasks. Recipes modify existing projects (unlike templates, which create new ones).
+
+```bash
+npm start recipes                                        # list all
+npm start recipe-info add-tests                          # show details
+npm start use add-tests                                  # run with defaults
+npm start use add-auth --param auth-type=session --tool claude-code
+```
+
+| Recipe | Steps | Description | Key Parameters |
+|--------|-------|-------------|----------------|
+| `add-tests` | 3 | Add unit tests for untested modules | `framework`, `coverage-target` |
+| `add-auth` | 4 | Add authentication (JWT or session-based) | `auth-type`, `provider` |
+| `add-ci` | 3 | Add GitHub Actions CI pipeline | `node-version`, `package-manager` |
+| `migrate-to-ts` | 4 | Migrate JavaScript to TypeScript | `strictness` |
+| `add-api-docs` | 3 | Generate OpenAPI spec and docs | `format` |
+| `security-audit` | 3 | Run security audit and fix findings | `severity` |
+| `refactor-modularize` | 4 | Break monolithic code into modules | `target`, `max-lines` |
+
+Create custom recipes by adding JSON files to `templates/recipes/`. See [docs/recipes.md](docs/recipes.md) for the schema and examples.
+
+<br>
+
+---
+
+<br>
+
+
 ## Architecture
 
 ### Execution Flow
@@ -437,7 +481,7 @@ Goal ──> Plan ──> Waves ──> Branches ──> Agents ──> Verify �
                     └───────────┬──────────┘
                                 │
                      ┌──────────▼───────────┐
-                     │   Quality Gates      │  (6 automated checks)
+                     │   Quality Gates      │  (8 automated checks)
                      └──────────┬───────────┘
                                 │
                      ┌──────────▼───────────┐
@@ -448,53 +492,49 @@ Goal ──> Plan ──> Waves ──> Branches ──> Agents ──> Verify �
 <br>
 
 <details>
-<summary><strong>Key modules</strong> (87 source files, ~20,500 lines of TypeScript)</summary>
+<summary><strong>Key modules</strong> (84 source files, 23,522 lines of TypeScript)</summary>
 
 <br>
 
 | Module | Lines | Responsibility |
 |--------|-------|----------------|
-| `swarm-orchestrator.ts` | ~2,400 | Greedy scheduler, event-driven dependency resolution, octopus merge, multi-repo grouping, governance, lean mode, replay, cost tracking, merge orchestration, adapter dispatch |
-| `cli.ts` | 122 | Command parsing entry point, dispatches to cli-handlers |
-| `cli-handlers.ts` | ~2,200 | Handler functions for every CLI subcommand; validates arguments, performs work, returns exit code without calling `process.exit` |
-| `validation.ts` | 67 | Shared CLI argument validation helpers (`requireArg`, `requireFileExists`, `requireValidPort`, `requirePositiveInt`, `requireMutuallyExclusive`, `requireFlagValue`) |
-| `plan-generator.ts` | 743 | Plan creation, dependency validation, Copilot-assisted generation, plan-cache short-circuit |
+| `swarm-orchestrator.ts` | 2,348 | Greedy scheduler, event-driven dependency resolution, octopus merge, multi-repo grouping, governance, lean mode, replay, cost tracking, merge orchestration, adapter dispatch |
+| `cli.ts` | 196 | Command parsing entry point, dispatches to cli-handlers |
+| `cli-handlers.ts` | 2,119 | Handler functions for every CLI subcommand; validates arguments, performs work, returns exit code without calling `process.exit` |
+| `plan-generator.ts` | 938 | Plan creation, dependency validation, Copilot-assisted generation, plan-cache short-circuit |
 | `share-parser.ts` | 673 | Transcript parsing: files, commands, tests, commits, claims, MCP evidence |
-| `demo-mode.ts` | 700 | Six demo scenarios with full agent prompts and expected outputs |
-| `dashboard.tsx` | 558 | TUI dashboard with real-time progress, repo status, per-axis critic scores, lean savings |
-| `verifier-engine.ts` | ~620 | Evidence checking against transcripts (accepts pre-parsed index to avoid double parse), verification report generation |
-| `session-executor.ts` | 643 | Copilot CLI subprocess management, transcript capture, /fleet prompt wrapping |
+| `demo-mode.ts` | 708 | Six demo scenarios with full agent prompts and expected outputs |
+| `dashboard.tsx` | 550 | TUI dashboard with real-time progress, repo status, per-axis critic scores, lean savings |
+| `verifier-engine.ts` | 1,106 | Evidence checking against transcripts (accepts pre-parsed index to avoid double parse), verification report generation |
+| `session-executor.ts` | 657 | Copilot CLI subprocess management, transcript capture, /fleet prompt wrapping |
 | `step-runner.ts` | 432 | Single-step execution with branch setup, context injection, cleanup |
-| `repo-analyzer.ts` | 354 | Codebase scanning for languages, deps, build scripts, tech debt |
-| `config-loader.ts` | 350 | YAML agent profile loading with validation and merge |
-| `repair-agent.ts` | 426 | Self-repair loop with failure classification, targeted strategies, context accumulation |
+| `repo-analyzer.ts` | 355 | Codebase scanning for languages, deps, build scripts, tech debt |
+| `config-loader.ts` | 382 | YAML agent profile loading with validation and merge |
+| `repair-agent.ts` | 442 | Self-repair loop with failure classification, targeted strategies, context accumulation |
 | `copilot-cli-wrapper.ts` | 315 | CLI wrapper with strict isolation guard and degraded fallback |
-| `context-broker.ts` | ~340 | Shared state, EventEmitter-based step completion signaling, git locking, dependency context injection, strict isolation filter |
-| `quick-fix-mode.ts` | 319 | Single-agent quick task runner |
-| `pm-agent.ts` | 303 | Plan validation: cycles, unknown agents, stale metadata |
+| `context-broker.ts` | 404 | Shared state, EventEmitter-based step completion signaling, git locking, dependency context injection, strict isolation filter |
+| `quick-fix-mode.ts` | 323 | Single-agent quick task runner |
+| `pm-agent.ts` | 306 | Plan validation: cycles, unknown agents, stale metadata |
 | `meta-analyzer.ts` | 305 | Wave health scoring, pattern detection, replan decisions |
-| `knowledge-base.ts` | 289 | Persistent cross-run pattern storage (including cost history), Levenshtein similarity, findSimilarTasks |
+| `knowledge-base.ts` | 338 | Persistent cross-run pattern storage (including cost history), Levenshtein similarity, findSimilarTasks |
 | `steering-router.ts` | 290 | Human-in-the-loop commands during execution |
-| `deployment-manager.ts` | 249 | Preview deployment, tag/health-check/rollback cycle, deployment metadata persistence |
-| `cost-estimator.ts` | 208 | Pre-execution cost prediction with model multipliers, retry calibration, knowledge base integration |
+| `deployment-manager.ts` | 248 | Preview deployment, tag/health-check/rollback cycle, deployment metadata persistence |
+| `cost-estimator.ts` | 247 | Pre-execution cost prediction with model multipliers, retry calibration, knowledge base integration |
 | `owasp-mapper.ts` | 206 | Maps verification results to OWASP ASI-01 through ASI-10, produces per-risk compliance assessments |
 | `owasp-report-renderer.ts` | 43 | Renders OWASP compliance reports to markdown and JSON |
 | `report-generator.ts` | 183 | Reads run directory artifacts, assembles structured RunReport with optional cost and OWASP sections |
 | `report-renderer.ts` | 89 | Renders RunReport to markdown, JSON, and single-line TUI summary |
 | `adapters/process-supervisor.ts` | 223 | Shared subprocess lifecycle: stall detection, heartbeat, line buffering, SIGTERM/SIGKILL. Used by all adapters. |
-| `adapters/agent-adapter.ts` | 22 | AgentAdapter interface, AgentResult, AgentSpawnOptions |
-| `adapters/copilot-adapter.ts` | 32 | Wraps SessionExecutor for the adapter interface |
-| `adapters/claude-code-adapter.ts` | 46 | Spawns `claude` CLI with supervised stall detection |
-| `adapters/claude-code-teams.ts` | 171 | Agent Teams adapter: team lead per wave, teammate prompts, fallback to per-step on failure |
+| `adapters/agent-adapter.ts` | 51 | AgentAdapter interface, AgentResult, AgentSpawnOptions |
+| `adapters/copilot-adapter.ts` | 178 | Wraps SessionExecutor for the adapter interface |
+| `adapters/claude-code-adapter.ts` | 116 | Spawns `claude` CLI with supervised stall detection |
+| `adapters/codex-adapter.ts` | 121 | Spawns `codex` CLI with supervised stall detection |
+| `adapters/claude-code-teams.ts` | 159 | Agent Teams adapter: team lead per wave, teammate prompts, fallback to per-step on failure |
 | `adapters/adapter-factory.ts` | 35 | Registry and factory for adapter resolution by `--tool` name |
-| `web-dashboard.ts` | 507 | Express server, audit API endpoint, runs viewer, cost attribution panel |
-| `metrics-collector.ts` | 182 | Metrics tracking, session save/load, audit report generation |
+| `metrics-collector.ts` | 184 | Metrics tracking, session save/load, audit report generation |
 | `wave-resizer.ts` | 166 | Adaptive wave splitting, merging, and concurrency adjustment |
-| `fleet-wrapper.ts` | 92 | /fleet prompt prefix, version detection, subagent count heuristic |
-| `recipe-loader.ts` | 136 | Typed access to recipe templates; `{{placeholder}}` substitution, validation, custom directory support |
-| `src/api/routes/runs.ts` | ~80 | Express router for browsing run artifacts; used by the web dashboard |
-| `src/api/server.ts` + `routes/todos.ts` | ~120 | Self-contained Todo API (demo target built by the `todo-app` scenario) |
-| `src/components/` | ~400 | Ink/React terminal UI components for the interactive Todo demo (TodoApp, TodoList, TodoInput, TodoDemo) |
+| `fleet-wrapper.ts` | 101 | /fleet prompt prefix, version detection, subagent count heuristic |
+| `recipe-loader.ts` | 123 | Typed access to recipe templates; `{{placeholder}}` substitution, validation, custom directory support |
 
 </details>
 
@@ -611,9 +651,9 @@ The `dashboard-showcase` demo typically produces 9 source files and 3 test files
 
 ## Status
 
-Actively maintained. 87 source files, 114 test files, 1629 tests passing. Development is ongoing with regular updates.
+Actively maintained. 84 source files, 95 test files, 50 tests passing. Development is ongoing with regular updates.
 
-See [Releases](https://github.com/moonrunnerkc/copilot-swarm-orchestrator/releases) for version history.
+See [Releases](https://github.com/moonrunnerkc/swarm-orchestrator/releases) for version history.
 
 <br>
 
