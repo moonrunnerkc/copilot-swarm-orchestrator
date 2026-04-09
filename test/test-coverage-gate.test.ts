@@ -175,15 +175,18 @@ describe('TestCoverageGate', () => {
     assert.strictEqual(result.status, 'pass');
   });
 
-  it('handles custom entry point patterns', async () => {
+  it('handles custom entry point patterns as additive to defaults', async () => {
     const custom = makeFile('src/bootstrap.ts', 'initApp();');
+    const main = makeFile('src/main.tsx', 'render(<App />);');
     const config = defaultConfig();
     config.entryPointPatterns = ['^src/bootstrap\\.ts$'];
-    const ctx = makeCtx([custom]);
+    const ctx = makeCtx([custom, main]);
 
     const result = await run_test_coverage_gate(ctx, config, MAX_FILE_SIZE);
     const bootstrapIssue = result.issues.find(i => i.filePath === 'src/bootstrap.ts');
+    const mainIssue = result.issues.find(i => i.filePath === 'src/main.tsx');
     assert.strictEqual(bootstrapIssue, undefined, 'custom entry point should be excluded');
+    assert.strictEqual(mainIssue, undefined, 'default entry point should still be excluded when custom patterns are provided');
   });
 
   it('respects configurable minTestAssertions', async () => {
@@ -285,5 +288,32 @@ describe('TestCoverageGate', () => {
     const result = await run_test_coverage_gate(ctx, defaultConfig(), MAX_FILE_SIZE);
     const issue = result.issues.find(i => i.filePath === 'script.js');
     assert.ok(issue, 'without baseline, all files should be checked');
+  });
+
+  it('excludes entry points in nested monorepo layouts', async () => {
+    const nestedMain = makeFile('frontend/src/main.jsx', 'import React from "react"; ReactDOM.createRoot(document.getElementById("root")).render(<App />);');
+    const nestedIndex = makeFile('packages/app/src/index.tsx', 'import { App } from "./App"; render(<App />);');
+    const nestedApp = makeFile('apps/web/src/app.tsx', 'export default function App() { return <div />; }');
+    const ctx = makeCtx([nestedMain, nestedIndex, nestedApp]);
+
+    const result = await run_test_coverage_gate(ctx, defaultConfig(), MAX_FILE_SIZE);
+    const mainIssue = result.issues.find(i => i.filePath === 'frontend/src/main.jsx');
+    const indexIssue = result.issues.find(i => i.filePath === 'packages/app/src/index.tsx');
+    const appIssue = result.issues.find(i => i.filePath === 'apps/web/src/app.tsx');
+    assert.strictEqual(mainIssue, undefined, 'nested frontend/src/main.jsx should be excluded as entry point');
+    assert.strictEqual(indexIssue, undefined, 'nested packages/app/src/index.tsx should be excluded as entry point');
+    assert.strictEqual(appIssue, undefined, 'nested apps/web/src/app.tsx should be excluded as entry point');
+  });
+
+  it('excludes test setup files in nested paths', async () => {
+    const setup = makeFile('frontend/src/test/setup.js', 'import "@testing-library/jest-dom";');
+    const setupTests = makeFile('frontend/src/setupTests.ts', 'import "@testing-library/jest-dom";');
+    const ctx = makeCtx([setup, setupTests]);
+
+    const result = await run_test_coverage_gate(ctx, defaultConfig(), MAX_FILE_SIZE);
+    const setupIssue = result.issues.find(i => i.filePath === 'frontend/src/test/setup.js');
+    const setupTestsIssue = result.issues.find(i => i.filePath === 'frontend/src/setupTests.ts');
+    assert.strictEqual(setupIssue, undefined, 'frontend/src/test/setup.js should be excluded as test infrastructure');
+    assert.strictEqual(setupTestsIssue, undefined, 'frontend/src/setupTests.ts should be excluded as test infrastructure');
   });
 });

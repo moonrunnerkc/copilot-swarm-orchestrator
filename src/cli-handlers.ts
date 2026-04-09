@@ -1125,8 +1125,30 @@ export async function handleGatesCommand(args: string[]): Promise<number> {
     ? path.resolve(process.cwd(), args[outIndex + 1])
     : undefined;
 
+  // When a base commit is provided, compute baseline files so gates only flag
+  // agent-created or agent-modified files, not pre-existing project code.
+  const baseCommitIdx = args.indexOf('--base-commit');
+  const baseCommitSha = baseCommitIdx !== -1 && args[baseCommitIdx + 1] ? args[baseCommitIdx + 1] : undefined;
+  let baselineFiles: Set<string> | undefined;
+
+  if (baseCommitSha) {
+    try {
+      const { execSync } = require('child_process');
+      const fileList = execSync(`git ls-tree -r --name-only ${baseCommitSha}`, {
+        cwd: projectRoot,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      baselineFiles = new Set(fileList.trim().split('\n').filter(Boolean));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`Failed to read baseline files from commit ${baseCommitSha}: ${msg}`);
+      return 1;
+    }
+  }
+
   const config = load_quality_gates_config(projectRoot, configPath);
-  const result = await run_quality_gates(projectRoot, config, outDir);
+  const result = await run_quality_gates(projectRoot, config, outDir, baselineFiles, baseCommitSha);
 
   const icon = result.passed ? '✅' : '❌';
   console.log(`${icon} quality gates ${result.passed ? 'passed' : 'failed'} (${result.totalDurationMs}ms)`);

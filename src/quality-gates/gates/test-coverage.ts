@@ -1,10 +1,11 @@
 import { maybe_read_text } from '../file-utils';
 import { GateContext, GateIssue, GateResult, TestCoverageConfig } from '../types';
 
-// Patterns that indicate a file is an entry point (not a standalone module needing its own test)
+// Patterns that indicate a file is an entry point (not a standalone module needing its own test).
+// The (^|\/) prefix handles monorepo layouts like frontend/src/main.jsx alongside flat src/main.tsx.
 const DEFAULT_ENTRY_PATTERNS = [
-  /^src\/(main|index)\.(tsx?|jsx?|mjs)$/,
-  /^src\/app\.(tsx?|jsx?)$/i
+  /(^|\/)src\/(main|index)\.(tsx?|jsx?|mjs)$/,
+  /(^|\/)src\/app\.(tsx?|jsx?)$/i
 ];
 
 export async function run_test_coverage_gate(
@@ -15,9 +16,10 @@ export async function run_test_coverage_gate(
   const start = Date.now();
   const issues: GateIssue[] = [];
 
-  const entryPatterns = config.entryPointPatterns.length > 0
-    ? config.entryPointPatterns.map(p => new RegExp(p, 'i'))
-    : DEFAULT_ENTRY_PATTERNS;
+  // Custom patterns extend the structural defaults (main/index/app are always
+  // entry points regardless of project config), not replace them.
+  const customPatterns = config.entryPointPatterns.map(p => new RegExp(p, 'i'));
+  const entryPatterns = [...DEFAULT_ENTRY_PATTERNS, ...customPatterns];
 
   // Identify source files that should have tests
   const sourceFiles = ctx.files.filter(f => {
@@ -29,6 +31,9 @@ export async function run_test_coverage_gate(
     // Integration/e2e test files at root level
     if (/^(integration|e2e)[.-]/i.test(f.relativePath)) return false;
     if (/^(server|config|scripts|examples?|deploy)\//.test(f.relativePath)) return false;
+    // Test setup/config files nested inside src/ (e.g. src/test/setup.js,
+    // src/setupTests.ts, frontend/src/test/setup.js) are test infrastructure
+    if (/\btest\/setup\b|\bsetup[Tt]ests?\b|\btestSetup\b/i.test(f.relativePath)) return false;
     // Exclude standalone server entry points (e.g. src/server.js that just calls app.listen)
     if (/\bserver\.(tsx?|jsx?|mjs)$/i.test(f.relativePath)) return false;
     // Exclude vite/webpack configs and similar build tooling
