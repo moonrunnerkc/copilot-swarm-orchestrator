@@ -26,6 +26,7 @@ export interface SessionOptions {
   hooksBranch?: string;   // step branch name for hook context
   additionalEnv?: Record<string, string>; // extra env vars for the spawned process (e.g., COPILOT_HOOKS_DIR)
   additionalArgs?: string[]; // extra CLI args for the copilot subprocess (e.g., --plugin-dir)
+  onAgentLine?: (prefixedLine: string) => void; // callback for each output line, used by dashboard
 }
 
 export interface SessionResult {
@@ -118,7 +119,7 @@ export class SessionExecutor {
     }
 
     // execute copilot command with optional log prefix for parallelism visibility
-    const result = await this.runCommand(this.copilotBin, args, options.logPrefix, options.additionalEnv);
+    const result = await this.runCommand(this.copilotBin, args, options.logPrefix, options.additionalEnv, options.onAgentLine);
 
     const duration = Date.now() - startTime;
 
@@ -448,7 +449,8 @@ export class SessionExecutor {
     command: string,
     args: string[],
     logPrefix?: string,
-    additionalEnv?: Record<string, string>
+    additionalEnv?: Record<string, string>,
+    onAgentLine?: (prefixedLine: string) => void
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve) => {
       const options: SpawnOptions = {
@@ -542,7 +544,9 @@ export class SessionExecutor {
             for (const line of lines) {
               if (line.trim() && !this.isScopeEnforcementNoise(line)) {
                 lineCount++;
-                console.log(`${logPrefix} ${line}`);
+                const prefixed = `${logPrefix} ${line}`;
+                console.log(prefixed);
+                if (onAgentLine) onAgentLine(prefixed);
               }
             }
           }
@@ -565,7 +569,9 @@ export class SessionExecutor {
             for (const line of lines) {
               if (line.trim() && !this.isScopeEnforcementNoise(line)) {
                 lineCount++;
-                console.error(`${logPrefix} ${line}`);
+                const prefixed = `${logPrefix} ${line}`;
+                console.error(prefixed);
+                if (onAgentLine) onAgentLine(prefixed);
               }
             }
           }

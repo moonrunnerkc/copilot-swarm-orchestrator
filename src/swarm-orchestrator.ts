@@ -75,6 +75,7 @@ export interface SwarmExecutionOptions {
   owaspReport?: boolean;
   teamSize?: number;
   onProgress?: (context: SwarmExecutionContext, event: string) => void;
+  onAgentLine?: (line: string) => void;
 }
 
 export interface SwarmExecutionContext {
@@ -1314,7 +1315,8 @@ export class SwarmOrchestrator {
         allowAllTools: true,
         shareToFile: transcriptPath,
         logPrefix: `[${agent.name}:${step.stepNumber}]`, // live console logging for parallelism proof
-        ...(options?.model && { model: options.model })
+        ...(options?.model && { model: options.model }),
+        ...(options?.onAgentLine && { onAgentLine: options.onAgentLine }),
       };
 
       // Generate per-step hooks for scope enforcement and evidence capture

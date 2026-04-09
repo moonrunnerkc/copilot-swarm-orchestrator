@@ -28,6 +28,7 @@ interface DashboardProps {
   criticResults?: { score: number; flags: string[]; recommendation: string }[];
   leanSavedRequests?: number;
   costSummary?: string;
+  agentLog?: string[];
 }
 
 interface StatusIconProps {
@@ -173,7 +174,8 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
   repoGroups,
   criticResults,
   leanSavedRequests,
-  costSummary
+  costSummary,
+  agentLog
 }) => {
   const [elapsedTime, setElapsedTime] = useState('0s');
   const [input, setInput] = useState('');
@@ -340,6 +342,16 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
           </Box>
         ))}
       </Box>
+
+      {/* Live Agent Output */}
+      {agentLog && agentLog.length > 0 && (
+        <Box flexDirection="column" marginBottom={1} borderStyle="single" borderColor="gray" paddingX={1}>
+          <Text bold color="cyan">Agent Log:</Text>
+          {agentLog.slice(-12).map((line, idx) => (
+            <Text key={idx} color="gray" wrap="truncate-end">{line}</Text>
+          ))}
+        </Box>
+      )}
 
       {/* Critic Scores (governance mode) */}
       {criticResults && criticResults.length > 0 && (

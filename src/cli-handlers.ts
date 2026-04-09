@@ -713,6 +713,15 @@ async function executeSwarm(
     if (options?.teamSize) swarmOptions.teamSize = options.teamSize;
 
     if (dashboard) {
+      // Capture live agent output lines for the dashboard log panel
+      const agentLogLines: string[] = [];
+      swarmOptions.onAgentLine = (line: string) => {
+        agentLogLines.push(line);
+        // Keep a rolling window to avoid unbounded memory growth
+        if (agentLogLines.length > 200) agentLogLines.splice(0, agentLogLines.length - 200);
+        dashboard!.update({ agentLog: agentLogLines.slice(-12) });
+      };
+
       swarmOptions.onProgress = (ctx: SwarmExecutionContext, event: string) => {
         const waveMatch = event.match(/^wave-(?:start|done):(\d+)/);
         const currentWave = waveMatch ? parseInt(waveMatch[1], 10) : undefined;
