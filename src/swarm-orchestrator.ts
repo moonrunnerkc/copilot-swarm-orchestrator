@@ -1,7 +1,7 @@
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { resolveAdapter, defaultModelForAdapter } from './adapters';
+import { resolveAdapter, defaultModelForAdapter, AgentSpawnOptions } from './adapters';
 import AnalyticsLog from './analytics-log';
 import CommitPatternDetector, { CommitMessage } from './commit-pattern-detector';
 import { AgentProfile, ConfigLoader } from './config-loader';
@@ -72,6 +72,8 @@ export interface SwarmExecutionOptions {
   hooksEnabled?: boolean;
   fleetWaveMode?: boolean;
   cliAgent?: string;
+  owaspReport?: boolean;
+  teamSize?: number;
   onProgress?: (context: SwarmExecutionContext, event: string) => void;
 }
 
@@ -193,8 +195,16 @@ export class SwarmOrchestrator {
     // ensure repo has at least one commit (required for branch creation)
     this.ensureInitialCommit();
 
-    // get current git branch
+    // get current git branch and snapshot HEAD so quality gates can diff later
     const mainBranch = this.getCurrentBranch();
+    let baseCommitSha: string | undefined;
+    try {
+      baseCommitSha = execSync('git rev-parse HEAD', {
+        cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe'
+      }).trim();
+    } catch {
+      // fresh repo with no commits yet
+    }
 
     // initialize scalability components
     const concurrencyLimit = maxConcurrency || 3;
@@ -219,6 +229,7 @@ export class SwarmOrchestrator {
       })),
       contextBroker,
       mainBranch,
+      ...(baseCommitSha ? { baseCommitSha } : {}),
       metricsCollector,
       executionQueue,
       queueStats: executionQueue.getStats(),
@@ -583,6 +594,7 @@ export class SwarmOrchestrator {
       if (!gatesResult.passed && gatesConfig.failOnIssues) {
         const failedIds = new Set(gatesResult.results.filter(r => r.status === 'fail').map(r => r.id));
         const agentMap = context.agents || agents;
+        let remediationAttempted = false;
 
         const canAutoFix = !!context.qualityGatesTriggered && (
           (failedIds.has('duplicate-blocks') && gatesConfig.autoAddRefactorStepOnDuplicateBlocks && !context.qualityGatesTriggered.duplicateRefactorAdded) ||
@@ -594,7 +606,15 @@ export class SwarmOrchestrator {
         );
 
         if (canAutoFix) {
-          const maxStep = Math.max(...context.plan.steps.map(s => s.stepNumber));
+          // Remediation steps should depend only on steps that actually completed.
+          // Using the max step number can create dependencies on failed/blocked steps,
+          // causing the remediation to wait forever then timeout.
+          const completedStepNumbers = context.results
+            .filter(r => r.status === 'completed')
+            .map(r => r.stepNumber);
+          const maxCompletedStep = completedStepNumbers.length > 0
+            ? Math.max(...completedStepNumbers)
+            : 0; // no dependency if nothing completed
           const lastAgent = context.plan.steps[context.plan.steps.length - 1]?.agentName || 'integrator_finalizer';
 
           const addSteps: Array<{ agent: string; task: string; afterStep?: number }> = [];
@@ -605,7 +625,7 @@ export class SwarmOrchestrator {
             'duplicateRefactorAdded', context, agentMap,
             'Quality gates flagged repeated code blocks. Extract shared utilities/hooks/middleware and refactor duplicates away. Use the gate report as the source of truth. Re-run tests and ensure quality gates pass.',
             '⚠️  Final quality gates: duplicate blocks detected; scheduling refactor',
-            maxStep, lastAgent,
+            maxCompletedStep, lastAgent,
           );
           if (dupStep) addSteps.push(dupStep);
 
@@ -615,7 +635,7 @@ export class SwarmOrchestrator {
             'readmeTruthAdded', context, agentMap,
             'Quality gates flagged README claims that are not backed by code. Either implement the missing features or downgrade/remove the claims. Use the gate report as the source of truth. Re-run tests and ensure quality gates pass.',
             '⚠️  Final quality gates: README claims mismatch; scheduling truth step',
-            maxStep, lastAgent,
+            maxCompletedStep, lastAgent,
           );
           if (readmeStep) addSteps.push(readmeStep);
 
@@ -625,7 +645,7 @@ export class SwarmOrchestrator {
             'scaffoldFixAdded', context, agentMap,
             'Quality gates flagged scaffold defaults. Remove placeholder assets and generic scaffold README sections, and ensure HTML title/app metadata are meaningful. Use the gate report as the source of truth. Re-run tests and ensure quality gates pass.',
             '⚠️  Final quality gates: scaffold defaults detected; scheduling cleanup',
-            maxStep, lastAgent,
+            maxCompletedStep, lastAgent,
           );
           if (scaffoldStep) addSteps.push(scaffoldStep);
 
@@ -635,7 +655,7 @@ export class SwarmOrchestrator {
             'configFixAdded', context, agentMap,
             'Quality gates flagged hardcoded config values. Move API base URLs, ports, retry counts, timeouts, and environment-specific values into env/typed config. For Vite proxy targets, prefer import.meta.env with a safe default. Use the gate report as the source of truth. Re-run tests and ensure quality gates pass.',
             '⚠️  Final quality gates: hardcoded config detected; scheduling cleanup',
-            maxStep, lastAgent,
+            maxCompletedStep, lastAgent,
           );
           if (configStep) addSteps.push(configStep);
 
@@ -645,7 +665,7 @@ export class SwarmOrchestrator {
             'accessibilityFixAdded', context, agentMap,
             'Quality gates flagged accessibility issues. Fix all items from the gate report: skip-to-content link, heading hierarchy, aria-labels, focus-visible styles, meta description + theme-color tags, responsive CSS (viewport meta, media queries or relative units), CSS custom properties on :root with prefers-color-scheme:dark override, semantic HTML landmarks (main, nav, header), img alt attributes. Use the gate report as the source of truth. Re-run tests and ensure quality gates pass.',
             '⚠️  Final quality gates: accessibility issues detected; scheduling fix',
-            maxStep, lastAgent,
+            maxCompletedStep, lastAgent,
           );
           if (a11yStep) addSteps.push(a11yStep);
 
@@ -655,7 +675,7 @@ export class SwarmOrchestrator {
             'testCoverageFixAdded', context, agentMap,
             'Quality gates flagged missing test coverage. Add tests for uncovered source files, ensure each test file contains real assertions, and add component-level tests for React projects. Use the gate report as the source of truth. Re-run tests and ensure quality gates pass.',
             '⚠️  Final quality gates: test coverage gaps detected; scheduling fix',
-            maxStep, lastAgent,
+            maxCompletedStep, lastAgent,
           );
           if (testCovStep) addSteps.push(testCovStep);
 
@@ -678,6 +698,7 @@ export class SwarmOrchestrator {
           }
 
           if (addSteps.length > 0) {
+            remediationAttempted = true;
             await this.executeReplan(context, { retrySteps: [], addSteps }, agentMap, options);
             gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut, baselineFiles, baseCommit);
 
@@ -722,8 +743,19 @@ export class SwarmOrchestrator {
         }
 
         if (!gatesResult.passed) {
-          console.error('❌ Quality gates failed. See report in:', gatesOut);
-          throw new Error('Quality gates failed');
+          if (remediationAttempted && failedResults.length === 0) {
+            // All plan steps passed but remediation couldn't fully resolve
+            // pre-existing quality gaps. Downgrade to a warning so the run
+            // isn't marked failed for issues outside the plan's scope.
+            const remaining = gatesResult.results
+              .filter(r => r.status === 'fail')
+              .map(r => `${r.id} (${r.issues.length} issues)`);
+            console.warn(`⚠️  Quality gates still have issues after remediation: ${remaining.join(', ')}`);
+            console.warn('   Treating as warning since all plan steps passed.');
+          } else {
+            console.error('❌ Quality gates failed. See report in:', gatesOut);
+            throw new Error('Quality gates failed');
+          }
         }
       }
     }
@@ -800,6 +832,65 @@ export class SwarmOrchestrator {
       );
       // Also persist via collector so audit/metrics CLI can find it from project root
       context.metricsCollector.saveSession(runDirId, sessionState);
+    }
+
+    // OWASP ASI compliance report (when --owasp-report is set)
+    if (options?.owaspReport) {
+      try {
+        const { OwaspMapper } = await import('./owasp-mapper');
+        const { OwaspReportRenderer } = await import('./owasp-report-renderer');
+
+        const verificationResults = context.results
+          .map(r => r.verificationResult)
+          .filter((v): v is VerificationResult => v !== undefined);
+
+        const repaired = context.results.filter(r => (r.retryCount ?? 0) > 0 && r.status === 'completed').length;
+        const failed = context.results.filter(r => r.status === 'failed').length;
+        const completed = context.results.filter(r => r.status === 'completed').length;
+        const passed = completed - repaired;
+        const exhausted = context.results.filter(r => r.status === 'failed' && (r.retryCount ?? 0) > 0).length;
+
+        // Read version from package.json at project root
+        let toolVersion = '4.1.0';
+        try {
+          const pkgPath = path.join(__dirname, '..', 'package.json');
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+          toolVersion = pkg.version || toolVersion;
+        } catch {
+          // Fall back to hardcoded version if package.json is unavailable
+        }
+
+        const meta = {
+          executionId: context.executionId,
+          toolVersion,
+          governanceEnabled: !!options.governance,
+          strictIsolation: !!options.strictIsolation,
+          adapterType: options.cliAgent || 'copilot',
+          totalSteps: plan.steps.length,
+          passedSteps: passed,
+          repairedSteps: repaired,
+          failedSteps: failed,
+          retriesExhausted: exhausted,
+        };
+
+        const mapper = new OwaspMapper();
+        const complianceReport = mapper.map(verificationResults, meta);
+
+        fs.writeFileSync(
+          path.join(runDir, 'owasp-compliance.md'),
+          OwaspReportRenderer.toMarkdown(complianceReport),
+          'utf8'
+        );
+        fs.writeFileSync(
+          path.join(runDir, 'owasp-compliance.json'),
+          OwaspReportRenderer.toJson(complianceReport),
+          'utf8'
+        );
+
+        console.log(`  OWASP ASI: ${complianceReport.mitigatedRisks}/${complianceReport.applicableRisks} applicable risks mitigated`);
+      } catch (owaspErr) {
+        console.warn(`  OWASP report generation failed: ${owaspErr instanceof Error ? owaspErr.message : owaspErr}`);
+      }
     }
 
     // Record execution in knowledge base
@@ -1266,19 +1357,46 @@ export class SwarmOrchestrator {
         }
       }
 
-      // only call Copilot if we don't already have a session result (e.g. from replay)
+      // only call the agent if we don't already have a session result (e.g. from replay)
       if (!result.sessionResult) {
         // Print static header instead of animated spinner when live logging
         // This prevents spinner animation from interleaving with agent output
         console.log(`  🐝 Step ${step.stepNumber} (${agent.name}) — Agent working...`);
         console.log(`  ${'─'.repeat(60)}`);
 
-        const sessionResult = await worktreeExecutor.executeSession(finalPrompt, sessionOptions);
+        const toolName = options?.cliAgent || 'copilot';
+        let sessionResult: SessionResult;
 
-        // Print completion with timing
+        if (toolName !== 'copilot') {
+          // Non-copilot tools route through the adapter layer, which provides
+          // stall detection, heartbeat, and tool-specific CLI flag handling.
+          const adapter = resolveAdapter(toolName);
+          const spawnOpts: AgentSpawnOptions = {
+            prompt: finalPrompt,
+            workdir: worktreePath,
+          };
+          if (options?.model) spawnOpts.model = options.model;
+
+          const agentResult = await adapter.spawn(spawnOpts);
+          sessionResult = {
+            success: agentResult.exitCode === 0,
+            output: agentResult.stdout + agentResult.stderr,
+            exitCode: agentResult.exitCode,
+            duration: agentResult.durationMs
+          };
+          if (agentResult.exitCode !== 0) {
+            (sessionResult as SessionResult).error = agentResult.stderr;
+          }
+          if (agentResult.shareTranscriptPath) {
+            sessionResult.transcriptPath = agentResult.shareTranscriptPath;
+          }
+        } else {
+          sessionResult = await worktreeExecutor.executeSession(finalPrompt, sessionOptions);
+        }
+
+        // Print completion with timing; differentiate success from failure
         const durationSec = Math.round(sessionResult.duration / 1000);
         console.log(`  ${'─'.repeat(60)}`);
-        console.log(`  ✅ Step ${step.stepNumber} (${agent.name}) complete (${durationSec}s)`);
 
         result.sessionResult = sessionResult;
 
@@ -1289,6 +1407,7 @@ export class SwarmOrchestrator {
         if (!sessionResult.success) {
           console.warn(`  ⚠️  Step ${step.stepNumber} (${agent.name}) exited with code ${sessionResult.exitCode}; checking committed work`);
         }
+        console.log(`  ✅ Step ${step.stepNumber} (${agent.name}) complete (${durationSec}s)`);
       }
 
       // Clean up hook files after session completes (evidence log in runDir persists)

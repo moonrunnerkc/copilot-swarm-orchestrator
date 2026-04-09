@@ -82,6 +82,7 @@ import {
   handleQuickCommand,
   handleRecipeInfoCommand,
   handleRecipesCommand,
+  handleReportCommand,
   handleRunCommand,
   handleShareCommand,
   handleStatusCommand,
@@ -153,6 +154,9 @@ async function main(): Promise<void> {
         break;
       case 'run':
         exitCode = await handleRunCommand(args);
+        break;
+      case 'report':
+        exitCode = await handleReportCommand(args);
         break;
       case 'agents':
         exitCode = await handleAgentsCommand(args);

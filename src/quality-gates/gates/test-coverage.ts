@@ -39,6 +39,15 @@ export async function run_test_coverage_gate(
     }
     // Exclude entry points
     if (entryPatterns.some(p => p.test(f.relativePath))) return false;
+    // Exclude Ink TUI components: .tsx files importing from 'ink' are terminal UI
+    // renderers that require ink-testing-library, not standard DOM test utilities.
+    // Coverage comes from integration tests that exercise the underlying data model.
+    if (/\.tsx$/i.test(f.relativePath)) {
+      const text = f.text ?? maybe_read_text(f, maxFileSizeBytes);
+      if (text && /from\s+['"]ink['"]|require\s*\(\s*['"]ink['"]\)/.test(text)) {
+        return false;
+      }
+    }
     return true;
   });
 
@@ -185,6 +194,7 @@ export async function run_test_coverage_gate(
   }
 
   // 3. Check for component-level tests in React projects
+  // Skip for Ink (terminal UI) projects where DOM testing libraries don't apply.
   if (config.requireComponentTests) {
     const isReactProject = ctx.files.some(f => {
       const text = f.text ?? maybe_read_text(f, maxFileSizeBytes);
@@ -192,11 +202,16 @@ export async function run_test_coverage_gate(
       return /from\s+['"]react['"]|require\s*\(\s*['"]react['"]\)/.test(text);
     });
 
-    if (isReactProject) {
+    const isInkProject = ctx.files.some(f => {
+      const text = f.text ?? maybe_read_text(f, maxFileSizeBytes);
+      if (!text) return false;
+      return /from\s+['"]ink['"]|require\s*\(\s*['"]ink['"]\)/.test(text);
+    });
+
+    if (isReactProject && !isInkProject) {
       const hasComponentTest = testFiles.some(f => {
         const text = f.text ?? maybe_read_text(f, maxFileSizeBytes);
         if (!text) return false;
-        // Check for DOM testing patterns: render(), screen., document., getBy, queryBy, findBy
         return /(render\s*\(|screen\.|document\.|getBy|queryBy|findBy|innerHTML|textContent|@testing-library)/i.test(text);
       });
 

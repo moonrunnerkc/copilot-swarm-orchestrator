@@ -5,6 +5,7 @@ import { AgentAdapter } from './agent-adapter';
 import { CopilotAdapter } from './copilot-adapter';
 import { ClaudeCodeAdapter } from './claude-code-adapter';
 import { CodexAdapter } from './codex-adapter';
+import { ClaudeCodeTeamsAdapter } from './claude-code-teams';
 
 export { AgentAdapter, AgentResult, AgentSpawnOptions, buildRestrictedEnv } from './agent-adapter';
 
@@ -12,6 +13,7 @@ const ADAPTER_REGISTRY: Record<string, () => AgentAdapter> = {
   'copilot': () => new CopilotAdapter(),
   'claude-code': () => new ClaudeCodeAdapter(),
   'codex': () => new CodexAdapter(),
+  'claude-code-teams': () => new ClaudeCodeTeamsAdapter(),
 };
 
 // Each adapter's underlying tool has a different default model.
@@ -20,6 +22,7 @@ const DEFAULT_MODELS: Record<string, string> = {
   'copilot': 'claude-sonnet-4',
   'claude-code': 'claude-sonnet-4',
   'codex': 'gpt-5.4',
+  'claude-code-teams': 'claude-opus-4',
 };
 
 const AVAILABLE_NAMES = Object.keys(ADAPTER_REGISTRY);

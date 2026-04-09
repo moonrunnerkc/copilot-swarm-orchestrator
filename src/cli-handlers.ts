@@ -98,6 +98,7 @@ Usage:
   swarm use <recipe> [--param k=v ...]   Execute a pre-built recipe (see: swarm recipes)
   swarm recipes                          List available recipes
   swarm recipe-info <name>               Show recipe details and parameters
+  swarm report <run-id>                  Generate structured run report from artifacts
   swarm mcp-server                       Start MCP server (JSON-RPC over stdio)
   swarm --help                           Show this help message
 
@@ -125,10 +126,12 @@ Flags:
   --quality-gates-config <path> Path to quality gates YAML (default: config/quality-gates.yaml)
   --quality-gates-out <dir>    Where to write gate reports (default: <runDir>/quality-gates)
   --pr <auto|review>   Create PRs instead of direct merge (auto: merge on pass, review: wait for approval)
+  --owasp-report       Generate OWASP ASI compliance report after verification
+  --tool <name>        Agent tool: copilot, claude-code, claude-code-teams
+  --team-size <n>      Max concurrent teammates per wave with claude-code-teams (1-5, default 5)
   --target <dir>       Run execution in specified directory instead of cwd (alias: --dir)
   --hooks              Enable per-step hook injection for scope enforcement (default: on)
   --no-hooks           Disable hook injection for debugging
-  --tool <name>        Select CLI agent (copilot, claude-code, codex). Default: copilot
   --yes, -y            Skip cost confirmation prompt (auto-approve)
 
 Examples:
@@ -192,7 +195,9 @@ export interface ExecuteSwarmCliOptions {
   fleetWaveMode?: boolean;
   targetDir?: string;
   cliAgent?: string;
-  yes?: boolean; // skip cost confirmation prompt
+  teamSize?: number;
+  owaspReport?: boolean;
+  yes?: boolean;
 }
 
 /**
@@ -268,9 +273,23 @@ export function parseSwarmFlags(args: string[]): ExecuteSwarmCliOptions {
     opts.targetDir = args[targetIndex + 1];
   }
 
+  if (args.includes('--yes') || args.includes('-y')) opts.yes = true;
+  if (args.includes('--owasp-report')) opts.owaspReport = true;
+
   const toolIndex = args.indexOf('--tool');
   if (toolIndex !== -1 && args[toolIndex + 1]) {
     opts.cliAgent = args[toolIndex + 1];
+  }
+
+  const teamSizeIdx = args.indexOf('--team-size');
+  if (teamSizeIdx !== -1 && args[teamSizeIdx + 1]) {
+    const parsed = parseInt(args[teamSizeIdx + 1], 10);
+    if (isNaN(parsed) || parsed < 1 || parsed > 5) {
+      throw new Error(
+        `--team-size requires an integer between 1 and 5, got "${args[teamSizeIdx + 1]}"`
+      );
+    }
+    opts.teamSize = parsed;
   }
 
   return opts;
@@ -689,7 +708,9 @@ async function executeSwarm(
     if (options?.fleetWaveMode) swarmOptions.fleetWaveMode = true;
     if (options?.prMode) swarmOptions.prMode = options.prMode;
     if (options?.hooksEnabled !== undefined) swarmOptions.hooksEnabled = options.hooksEnabled;
+    if (options?.owaspReport) swarmOptions.owaspReport = true;
     if (options?.cliAgent) swarmOptions.cliAgent = options.cliAgent;
+    if (options?.teamSize) swarmOptions.teamSize = options.teamSize;
 
     if (dashboard) {
       swarmOptions.onProgress = (ctx: SwarmExecutionContext, event: string) => {
@@ -1284,6 +1305,46 @@ export async function handleStatusCommand(args: string[]): Promise<number> {
 }
 
 export async function handleSwarmCommand(args: string[]): Promise<number> {
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+Usage: swarm swarm <planfile> [flags]
+
+Execute a plan in parallel swarm mode. Runs steps concurrently based on
+their dependency graph, verifying each step with evidence-based checks.
+
+Arguments:
+  <planfile>   Path to a plan JSON file (from \`swarm plan\` or \`swarm run\`)
+
+Flags:
+  --model <name>             Model to use (e.g., claude-opus-4.5, o3)
+  --no-dashboard             Disable the live TUI dashboard
+  --pm                       Run PM agent plan review before execution
+  --governance               Enable critic review + governance pause before merge
+  --strict-isolation         Force per-task branch isolation
+  --lean                     Enable Delta Context Engine (reuse KB patterns)
+  --useInnerFleet            Prefix all prompts with /fleet
+  --fleet                    Dispatch waves via /fleet (hybrid mode)
+  --cost-estimate-only       Print cost estimate and exit without executing
+  --max-premium-requests <n> Abort if estimated cost exceeds budget
+  --plan-cache               Skip planning when a cached template matches
+  --replay                   Reuse prior transcripts for identical steps
+  --pr <auto|review>         Create PRs instead of direct merge
+  --target <dir>             Run in specified directory instead of cwd
+  --resume <id>              Resume a paused or failed session
+  --hooks / --no-hooks       Enable/disable per-step hook injection
+  --owasp-report             Generate OWASP ASI compliance report
+  --tool <name>              Agent tool: copilot, claude-code, claude-code-teams
+  --team-size <n>            Max concurrent teammates (claude-code-teams, 1-5)
+
+Examples:
+  swarm swarm plan.json
+  swarm swarm plan.json --model claude-opus-4.5 --pm
+  swarm swarm plan.json --cost-estimate-only
+  swarm swarm plan.json --pr auto --governance
+`);
+    return 0;
+  }
+
   if (args.length < 2 || !args[1]) {
     console.error('Error: Plan filename required\n');
     showUsage();
@@ -1936,6 +1997,121 @@ export async function handleAgentsCommand(args: string[]): Promise<number> {
   }
 
   console.log(`\nAgent files written to: ${outputDir}`);
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// report command handler
+// ---------------------------------------------------------------------------
+
+export async function handleReportCommand(args: string[]): Promise<number> {
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+Usage: swarm report <run-id> [flags]
+
+Generate a structured run report from existing run artifacts.
+
+Arguments:
+  <run-id>   The run directory name (e.g., swarm-2026-04-08T05-23-52-947Z)
+
+Flags:
+  --format <md|json>   Output format (default: both)
+  --stdout             Print to terminal instead of writing files
+  --latest             Use the most recent run directory
+
+Examples:
+  swarm report swarm-2026-04-08T05-23-52-947Z
+  swarm report --latest --format md --stdout
+  swarm report --latest
+`);
+    return 0;
+  }
+
+  const useLatest = args.includes('--latest');
+  const toStdout = args.includes('--stdout');
+
+  const formatIdx = args.indexOf('--format');
+  let format: 'md' | 'json' | 'both' = 'both';
+  if (formatIdx !== -1 && args[formatIdx + 1]) {
+    const val = args[formatIdx + 1];
+    if (val !== 'md' && val !== 'json') {
+      console.error(`--format requires "md" or "json", got "${val}"`);
+      return 1;
+    }
+    format = val;
+  }
+
+  let runDir: string;
+
+  if (useLatest) {
+    const runsRoot = path.join(process.cwd(), 'runs');
+    if (!fs.existsSync(runsRoot)) {
+      console.error(`No runs/ directory found in ${process.cwd()}`);
+      return 1;
+    }
+    const entries = fs.readdirSync(runsRoot, { withFileTypes: true })
+      .filter(e => e.isDirectory())
+      .map(e => e.name)
+      .sort()
+      .reverse();
+    if (entries.length === 0) {
+      console.error('No run directories found in runs/');
+      return 1;
+    }
+    runDir = path.join(runsRoot, entries[0]);
+  } else {
+    const runId = args.find(a => !a.startsWith('--') && a !== 'report');
+    if (!runId) {
+      console.error('Error: run-id required (or use --latest)');
+      console.error('Usage: swarm report <run-id>');
+      return 1;
+    }
+    runDir = path.join(process.cwd(), 'runs', runId);
+    if (!fs.existsSync(runDir)) {
+      // Try as absolute path
+      runDir = runId;
+    }
+  }
+
+  if (!fs.existsSync(runDir)) {
+    console.error(`Run directory not found: ${runDir}`);
+    return 1;
+  }
+
+  const { ReportGenerator } = await import('./report-generator');
+  const { ReportRenderer } = await import('./report-renderer');
+
+  let report;
+  try {
+    const generator = new ReportGenerator();
+    report = generator.generate(runDir);
+  } catch (err) {
+    console.error(`Failed to generate report: ${err instanceof Error ? err.message : err}`);
+    return 1;
+  }
+
+  const md = ReportRenderer.toMarkdown(report);
+  const json = ReportRenderer.toJson(report);
+
+  if (toStdout) {
+    if (format === 'md' || format === 'both') console.log(md);
+    if (format === 'json' || format === 'both') console.log(json);
+  } else {
+    if (format === 'md' || format === 'both') {
+      const mdPath = path.join(runDir, 'report.md');
+      fs.writeFileSync(mdPath, md);
+      console.log(`Report written: ${mdPath}`);
+    }
+    if (format === 'json' || format === 'both') {
+      const jsonPath = path.join(runDir, 'report.json');
+      fs.writeFileSync(jsonPath, json);
+      console.log(`Report written: ${jsonPath}`);
+    }
+  }
+
+  const summary = ReportRenderer.toSummaryLine(report);
+  console.log(summary);
+
   return 0;
 }
 
