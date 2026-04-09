@@ -21,13 +21,18 @@ export class WorktreeManager {
     stepNumber: number,
     repoDir?: string
   ): Promise<string> {
-    const gitDir = repoDir || this.workingDir;
+    let gitDir = repoDir || this.workingDir;
     const worktreePath = path.join(runDir, 'worktrees', `step-${stepNumber}`);
 
     const worktreesDir = path.dirname(worktreePath);
     if (!fs.existsSync(worktreesDir)) {
       fs.mkdirSync(worktreesDir, { recursive: true });
     }
+
+    // Guard: verify the resolved git root matches the intended target directory.
+    // Without this, a parent repo (e.g. /home/user/.git) silently captures all
+    // git operations and worktrees fork from the wrong history.
+    gitDir = this.ensureOwnGitRepo(gitDir);
 
     // Ensure the target repo has at least one commit (handles freshly-init'd repos)
     try {
@@ -196,8 +201,13 @@ export class WorktreeManager {
   /**
    * Ensure repo has at least one commit (required for branch creation).
    * Creates an initial commit with a .gitignore if repo is empty.
+   * Also verifies the working directory is its own git root first.
    */
   ensureInitialCommit(): void {
+    // Validate git root before any operations; prevents silently
+    // committing into a parent repo like /home/user/.git
+    this.ensureOwnGitRepo(this.workingDir);
+
     try {
       execSync('git rev-parse HEAD', {
         cwd: this.workingDir,
@@ -239,6 +249,49 @@ node_modules/
         console.warn(`[init] Could not create initial commit: ${msg}`);
       }
     }
+  }
+
+  /**
+   * Verify that targetDir is its own git repository root, not a subdirectory
+   * of a parent repo. If git resolves to a different root (e.g. /home/user),
+   * initialize a dedicated repo at targetDir so worktrees fork from the
+   * correct history instead of the parent's.
+   */
+  ensureOwnGitRepo(targetDir: string): string {
+    const resolved = path.resolve(targetDir);
+
+    try {
+      const gitRoot = execSync('git rev-parse --show-toplevel', {
+        cwd: resolved, encoding: 'utf8', stdio: 'pipe'
+      }).trim();
+
+      if (path.resolve(gitRoot) === resolved) {
+        return resolved;
+      }
+
+      // Git resolved to a parent directory; targetDir is not its own repo.
+      // Initialize a fresh repo so worktrees use the right history.
+      console.log(`  ⚠️  ${resolved} is inside parent repo ${gitRoot}; initializing dedicated git repo`);
+    } catch {
+      // No git repo found at all; initialize one
+      console.log(`  📂 No git repo at ${resolved}; initializing`);
+    }
+
+    execSync('git init', { cwd: resolved, stdio: 'pipe' });
+    execSync('git add -A', { cwd: resolved, stdio: 'pipe' });
+    try {
+      execSync('git commit -m "initialize project for swarm orchestration"', {
+        cwd: resolved, stdio: 'pipe',
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+      });
+    } catch {
+      execSync('git commit --allow-empty -m "initialize project for swarm orchestration"', {
+        cwd: resolved, stdio: 'pipe',
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+      });
+    }
+
+    return resolved;
   }
 }
 
