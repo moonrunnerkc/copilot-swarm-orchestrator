@@ -24,7 +24,27 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
     'plans',
     'proof',
     '.quickfix',
-    'fixtures'
+    'fixtures',
+    // Python virtual environments and build artifacts
+    'venv',
+    '.venv',
+    'env',
+    '.env',
+    '__pycache__',
+    '.tox',
+    '.mypy_cache',
+    '.pytest_cache',
+    '.ruff_cache',
+    '.eggs',
+    'site-packages',
+    // Ruby / Rust / Go / Java build dirs
+    'vendor',
+    'target',
+    '.gradle',
+    // IDE and OS artifacts
+    '.idea',
+    '.vscode',
+    '.vs'
   ],
   maxFileSizeBytes: 512 * 1024,
   gates: {
@@ -61,7 +81,13 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
         '^coverage/',
         '^runs/',
         '^plans/',
-        '^proof/'
+        '^proof/',
+        '^venv/',
+        '^\\.venv/',
+        '^env/',
+        '^vendor/',
+        '^target/',
+        '^__pycache__/'
       ]
     },
     hardcodedConfig: {
@@ -85,6 +111,12 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
         '^runs/',
         '^plans/',
         '^proof/',
+        '^venv/',
+        '^\\.venv/',
+        '^env/',
+        '^vendor/',
+        '^target/',
+        '^__pycache__/',
         '^test/fixtures/',
         '^(test|tests|__tests__)/',
         '\\.(test|spec)\\.(ts|js|tsx|jsx|mjs)$',
