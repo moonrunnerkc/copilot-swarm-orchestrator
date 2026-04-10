@@ -30,6 +30,9 @@ import PRManager from './pr-manager';
 import { WorktreeManager } from './worktree-manager';
 import { BranchMerger, MergeContext } from './branch-merger';
 import { BaselineSnapshot, scanBaseline, formatPreservationRules } from './baseline-scanner';
+import { TaskClassifier } from './task-classifier';
+import { TIER_MAPS } from './tier-maps';
+import { RequirementFilter, FilteredRequirements } from './requirement-filter';
 
 export interface ParallelStepResult {
   stepNumber: number;
@@ -120,6 +123,7 @@ export interface SwarmExecutionContext {
     reason: string;
   }>;
   baselineSnapshot?: BaselineSnapshot;
+  filteredRequirements?: FilteredRequirements;
 }
 
 /**
@@ -324,9 +328,18 @@ export class SwarmOrchestrator {
     // can be injected into shared instructions and per-step prompts.
     context.baselineSnapshot = scanBaseline(this.workingDir);
 
+    // Classify the goal and filter requirements by tier so agents only see
+    // what matters for this task type (backend, frontend, CLI, etc.)
+    const taskClassifier = new TaskClassifier();
+    const taskClassification = taskClassifier.classify(plan.goal || '');
+    const requirementFilter = new RequirementFilter(TIER_MAPS);
+    const filtered = requirementFilter.filter(taskClassification);
+    context.filteredRequirements = filtered;
+    const tierInjection = requirementFilter.toPromptInjection(filtered);
+
     // Write common prompt instructions to repo root so Copilot CLI picks them up natively.
     // Per-step prompts only carry task-specific content; shared boilerplate lives here.
-    this.writeSharedInstructions(context.baselineSnapshot);
+    this.writeSharedInstructions(context.baselineSnapshot, tierInjection);
 
     // Cache quality gates config once for the entire run
     const gatesConfig = load_quality_gates_config(this.workingDir, options?.qualityGatesConfigPath);
@@ -590,7 +603,10 @@ export class SwarmOrchestrator {
         ? new Set(context.baselineSnapshot.allFiles)
         : undefined;
       const baseCommit = context.baselineSnapshot?.headCommit || undefined;
-      let gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut, baselineFiles, baseCommit);
+      const skippedReqIds = context.filteredRequirements
+        ? new Set(context.filteredRequirements.skipped.map(r => r.id))
+        : undefined;
+      let gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut, baselineFiles, baseCommit, skippedReqIds);
 
       if (!gatesResult.passed && gatesConfig.failOnIssues) {
         const failedIds = new Set(gatesResult.results.filter(r => r.status === 'fail').map(r => r.id));
@@ -701,7 +717,7 @@ export class SwarmOrchestrator {
           if (addSteps.length > 0) {
             remediationAttempted = true;
             await this.executeReplan(context, { retrySteps: [], addSteps }, agentMap, options);
-            gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut, baselineFiles, baseCommit);
+            gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut, baselineFiles, baseCommit, skippedReqIds);
 
             // Second remediation attempt if gates still fail after first fix
             if (!gatesResult.passed && gatesConfig.failOnIssues) {
@@ -737,7 +753,7 @@ export class SwarmOrchestrator {
                   addSteps: [{ agent: retryAgent, task: retryTask, afterStep: retryMaxStep }]
                 }, agentMap, options);
 
-                gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut, baselineFiles, baseCommit);
+                gatesResult = await run_quality_gates(this.workingDir, gatesConfig, gatesOut, baselineFiles, baseCommit, skippedReqIds);
               }
             }
           }
@@ -2144,7 +2160,7 @@ export class SwarmOrchestrator {
    * Write .copilot-instructions.md to the repo root with boilerplate every agent needs.
    * Copilot CLI picks this up automatically, so per-step prompts stay minimal.
    */
-  private writeSharedInstructions(baseline?: BaselineSnapshot): void {
+  private writeSharedInstructions(baseline?: BaselineSnapshot, tierInjection?: string): void {
     const instructionsPath = path.join(this.workingDir, '.copilot-instructions.md');
     // Only write if the file does not already exist (avoid overwriting user content)
     if (fs.existsSync(instructionsPath)) return;
@@ -2164,21 +2180,21 @@ export class SwarmOrchestrator {
       '- Never reference files, images, fonts, or assets that do not exist in the repo.',
       '- Encapsulate JS: wrap in IIFE, module, or DOMContentLoaded. No bare globals in script scope.',
       '',
+    ];
+
+    // Tier-filtered requirements replace the old flat "Quality Bar" section.
+    // Only requirements relevant to the detected task type get injected.
+    if (tierInjection && tierInjection.trim().length > 0) {
+      contentParts.push(tierInjection);
+      contentParts.push('');
+    }
+
+    contentParts.push(
       '## Quality Bar',
       '- Code reads as human-written. No AI-typical patterns: no over-commented obvious logic, no generic variable names, no boilerplate filler.',
       '- Extract before repeat: if you copy the same logic more than twice, refactor into a shared util/hook/middleware.',
       '- Config first: do not hardcode API base URLs, timeouts, retry counts, or environment-specific values.',
       '- README truth: do not claim features that are not implemented. Do not add sections that do not apply (no troubleshooting tables for trivial projects).',
-      '- Keep it verifiable: request logging, correlation id propagation, and consistent error responses for HTTP APIs.',
-      '- For frontends: semantic HTML, ARIA labels on interactive elements, responsive layout (320px to 1920px), :focus-visible styles, real HTML title, responsive meta viewport.',
-      '- For frontends with CSS animations or custom properties: add @media (prefers-reduced-motion: reduce) to disable animations and @media (prefers-color-scheme: dark) overriding custom properties.',
-      '- Include <meta name="description"> and <meta name="theme-color"> in HTML pages.',
-      '- Define all colors, spacing, and font sizes as CSS custom properties on :root. Never use raw hex/rgb values in rules.',
-      '- Separate business logic from presentation. Game rules, validators, data transforms belong in standalone modules testable without the DOM.',
-      '- Functions that do pure computation must accept values as parameters, not reach into the DOM.',
-      '- Guard one-time operations (permission requests, init) so they run once per session, not on every user action.',
-      '- If you choose one browser event over another (change vs input), add a one-line comment explaining why.',
-      '- Persist user-visible counters or preferences to localStorage when losing them on reload would annoy a user.',
       '- Error messages must be specific and actionable with relevant values.',
       '',
       '## Code Comments',
@@ -2193,7 +2209,7 @@ export class SwarmOrchestrator {
       '  "update config and deps"',
       '  "implement todo API with tests"',
       '',
-    ];
+    );
 
     // Append baseline preservation rules when the repo has existing files
     if (baseline && baseline.allFiles.length > 0) {

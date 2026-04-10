@@ -103,7 +103,7 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
         'window\\.__CONFIG__'
       ],
       excludeFileRegexes: [
-        '^\\.github/agents/',
+        '^\.github/',
         '\\.(md|mdx)$',
         '^dist/',
         '^build/',

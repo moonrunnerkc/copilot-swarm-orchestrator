@@ -71,6 +71,70 @@ $ npm test
       assert.ok(index.commandsExecuted.includes('npm install'));
       assert.ok(index.commandsExecuted.includes('npm test'));
     });
+
+    it('should extract commands from Copilot CLI box-drawing format', () => {
+      const transcript = `
+I'll run the tests now.
+
+  \u2502 cd /workspace && python -m pytest tests/ -v
+  \u2514 Completed in 3.2s
+
+  \u2502 git add -A && git commit -m "add health endpoint"
+  \u2514 86 lines
+
+Some additional context here.
+`;
+
+      const index = parser.parse(transcript);
+
+      assert.ok(
+        index.commandsExecuted.includes('cd /workspace && python -m pytest tests/ -v'),
+        `Expected pytest command, got: ${JSON.stringify(index.commandsExecuted)}`
+      );
+      assert.ok(
+        index.commandsExecuted.includes('git add -A && git commit -m "add health endpoint"'),
+        `Expected git command, got: ${JSON.stringify(index.commandsExecuted)}`
+      );
+    });
+
+    it('should handle multi-line Copilot CLI commands across consecutive lines', () => {
+      const transcript = `
+  \u2502 source venv/bin/activate &&
+  \u2502 python -m pytest tests/ -v --tb=short
+  \u2514 12 lines
+
+Done.
+`;
+
+      const index = parser.parse(transcript);
+
+      // Both lines should merge into a single command
+      assert.strictEqual(index.commandsExecuted.length, 1);
+      assert.ok(
+        index.commandsExecuted[0]?.includes('source venv/bin/activate'),
+        'Should contain first part of multi-line command'
+      );
+      assert.ok(
+        index.commandsExecuted[0]?.includes('python -m pytest'),
+        'Should contain second part of multi-line command'
+      );
+    });
+
+    it('should ignore output summary lines in Copilot CLI format', () => {
+      const transcript = `
+  \u2502 npm test
+  \u2514 43 lines of output
+`;
+
+      const index = parser.parse(transcript);
+
+      assert.ok(index.commandsExecuted.includes('npm test'));
+      // "43 lines of output" should NOT appear as a command
+      assert.ok(
+        !index.commandsExecuted.some(c => c.includes('43 lines')),
+        'Output summary lines should not be extracted as commands'
+      );
+    });
   });
 
   describe('extractTestRuns - DRIFT TRAP', () => {
@@ -144,6 +208,27 @@ PASS
 
       const index = parser.parse(transcript);
 
+      assert.strictEqual(index.testsRun[0]?.verified, true);
+    });
+
+    it('should detect pytest via Copilot CLI box-drawing format', () => {
+      const transcript = `
+  \u2502 python -m pytest tests/ -v
+  \u2514 24 lines
+
+test_health.py::test_health_endpoint PASSED
+test_health.py::test_health_response PASSED
+
+2 passed in 0.3s
+`;
+
+      const index = parser.parse(transcript);
+
+      assert.ok(
+        index.commandsExecuted.some(c => c.includes('pytest')),
+        `Expected pytest in commands, got: ${JSON.stringify(index.commandsExecuted)}`
+      );
+      assert.strictEqual(index.testsRun.length, 1);
       assert.strictEqual(index.testsRun[0]?.verified, true);
     });
   });

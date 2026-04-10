@@ -469,6 +469,36 @@ export class VerifierEngine {
   }
 
   /**
+   * Resolve the best Python binary for a project directory.
+   * Checks local venvs first (where pytest is likely installed),
+   * then the main repo root venv (worktrees don't include gitignored dirs),
+   * then falls back to system python3/python.
+   */
+  private resolvePythonBinary(workdir: string): string {
+    // Check venvs in the worktree itself
+    for (const venvDir of ['venv', '.venv', 'env', '.env']) {
+      const venvPython = path.join(workdir, venvDir, 'bin', 'python');
+      if (fs.existsSync(venvPython)) return venvPython;
+    }
+
+    // Worktrees created by git won't have the venv; check the main repo root
+    if (workdir !== this.workingDir) {
+      for (const venvDir of ['venv', '.venv', 'env', '.env']) {
+        const venvPython = path.join(this.workingDir, venvDir, 'bin', 'python');
+        if (fs.existsSync(venvPython)) return venvPython;
+      }
+    }
+
+    // No venv found; prefer python3 since many Linux systems lack a bare "python"
+    try {
+      execSync('python3 --version', { stdio: 'pipe', timeout: 5000 });
+      return 'python3';
+    } catch { /* python3 not available */ }
+
+    return 'python';
+  }
+
+  /**
    * Detect test command from project config files.
    */
   private detectTestCommand(workdir: string): string | null {
@@ -484,6 +514,49 @@ export class VerifierEngine {
     if (fs.existsSync(makefilePath)) {
       const content = fs.readFileSync(makefilePath, 'utf8');
       if (/^test\s*:/m.test(content)) return 'make test';
+    }
+
+    // Python projects: check for pytest markers in common config files,
+    // then fall back to checking for a test directory with conftest or test files
+    const pytestCmd = () => `${this.resolvePythonBinary(workdir)} -m pytest`;
+
+    const pyprojectPath = path.join(workdir, 'pyproject.toml');
+    if (fs.existsSync(pyprojectPath)) {
+      const content = fs.readFileSync(pyprojectPath, 'utf8');
+      if (content.includes('[tool.pytest') || content.includes('pytest')) {
+        return pytestCmd();
+      }
+    }
+
+    const setupCfgPath = path.join(workdir, 'setup.cfg');
+    if (fs.existsSync(setupCfgPath)) {
+      const content = fs.readFileSync(setupCfgPath, 'utf8');
+      if (content.includes('[tool:pytest]')) {
+        return pytestCmd();
+      }
+    }
+
+    // If a requirements file mentions pytest, that's strong enough signal
+    for (const reqFile of ['requirements.txt', 'requirements-dev.txt', 'requirements-test.txt']) {
+      const reqPath = path.join(workdir, reqFile);
+      if (fs.existsSync(reqPath)) {
+        const content = fs.readFileSync(reqPath, 'utf8');
+        if (/^pytest/m.test(content)) {
+          return pytestCmd();
+        }
+      }
+    }
+
+    // Last resort: test directory with Python test files present
+    for (const testDir of ['tests', 'test']) {
+      const testDirPath = path.join(workdir, testDir);
+      if (fs.existsSync(testDirPath) && fs.statSync(testDirPath).isDirectory()) {
+        try {
+          const entries = fs.readdirSync(testDirPath);
+          const hasPyTests = entries.some(f => f.startsWith('test_') && f.endsWith('.py'));
+          if (hasPyTests) return pytestCmd();
+        } catch { /* unreadable dir; skip */ }
+      }
     }
 
     return null;

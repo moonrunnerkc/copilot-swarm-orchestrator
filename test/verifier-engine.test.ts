@@ -407,4 +407,109 @@ Output:
       assert.strictEqual(testCheck?.passed, false, 'should fail without test evidence');
     });
   });
+
+  describe('Python project test detection', () => {
+    it('should detect pytest from pyproject.toml with tool.pytest section', async () => {
+      // Set up a Python project in testDir
+      fs.writeFileSync(path.join(testDir, 'pyproject.toml'), `[tool.pytest.ini_options]\ntestpaths = ["tests"]\n`);
+      fs.mkdirSync(path.join(testDir, 'tests'));
+      fs.writeFileSync(path.join(testDir, 'tests', 'test_health.py'), 'def test_health(): pass\n');
+
+      const transcriptPath = path.join(testDir, 'transcript.md');
+      fs.writeFileSync(transcriptPath, '# Step\n$ echo "done"\n');
+
+      // Use outcome checks so test_exec is attempted
+      const result = await verifier.verifyStep(
+        1,
+        'test-agent',
+        transcriptPath,
+        { requireTests: true },
+        undefined,
+        undefined,
+        { workdir: testDir, baseSha: 'abc123' }
+      );
+
+      // detectTestCommand should produce a test_exec check with 'python -m pytest'
+      const testExec = result.checks.find(c => c.type === 'test_exec');
+      assert.ok(testExec, 'should generate test_exec check for Python project');
+      assert.ok(
+        testExec?.description?.includes('pytest'),
+        `test_exec description should mention pytest, got: ${testExec?.description}`
+      );
+    });
+
+    it('should detect pytest from requirements.txt', async () => {
+      fs.writeFileSync(path.join(testDir, 'requirements.txt'), 'flask==3.0\npytest==8.0\nhttpx\n');
+
+      const transcriptPath = path.join(testDir, 'transcript.md');
+      fs.writeFileSync(transcriptPath, '# Step\n$ echo "done"\n');
+
+      const result = await verifier.verifyStep(
+        1,
+        'test-agent',
+        transcriptPath,
+        { requireTests: true },
+        undefined,
+        undefined,
+        { workdir: testDir, baseSha: 'abc123' }
+      );
+
+      const testExec = result.checks.find(c => c.type === 'test_exec');
+      assert.ok(testExec, 'should generate test_exec check from requirements.txt');
+      assert.ok(
+        testExec?.description?.includes('pytest'),
+        `Expected pytest in description, got: ${testExec?.description}`
+      );
+    });
+
+    it('should detect pytest from test directory with test_ files', async () => {
+      fs.mkdirSync(path.join(testDir, 'tests'));
+      fs.writeFileSync(path.join(testDir, 'tests', 'test_api.py'), 'def test_api(): pass\n');
+
+      const transcriptPath = path.join(testDir, 'transcript.md');
+      fs.writeFileSync(transcriptPath, '# Step\n$ echo "done"\n');
+
+      const result = await verifier.verifyStep(
+        1,
+        'test-agent',
+        transcriptPath,
+        { requireTests: true },
+        undefined,
+        undefined,
+        { workdir: testDir, baseSha: 'abc123' }
+      );
+
+      const testExec = result.checks.find(c => c.type === 'test_exec');
+      assert.ok(testExec, 'should generate test_exec check from test directory');
+      assert.ok(
+        testExec?.description?.includes('pytest'),
+        `Expected pytest in description, got: ${testExec?.description}`
+      );
+    });
+
+    it('should not detect test command in empty directory', async () => {
+      const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-project-'));
+      try {
+        const emptyVerifier = new VerifierEngine(emptyDir);
+        const transcriptPath = path.join(emptyDir, 'transcript.md');
+        fs.writeFileSync(transcriptPath, '# Step\n$ echo "done"\n');
+
+        const result = await emptyVerifier.verifyStep(
+          1,
+          'test-agent',
+          transcriptPath,
+          { requireTests: true },
+          undefined,
+          undefined,
+          { workdir: emptyDir, baseSha: 'abc123' }
+        );
+
+        // No test_exec check should be generated
+        const testExec = result.checks.find(c => c.type === 'test_exec');
+        assert.strictEqual(testExec, undefined, 'should not generate test_exec for empty project');
+      } finally {
+        fs.rmSync(emptyDir, { recursive: true, force: true });
+      }
+    });
+  });
 });

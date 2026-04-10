@@ -36,7 +36,8 @@ export async function run_quality_gates(
   config: QualityGatesConfig,
   outDir?: string,
   baselineFiles?: Set<string>,
-  baseCommit?: string
+  baseCommit?: string,
+  skippedRequirementIds?: Set<string>
 ): Promise<QualityGatesRunResult> {
   const start = Date.now();
 
@@ -64,6 +65,7 @@ export async function run_quality_gates(
       return text === undefined ? { ...f } : { ...f, text };
     }),
     baselineFiles,
+    skippedRequirementIds,
   };
 
   const gateResults: GateResult[] = [];
@@ -98,6 +100,25 @@ export async function run_quality_gates(
 
   if (config.gates.testCoverage.enabled) {
     gateResults.push(await run_test_coverage_gate(ctx, config.gates.testCoverage, config.maxFileSizeBytes));
+  }
+
+  // Downgrade gate failures when the entire gate covers requirements that are
+  // in the skip tier for the current task type. This prevents API projects from
+  // failing on accessibility checks, or CLI projects from failing on security headers.
+  if (ctx.skippedRequirementIds && ctx.skippedRequirementIds.size > 0) {
+    const GATE_TO_REQUIREMENT_IDS: Record<string, string[]> = {
+      'accessibility': ['aria-attributes', 'aria-interactive', 'responsive-layout', 'skip-link', 'dark-mode', 'focus-visible', 'semantic-html', 'keyboard-navigation', 'responsive-breakpoint'],
+    };
+    for (const result of gateResults) {
+      if (result.status !== 'fail') continue;
+      const mappedIds = GATE_TO_REQUIREMENT_IDS[result.id];
+      if (!mappedIds) continue;
+      const allSkipped = mappedIds.every(id => ctx.skippedRequirementIds!.has(id));
+      if (allSkipped) {
+        result.status = 'skip';
+        result.issues = [];
+      }
+    }
   }
 
   const passed = gateResults.every(r => r.status !== 'fail');

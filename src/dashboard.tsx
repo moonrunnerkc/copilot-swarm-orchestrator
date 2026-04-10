@@ -221,14 +221,18 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
   const completedSteps = results.filter(r => r.status === 'completed').length;
   const failedSteps = results.filter(r => r.status === 'failed').length;
   const runningSteps = results.filter(r => r.status === 'running').length;
+  const blockedSteps = results.filter(r => r.status === 'pending' && runningSteps === 0 && failedSteps > 0).length;
+  // Progress denominator: steps that ran or will run (exclude permanently blocked steps)
+  const effectiveTotal = totalSteps - blockedSteps;
 
   return (
     <Box flexDirection="column" padding={1}>
       {/* Header */}
       <Box marginBottom={1}>
         <Text bold color="magenta">
-          🐝 Swarm Orchestrator - Parallel Execution
+          🐝 Swarm Orchestrator
         </Text>
+        <Text color="gray"> | Verification & Governance Layer</Text>
       </Box>
 
       {/* Execution Info */}
@@ -249,8 +253,11 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
 
       {/* Overall Progress */}
       <Box flexDirection="column" marginBottom={1}>
-        <Text bold>Overall Progress:</Text>
-        <ProgressBar completed={completedSteps} total={totalSteps} />
+        <Text bold>Progress: </Text>
+        <ProgressBar completed={completedSteps + failedSteps} total={effectiveTotal} />
+        <Text color="gray">
+          {completedSteps} passed{failedSteps > 0 ? <Text color="red"> | {failedSteps} failed</Text> : ''}{blockedSteps > 0 ? <Text color="yellow"> | {blockedSteps} blocked</Text> : ''} / {totalSteps} total
+        </Text>
       </Box>
 
       {/* Repo-Level Status (multi-repo orchestration) */}
@@ -270,24 +277,16 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
       {/* Metrics Comparison */}
       {metricsComparison && <ProductivitySummary comparison={metricsComparison} />}
 
-      {/* Queue Status */}
-      {queueStats && (
-        <Box flexDirection="column" marginBottom={1} borderStyle="single" borderColor="yellow" paddingX={1}>
-          <Text bold color="yellow">» Execution Queue</Text>
-          <Text>
-            Running: <Text color="blue" bold>{queueStats.running}</Text>
-            {'  '}Queued: <Text color="yellow" bold>{queueStats.queued}</Text>
-            {'  '}Completed: <Text color="green" bold>{queueStats.completed}</Text>
-            {'  '}Failed: <Text color="red" bold>{queueStats.failed}</Text>
-            {'  '}Concurrency: <Text color="cyan" bold>{queueStats.maxConcurrency}</Text>
-          </Text>
-          {queueStats.queued > 5 && (
-            <Text color="yellow">
-              ⚠️  High queue depth - consider reducing wave size or checking for rate limits
-            </Text>
-          )}
-        </Box>
-      )}
+      {/* Execution Status */}
+      <Box marginBottom={1} borderStyle="single" borderColor="gray" paddingX={1}>
+        <Text>
+          <Text color="blue" bold>{runningSteps}</Text> running
+          {'  '}<Text color="gray" bold>{results.filter(r => r.status === 'pending').length}</Text> pending
+          {'  '}<Text color="green" bold>{completedSteps}</Text> passed
+          {failedSteps > 0 && <Text>{'  '}<Text color="red" bold>{failedSteps}</Text> failed</Text>}
+          {'  '}<Text color="gray">|</Text>{'  '}max concurrency: <Text color="cyan" bold>{queueStats?.maxConcurrency ?? 3}</Text>
+        </Text>
+      </Box>
 
       {/* Wave Progress */}
       <Box marginBottom={1}>
@@ -459,7 +458,7 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
       )}
 
       {/* Productivity Summary - shown at end of run */}
-      {metricsComparison && completedSteps === totalSteps && (
+      {metricsComparison && runningSteps === 0 && completedSteps + failedSteps + blockedSteps === totalSteps && (
         <ProductivitySummary comparison={metricsComparison} />
       )}
 
@@ -480,13 +479,13 @@ const SwarmDashboard: React.FC<DashboardProps> = ({
           <Text bold color="yellow">
             ⏸️  Execution paused - Type 'resume' to continue
           </Text>
-        ) : completedSteps === totalSteps && failedSteps === 0 ? (
+        ) : runningSteps === 0 && completedSteps + failedSteps + blockedSteps === totalSteps && failedSteps === 0 ? (
           <Text bold color="green">
-            ✨ Swarm execution complete! All steps verified.
+            All {completedSteps} steps verified.
           </Text>
-        ) : failedSteps > 0 && completedSteps + failedSteps === totalSteps ? (
+        ) : runningSteps === 0 && completedSteps + failedSteps + blockedSteps === totalSteps && failedSteps > 0 ? (
           <Text bold color="yellow">
-            ⚠️ Swarm execution complete with {failedSteps} failure(s).
+            Done: {completedSteps} passed, {failedSteps} failed{blockedSteps > 0 ? `, ${blockedSteps} blocked` : ''}
           </Text>
         ) : (
           <Box flexDirection="column">

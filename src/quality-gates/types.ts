@@ -22,6 +22,8 @@ export interface GateContext {
   files: ProjectFile[];
   /** Files that existed before agents ran; gates only flag issues on files NOT in this set */
   baselineFiles?: Set<string> | undefined;
+  /** Requirement IDs classified as 'skip' for the current task type, used to downgrade gate failures */
+  skippedRequirementIds?: Set<string> | undefined;
 }
 
 export interface ProjectFile {

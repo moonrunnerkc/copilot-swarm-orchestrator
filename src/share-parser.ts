@@ -148,9 +148,46 @@ export class ShareParser {
   private extractCommands(lines: string[]): string[] {
     const commands: string[] = [];
 
+    // Accumulator for multi-line Copilot CLI commands (continued with │ prefix)
+    let pendingCopilotCmd = '';
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (!line) continue;
+      if (!line) {
+        // Blank line ends any pending multi-line command
+        if (pendingCopilotCmd) {
+          commands.push(pendingCopilotCmd);
+          pendingCopilotCmd = '';
+        }
+        continue;
+      }
+
+      // Copilot CLI transcript format: commands prefixed with box-drawing │ (U+2502)
+      // e.g. "  │ source venv/bin/activate && python -m pytest tests/ -v"
+      const copilotMatch = line.match(/^\s*\u2502\s+(.+)/);
+      if (copilotMatch) {
+        const fragment = copilotMatch[1].trim();
+        // └ lines are output summaries (e.g. "└ 86 lines..."), not commands
+        if (!fragment.startsWith('\u2514') && !fragment.match(/^\d+ lines/)) {
+          if (pendingCopilotCmd) {
+            // Continuation of a multi-line command (e.g. && on previous line)
+            pendingCopilotCmd += ' ' + fragment;
+          } else {
+            pendingCopilotCmd = fragment;
+          }
+        } else if (pendingCopilotCmd) {
+          // Output summary terminates the pending command
+          commands.push(pendingCopilotCmd);
+          pendingCopilotCmd = '';
+        }
+        continue;
+      }
+
+      // Non-│ line ends any pending multi-line Copilot command
+      if (pendingCopilotCmd) {
+        commands.push(pendingCopilotCmd);
+        pendingCopilotCmd = '';
+      }
 
       // look for command prompts
       if (line.match(/^[\$>]\s+/) || line.match(/^npm\s+/) || line.match(/^git\s+/)) {
@@ -170,6 +207,11 @@ export class ShareParser {
           }
         }
       }
+    }
+
+    // Flush any trailing command
+    if (pendingCopilotCmd) {
+      commands.push(pendingCopilotCmd);
     }
 
     return commands;

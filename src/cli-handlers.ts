@@ -745,6 +745,7 @@ async function executeSwarm(
     if (dashboard) {
       dashboard.update({
         currentWave: context.totalWaves || 1,
+        totalSteps: context.results.length,
         results: context.results
       });
       await new Promise(resolve => setTimeout(resolve, 2000));

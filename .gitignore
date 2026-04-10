@@ -42,3 +42,6 @@ quality-gates.md
 # Security review (internal only, never push)
 .github/security-recommendations.md
 .copilot-instructions.md
+
+# Internal benchmarks (contains competitive analysis, not for public)
+docs/orchestrator-copilot-benchmarks.md
