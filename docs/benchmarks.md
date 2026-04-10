@@ -1,3 +1,70 @@
+# Third-Party Benchmark Assessment
+
+**Evaluator:** Grok (xAI), blind assessment
+**Date:** April 9, 2026
+**Methodology:** Anonymized run results (System A / System B) scored independently against a 7-dimension rubric with predefined weights. Evaluator had no knowledge of which tools produced the output.
+
+---
+
+## System A: Multi-Agent Orchestrator
+
+| Dimension | Score | Weight | Evidence |
+|-----------|-------|--------|----------|
+| Goal completion | 10/10 | 25% | All 8 explicit requirements delivered. Dedicated route module, monotonic clock, 503 on DB failure, UTC-aware timestamp, 2 pytest tests covering happy path and DB-unavailable. |
+| Correctness | 10/10 | 20% | time.monotonic() for uptime (immune to clock adjustments). HTTP 503 on degraded state (correct for load balancers and monitoring). datetime.now(timezone.utc) (not deprecated utcnow()). Error handlers use generic messages with internal logging only. |
+| Security posture | 9/10 | 15% | 5 security headers via middleware. markupsafe.escape() on all HTML output. CORS from env vars. Pydantic schemas with field validators. Non-root Docker user. .dockerignore and .gitignore present. Deduction: .coverage binary committed. |
+| Test coverage | 10/10 | 15% | 46 tests across 5 files (518 lines). Unit, integration, and live HTTP levels. Covers health, API routes, crypto, DB utils. Proper fixtures and isolation. |
+| Production readiness | 9/10 | 10% | Multi-stage Dockerfile with tini and layer caching. CI pipeline (lint, test, Docker build, smoke test). .env.example with documentation. 12 commits produced. All changes committed. |
+| Architecture quality | 9/10 | 10% | Dedicated route module. Centralized config.py. Pydantic schemas separated. Middleware added cleanly. |
+| Documentation | 10/10 | 5% | README +83 lines with endpoint docs and env var reference. .env.example with 28 lines of descriptions. |
+| **Weighted total** | **9.75/10** | | |
+
+**Issues before production:** .coverage binary committed; add .coverage* to .gitignore and remove.
+
+**PR approval:** Yes, after the single .coverage cleanup.
+
+---
+
+## System B: Single-Agent CLI
+
+| Dimension | Score | Weight | Evidence |
+|-----------|-------|--------|----------|
+| Goal completion | 10/10 | 25% | All 8 explicit requirements delivered. Inline endpoint, wall clock, 200 on DB failure, UTC timestamp, 2 pytest tests. |
+| Correctness | 4/10 | 20% | time.time() for uptime (affected by clock changes). HTTP 200 on DB failure (load balancers and monitors interpret as healthy). datetime.utcnow() used in new code (deprecated since Python 3.12). Pre-existing str(e) error leakage untouched. |
+| Security posture | 2/10 | 15% | Zero security headers. No HTML escaping. No input validation. No CORS config. No Docker security improvements. No .gitignore or .dockerignore. Pre-existing XSS vectors and error leakage unchanged. |
+| Test coverage | 3/10 | 15% | 2 tests in 1 file (39 lines). Health endpoint only. No unit, integration, or validation tests. No coverage of existing endpoints. |
+| Production readiness | 2/10 | 10% | No env config. No Dockerfile updates. No CI. No .gitignore. No .env.example. pytest not added to requirements.txt. Changes left uncommitted. |
+| Architecture quality | 4/10 | 10% | Endpoint added inline in main.py. No route separation. No config module. No schema validation. |
+| Documentation | 1/10 | 5% | No README update. No env var docs. No comments. |
+| **Weighted total** | **4.70/10** | | |
+
+**Issues before production:** Health check returns 200 on DB failure. Uptime uses wall clock. Pre-existing error handlers leak str(e). HTML templates have no escaping. No .gitignore, .dockerignore, or Dockerfile fixes. Changes uncommitted.
+
+**PR approval:** No.
+
+---
+
+## Comparative Summary
+
+| Dimension | System A | System B | Delta |
+|-----------|----------|----------|-------|
+| Goal completion | 10 | 10 | 0 |
+| Correctness | 10 | 4 | +6 |
+| Security posture | 9 | 2 | +7 |
+| Test coverage | 10 | 3 | +7 |
+| Production readiness | 9 | 2 | +7 |
+| Architecture quality | 9 | 4 | +5 |
+| Documentation | 10 | 1 | +9 |
+| **Weighted total** | **9.75** | **4.70** | **+5.05** |
+
+Both systems completed the stated goal. The divergence is entirely in correctness of implementation choices and the scope of improvements applied to the existing codebase.
+
+System A's output was assessed as production-ready (approved as PR with one minor fix). System B's output was assessed as not mergeable without substantial additional work across security, configuration, testing, infrastructure, and correctness.
+
+The evaluator's core finding: System A delivered a production-ready improvement to the entire codebase. System B delivered a minimal patch with correctness defects that would require significant manual cleanup before deployment.
+
+---
+
 # Quality Benchmarks
 
 The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting. The same goal run through the orchestrator produces output that would take 30-40 follow-up prompts to reach with a standalone agent.
