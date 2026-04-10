@@ -51,9 +51,10 @@ describe('CostEstimator', () => {
       assert.strictEqual(result.perStep.length, 4);
       // Per-step: 1 base request (no per-step retry inflation)
       assert.strictEqual(result.perStep[0].estimatedPremiumRequests, 1);
-      // Total: 4 base + ceil(4 * 0.15) = 4 + 1 = 5
+      // Total: 4 base + ceil(4 * 0.15) = 4 + 1 = 5 (no remediation without qualityGatesEnabled)
       assert.strictEqual(result.totalPremiumRequests, 5);
       assert.strictEqual(result.lowEstimate, 4);
+      assert.strictEqual(result.remediationBuffer, 0);
     });
 
     it('applies o3 20x multiplier correctly', () => {
@@ -97,6 +98,7 @@ describe('CostEstimator', () => {
       assert.strictEqual(result.overageCostUSD, 0);
       assert.strictEqual(result.lowEstimate, 0);
       assert.strictEqual(result.highEstimate, 0);
+      assert.strictEqual(result.remediationBuffer, 0);
     });
 
     it('calculates overage cost when estimate exceeds allowance', () => {
@@ -107,7 +109,7 @@ describe('CostEstimator', () => {
         remainingAllowance: 5,
       });
 
-      // Total is 12. Overage = (12 - 5) * 0.04 = 0.28
+      // Total: 6 base + ceil(6 * 0.15) retry = 7. Overage = (7 - 5) * 0.04 = 0.08
       assert.ok(result.overageCostUSD > 0, 'Should have overage cost');
       assert.strictEqual(result.remainingAllowance, 5);
     });
@@ -164,6 +166,63 @@ describe('CostEstimator', () => {
         fleet.totalPremiumRequests > standard.totalPremiumRequests,
         `Fleet (${fleet.totalPremiumRequests}) should exceed standard (${standard.totalPremiumRequests})`,
       );
+    });
+
+    it('adds remediation buffer when qualityGatesEnabled is true', () => {
+      const estimator = new CostEstimator();
+      const plan = makeplan(5);
+
+      const withoutGates = estimator.estimate(plan, { modelName: 'claude-sonnet-4' });
+      const withGates = estimator.estimate(plan, { modelName: 'claude-sonnet-4', qualityGatesEnabled: true });
+
+      assert.strictEqual(withoutGates.remediationBuffer, 0);
+      assert.ok(withGates.remediationBuffer > 0,
+        `Expected remediation buffer > 0 with gates enabled, got ${withGates.remediationBuffer}`);
+      // Default rate 0.25: ceil(5 * 0.25 * 1) = 2
+      assert.strictEqual(withGates.remediationBuffer, 2);
+      assert.ok(withGates.totalPremiumRequests > withoutGates.totalPremiumRequests,
+        'Total with gates should exceed total without gates');
+    });
+
+    it('applies model multiplier to remediation buffer', () => {
+      const estimator = new CostEstimator();
+      const plan = makeplan(4);
+      const result = estimator.estimate(plan, { modelName: 'o4-mini', qualityGatesEnabled: true });
+
+      // Default rate 0.25: ceil(4 * 0.25 * 5) = ceil(5) = 5
+      assert.strictEqual(result.remediationBuffer, 5);
+    });
+
+    it('calibrates remediation rate from knowledge base when history exists', () => {
+      const dir = tmpDir();
+      tempDirs.push(dir);
+      const kb = new KnowledgeBaseManager(dir);
+
+      // Record structured evidence with remediation data: 5 planned steps, 3 remediations
+      const evidence: CostHistoryEvidence = {
+        runId: 'test-run-remed',
+        estimated: 7,
+        actual: 8,
+        retries: 0,
+        steps: 5,
+        model: 'claude-sonnet-4',
+        remediationSteps: 3,
+      };
+      kb.addOrUpdatePattern({
+        category: 'cost_history',
+        insight: '5 steps, 3 remediation steps',
+        confidence: 'high',
+        evidence: [JSON.stringify(evidence)],
+        impact: 'medium',
+      });
+
+      const estimator = new CostEstimator(kb);
+      const plan = makeplan(10);
+      const result = estimator.estimate(plan, { modelName: 'claude-sonnet-4', qualityGatesEnabled: true });
+
+      // Remediation rate from history: 3/5 = 0.60, capped at 0.50
+      // ceil(10 * 0.50 * 1) = 5
+      assert.strictEqual(result.remediationBuffer, 5);
     });
   });
 

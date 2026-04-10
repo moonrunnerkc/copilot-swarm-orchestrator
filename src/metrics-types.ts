@@ -115,4 +115,6 @@ export interface CostHistoryEvidence {
   retries: number;
   steps: number;
   model: string;
+  /** Quality gate remediation steps triggered during this run. Added in v4.2. */
+  remediationSteps?: number;
 }

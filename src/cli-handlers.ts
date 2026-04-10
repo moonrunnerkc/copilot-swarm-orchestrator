@@ -591,11 +591,15 @@ async function executeSwarm(
   const costEstimate = costEstimator.estimate(plan, {
     modelName,
     fleetMode: !!options?.useInnerFleet,
+    qualityGatesEnabled: !options?.noQualityGates,
   });
 
   const retryPct = Math.round((costEstimate.perStep[0]?.retryProbability ?? 0.15) * 100);
   console.log(`\n💰 Cost Estimate: ${costEstimate.lowEstimate}-${costEstimate.totalPremiumRequests} premium requests`);
   console.log(`   ${plan.steps.length} steps | ${modelName} (${costEstimate.modelMultiplier}x) | ${retryPct}% retry buffer`);
+  if (costEstimate.remediationBuffer > 0) {
+    console.log(`   includes ${costEstimate.remediationBuffer} remediation buffer (quality gates enabled)`);
+  }
   if (options?.useInnerFleet) {
     console.log(`   /fleet mode: subagent multiplier applied`);
   }

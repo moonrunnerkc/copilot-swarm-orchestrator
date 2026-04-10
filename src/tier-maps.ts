@@ -17,7 +17,7 @@ export type TierMap = Record<TaskType, TierRequirement[]>;
 
 const API_BACKEND_ENFORCE: TierRequirement[] = [
   { id: 'security-headers', description: 'Security headers on HTTP responses (X-Content-Type-Options, X-Frame-Options, CSP minimum)', tier: 'enforce', category: 'security' },
-  { id: 'body-size-limit', description: 'Request body size limit (express.json limit or equivalent)', tier: 'enforce', category: 'security' },
+  { id: 'body-size-limit', description: 'Global request body size limit via middleware (e.g. express.json({ limit }), Starlette ContentSizeLimitMiddleware), not per-field max_length', tier: 'enforce', category: 'security' },
   { id: 'param-sanitization', description: 'ID and route parameter validation before route logic (regex or schema)', tier: 'enforce', category: 'validation' },
   { id: 'input-type-validation', description: 'Type checks on all input fields (reject non-string where string expected, etc.)', tier: 'enforce', category: 'validation' },
   { id: 'input-length-validation', description: 'Max length enforcement on string inputs', tier: 'enforce', category: 'validation' },
@@ -25,7 +25,7 @@ const API_BACKEND_ENFORCE: TierRequirement[] = [
   { id: 'error-hide-internals', description: 'Error handler that never leaks err.message or stack traces to clients', tier: 'enforce', category: 'security' },
   { id: 'config-externalization', description: 'Environment-dependent values (PORT, DB paths, CORS origins, file paths) from env vars, not hardcoded', tier: 'enforce', category: 'structure' },
   { id: 'endpoint-tests', description: 'Tests for every endpoint covering happy path and at least one error path', tier: 'enforce', category: 'testing' },
-  { id: 'validation-tests', description: 'Tests for every validation rule (each type check, length check, empty check)', tier: 'enforce', category: 'testing' },
+  { id: 'validation-tests', description: 'Tests for every validation rule: positive (valid input accepted) and negative (invalid input rejected with correct status code and error shape) for each type check, length check, empty check, and schema constraint', tier: 'enforce', category: 'testing' },
   { id: 'gitignore', description: '.gitignore present with node_modules, dist, .env at minimum', tier: 'enforce', category: 'structure' },
   { id: 'package-json-complete', description: 'package.json with name, description, scripts (start, test, dev), engines', tier: 'enforce', category: 'structure' },
 ];

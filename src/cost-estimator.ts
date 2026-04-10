@@ -24,6 +24,14 @@ const DEFAULT_RETRY_PROBABILITY = 0.15;
 const MAX_RETRY_PROBABILITY = 0.50;
 const OVERAGE_COST_PER_REQUEST = 0.04;
 
+// Quality gate remediation overhead: proportion of planned steps that
+// typically trigger remediation follow-ups. Derived from observed runs
+// where ~29% of total requests were gate-triggered remediation steps.
+// Rounded down to 0.25 as a conservative default. Applied per-step, then
+// ceiled to whole requests since partial agent invocations aren't possible.
+const DEFAULT_REMEDIATION_RATE = 0.25;
+const MAX_REMEDIATION_RATE = 0.50;
+
 // Rough token count for the static boilerplate injected by buildSwarmPrompt.
 // Measured from actual prompt captures; chars / 4 approximation.
 const STATIC_BOILERPLATE_TOKENS = 350;
@@ -32,6 +40,7 @@ export interface CostEstimateOptions {
   modelName: string;
   remainingAllowance?: number;
   fleetMode?: boolean;
+  qualityGatesEnabled?: boolean;
 }
 
 export interface StepCostEstimate {
@@ -49,6 +58,7 @@ export interface CostEstimate {
   highEstimate: number;
   perStep: StepCostEstimate[];
   retryBuffer: number;
+  remediationBuffer: number;
   modelMultiplier: number;
   overageCostUSD: number;
   remainingAllowance?: number;
@@ -97,9 +107,16 @@ export class CostEstimator {
     const baseTotalNoRetry = perStep.reduce((sum, s) => sum + s.estimatedPremiumRequests, 0);
     // Retry buffer is the aggregate expected retry cost across all steps
     const retryBuffer = Math.ceil(baseTotalNoRetry * retryProbability);
-    const totalRaw = baseTotalNoRetry + retryBuffer;
+    // Remediation buffer: when quality gates are enabled, some steps will
+    // fail gate checks and trigger automated follow-up remediation steps.
+    // Each remediation step costs one premium request per model multiplier.
+    const remediationRate = options.qualityGatesEnabled
+      ? this.calibrateRemediationRate(plan)
+      : 0;
+    const remediationBuffer = Math.ceil(plan.steps.length * remediationRate * multiplier);
+    const totalRaw = baseTotalNoRetry + retryBuffer + remediationBuffer;
 
-    // Low estimate assumes no retries; high estimate includes retry buffer
+    // Low estimate assumes no retries and no remediation
     const lowEstimate = baseTotalNoRetry;
     const highEstimate = totalRaw;
 
@@ -113,6 +130,7 @@ export class CostEstimator {
       highEstimate,
       perStep,
       retryBuffer: Math.max(0, retryBuffer),
+      remediationBuffer,
       modelMultiplier: multiplier,
       overageCostUSD: parseFloat(overageCostUSD.toFixed(2)),
       ...(options.remainingAllowance !== undefined
@@ -186,6 +204,34 @@ export class CostEstimator {
 
     const rate = totalRetries / totalSteps;
     return Math.min(rate, MAX_RETRY_PROBABILITY);
+  }
+
+  /**
+   * Pull historical remediation rate from knowledge base cost_history patterns.
+   * Remediation steps are quality-gate-triggered follow-ups (not retries).
+   * Falls back to DEFAULT_REMEDIATION_RATE when no history with remediation
+   * data exists. Only structured evidence (v4.2+) carries remediation counts.
+   */
+  private calibrateRemediationRate(_plan: ExecutionPlan): number {
+    if (!this.knowledgeBase) return DEFAULT_REMEDIATION_RATE;
+
+    const costPatterns = this.knowledgeBase.getPatternsByCategory('cost_history');
+    if (costPatterns.length === 0) return DEFAULT_REMEDIATION_RATE;
+
+    let totalPlannedSteps = 0;
+    let totalRemediationSteps = 0;
+    for (const pattern of costPatterns) {
+      const parsed = this.parseStructuredEvidence(pattern.evidence);
+      if (!parsed) continue;
+      if (typeof parsed.remediationSteps !== 'number') continue;
+      totalPlannedSteps += parsed.steps;
+      totalRemediationSteps += parsed.remediationSteps;
+    }
+
+    if (totalPlannedSteps === 0) return DEFAULT_REMEDIATION_RATE;
+
+    const rate = totalRemediationSteps / totalPlannedSteps;
+    return Math.min(rate, MAX_REMEDIATION_RATE);
   }
 
   /**

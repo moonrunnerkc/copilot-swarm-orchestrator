@@ -321,6 +321,7 @@ export class SwarmOrchestrator {
     context.costEstimate = costEstimator.estimate(plan, {
       modelName,
       fleetMode: !!options?.useInnerFleet,
+      qualityGatesEnabled: options?.qualityGates !== false,
     });
     context.stepCostRecords = [];
 

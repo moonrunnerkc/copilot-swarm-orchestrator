@@ -487,6 +487,38 @@ Output:
       );
     });
 
+    it('should skip npm default placeholder test script', async () => {
+      const placeholderDir = fs.mkdtempSync(path.join(os.tmpdir(), 'placeholder-test-'));
+      try {
+        // npm init creates this exact placeholder that exits 1
+        const pkg = {
+          name: 'placeholder-project',
+          scripts: { test: 'echo "Error: no test specified" && exit 1' },
+        };
+        fs.writeFileSync(path.join(placeholderDir, 'package.json'), JSON.stringify(pkg));
+
+        const placeholderVerifier = new VerifierEngine(placeholderDir);
+        const transcriptPath = path.join(placeholderDir, 'transcript.md');
+        fs.writeFileSync(transcriptPath, '# Step\n$ echo "done"\n');
+
+        const result = await placeholderVerifier.verifyStep(
+          1,
+          'backend_master',
+          transcriptPath,
+          { requireTests: true },
+          undefined,
+          undefined,
+          { workdir: placeholderDir, baseSha: 'abc123' }
+        );
+
+        const testExec = result.checks.find(c => c.type === 'test_exec');
+        assert.strictEqual(testExec, undefined,
+          'should not generate test_exec for npm default placeholder script');
+      } finally {
+        fs.rmSync(placeholderDir, { recursive: true, force: true });
+      }
+    });
+
     it('should not detect test command in empty directory', async () => {
       const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-project-'));
       try {

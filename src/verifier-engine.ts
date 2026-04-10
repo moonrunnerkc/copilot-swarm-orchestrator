@@ -506,7 +506,13 @@ export class VerifierEngine {
     if (fs.existsSync(pkgPath)) {
       try {
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-        if (pkg.scripts?.test) return 'npm test';
+        const testScript: string = pkg.scripts?.test || '';
+        // npm init and yarn init both set a placeholder that exits 1.
+        // Treating it as a real test command causes false verification failures
+        // on steps that create a project but delegate testing to a later step.
+        const isPlaceholder = /no test(s)? specified/i.test(testScript)
+          || /exit\s+1/.test(testScript) && testScript.includes('echo');
+        if (testScript && !isPlaceholder) return 'npm test';
       } catch { /* malformed package.json; skip */ }
     }
 

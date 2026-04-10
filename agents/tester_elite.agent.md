@@ -19,6 +19,7 @@ Testing specialist for test creation, execution, and quality assurance.
 
 - Unit tests
 - Integration tests
+- Negative-path tests for every validation rule (submit invalid input, assert rejection with correct status code and error shape)
 - Test coverage analysis
 - Test framework configuration
 - Quality assurance validation

@@ -1,6 +1,26 @@
 import { maybe_read_text } from '../file-utils';
 import { GateContext, GateIssue, GateResult, ScaffoldDefaultsConfig } from '../types';
 
+// Artifacts that should never be tracked. Each entry maps a file pattern
+// (tested against relativePath) to the gitignore entry that would exclude it.
+// Only flagged when the artifact is actually present in the project file list,
+// so the check produces zero false positives on clean repos.
+const GITIGNORE_ARTIFACT_RULES: Array<{
+  filePattern: RegExp;
+  gitignoreEntry: string;
+  hint: string;
+}> = [
+  { filePattern: /^\.coverage$/, gitignoreEntry: '.coverage', hint: 'pytest coverage data binary' },
+  { filePattern: /\.pyc$/, gitignoreEntry: '*.pyc', hint: 'compiled Python bytecode' },
+  { filePattern: /(^|\/)__pycache__\//, gitignoreEntry: '__pycache__/', hint: 'Python bytecode cache directory' },
+  { filePattern: /^\.env$/, gitignoreEntry: '.env', hint: 'environment secrets file' },
+  { filePattern: /(^|\/)node_modules\//, gitignoreEntry: 'node_modules/', hint: 'npm dependency tree' },
+  { filePattern: /^dist\//, gitignoreEntry: 'dist/', hint: 'build output directory' },
+  { filePattern: /^\.DS_Store$/, gitignoreEntry: '.DS_Store', hint: 'macOS Finder metadata' },
+  { filePattern: /^Thumbs\.db$/, gitignoreEntry: 'Thumbs.db', hint: 'Windows thumbnail cache' },
+  { filePattern: /\.sqlite3?$/, gitignoreEntry: '*.sqlite3', hint: 'SQLite database file (should not be tracked)' },
+];
+
 export async function run_scaffold_defaults_gate(
   ctx: GateContext,
   config: ScaffoldDefaultsConfig,
@@ -55,6 +75,37 @@ export async function run_scaffold_defaults_gate(
           message: `scaffold default README content matched /${re.source}/`,
           filePath: readme.relativePath,
           hint: 'replace scaffold docs with project-specific README'
+        });
+      }
+    }
+  }
+
+  // Gitignore completeness: when .gitignore exists, check that tracked files
+  // don't include artifacts that should be excluded. Only flags artifacts
+  // actually present in the project, not hypothetical ones.
+  const gitignore = ctx.files.find(f => f.relativePath === '.gitignore');
+  if (gitignore) {
+    const gitignoreText = maybe_read_text(gitignore, maxFileSizeBytes) || '';
+    const gitignoreLines = gitignoreText.split('\n').map(l => l.trim());
+
+    for (const rule of GITIGNORE_ARTIFACT_RULES) {
+      const artifactPresent = ctx.files.some(f => rule.filePattern.test(f.relativePath));
+      if (!artifactPresent) continue;
+
+      // Check whether gitignore already covers this artifact.
+      // Simple substring match on the entry (e.g. ".coverage" appears in a line).
+      // Not full gitignore glob semantics, but catches standard entries.
+      const covered = gitignoreLines.some(line =>
+        line === rule.gitignoreEntry ||
+        line === '/' + rule.gitignoreEntry ||
+        (rule.gitignoreEntry.startsWith('*') && line === rule.gitignoreEntry)
+      );
+
+      if (!covered) {
+        issues.push({
+          message: `tracked artifact should be in .gitignore: ${rule.gitignoreEntry}`,
+          filePath: '.gitignore',
+          hint: rule.hint,
         });
       }
     }
