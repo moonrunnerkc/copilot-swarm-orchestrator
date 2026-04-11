@@ -1807,6 +1807,24 @@ export async function handleQuickCommand(args: string[]): Promise<number> {
 }
 
 export async function handleRunCommand(args: string[]): Promise<number> {
+  // Flags that consume the next token as a value (must be skipped during goal extraction)
+  const valuedFlags = new Set([
+    '--model', '--resume', '--quality-gates-config', '--quality-gates-out',
+    '--pr', '--target', '--dir', '--tool', '--team-size', '--max-premium-requests',
+    '--sarif', '--goal', '--base-commit',
+  ]);
+
+  // Extract positional tokens: skip the command name (args[0]) and any flag + value pairs
+  const positional: string[] = [];
+  for (let i = 1; i < args.length; i++) {
+    if (args[i].startsWith('--') || args[i] === '-y') {
+      if (valuedFlags.has(args[i]) && i + 1 < args.length) i++; // skip the value
+      continue;
+    }
+    positional.push(args[i]);
+  }
+
+  // If --goal is explicit, extract its value directly
   const goalIndex = args.indexOf('--goal');
   let goal = '';
   if (goalIndex !== -1) {
@@ -1817,12 +1835,41 @@ export async function handleRunCommand(args: string[]): Promise<number> {
       tokens.push(tok);
     }
     goal = tokens.join(' ');
-  } else {
-    goal = args.slice(1).filter(a => !a.startsWith('--')).join(' ');
+  }
+
+  // Detect plan file: if the first positional arg resolves to an existing JSON file, execute it
+  const firstPositional = positional[0];
+  if (!goal && firstPositional) {
+    const resolved = path.resolve(process.cwd(), firstPositional);
+    if (fs.existsSync(resolved) && resolved.endsWith('.json')) {
+      console.log('🐝 Swarm Orchestrator - Execute Plan\n');
+      try {
+        const options = parseSwarmFlags(args);
+        return await executeSwarm(firstPositional, options);
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : error);
+        return 1;
+      }
+    }
+    // Also check plans/ directory for bare filenames
+    const storage = new PlanStorage();
+    try {
+      storage.loadPlan(firstPositional);
+      console.log('🐝 Swarm Orchestrator - Execute Plan\n');
+      const options = parseSwarmFlags(args);
+      return await executeSwarm(firstPositional, options);
+    } catch {
+      // Not a plan file; fall through to treat positional tokens as goal text
+    }
+  }
+
+  // No plan file detected; use positional tokens as goal (or --goal value)
+  if (!goal) {
+    goal = positional.join(' ');
   }
 
   if (!goal) {
-    console.error('Error: goal required\nUsage: swarm run --goal "Build a REST API"');
+    console.error('Error: goal required\nUsage: swarm run --goal "Build a REST API"\n       swarm run <planfile> [flags]');
     return 1;
   }
 
