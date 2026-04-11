@@ -52,6 +52,75 @@ The cost estimator reduces the estimated retry probability by 30% when gate-awar
 New files: `src/gate-prompt-builder.ts`, `test/spec-aware-planning.test.ts`
 Modified: `src/plan-generator.ts`, `src/cost-estimator.ts`
 
+## Bug Fixes (discovered during E2E validation)
+
+Six bugs were found and fixed by running a full multi-step swarm (`--tool claude-code`) against a real Python/FastAPI project (PromptVault, 5 coordinated agents, WebSocket endpoint goal).
+
+### SARIF stdout contamination
+
+When using `--sarif -` (stdout mode), gate status messages from `console.log` were interleaved with the JSON output, producing invalid SARIF. Status messages now route to `stderr` when SARIF targets stdout.
+
+Commit: `d121a35`
+
+### Run command argument parsing
+
+`handleRunCommand` included flag values in the goal string. Running `swarm run "Add feature X" --tool claude-code --target ./repo` would produce a goal of `"Add feature X claude-code ./repo"`. Rewritten with a `valuedFlags` set and proper positional argument extraction.
+
+Commit: `fe0b3af`
+
+### Double-run on plan files
+
+After a plan-file swarm completed, the `try-catch` block around `storage.loadPlan()` also wrapped `executeSwarm()`, causing fallthrough to the goal-based path, which launched a second swarm. Separated plan detection from execution.
+
+Commit: `03ccfe0`
+
+### Vendored dependency test discovery
+
+`scanBaseline` in `baseline-scanner.ts` listed every test file found by `git ls-files`, including thousands of files from `venv/lib/python3.12/site-packages/*/tests/`. These polluted agent prompts with irrelevant context. Added regex filters for `node_modules/`, `venv/`, `.venv/`, `site-packages/`, and other vendored directories.
+
+Commit: `cefb5ec`
+
+### Verifier test command priority
+
+`detectTestCommand()` checked for a Makefile `test:` target before checking Python-specific configs (`pyproject.toml`, `setup.cfg`, `requirements.txt`). Agents frequently generate Makefiles with bare `pytest` (no venv activation), which fails in git worktrees where the venv is absent. Reordered detection: Python configs are checked first, Makefile is the fallback.
+
+Commit: `cefb5ec`
+
+### Git state sanitizer
+
+Crashed or killed runs left unmerged binary files (`.pyc`, `.db`) in the git index, blocking subsequent verification commits and branch switches with "unmerged files" errors. Added `sanitizeGitState()` at the start of `executeSwarm()`: aborts pending merges, resets unmerged index entries, and prunes stale worktrees.
+
+Commit: `0111fe6`
+
+## E2E Validation
+
+All three v5.0.0 features were validated against `promptvault-orch`, a Python/FastAPI application with SQLite, HTMX, and Fernet encryption.
+
+**Run configuration:**
+- Goal: "Add a WebSocket endpoint for real-time threat streaming"
+- Tool: `claude-code`
+- Plan: 5 steps (BackendMaster, DevOpsPro, SecurityAuditor, TesterElite, IntegratorFinalizer)
+- Flags: `--no-dashboard`
+
+**Run 5 results** (after all bug fixes):
+
+| Step | Agent | Duration | Result |
+|------|-------|----------|--------|
+| 1 | BackendMaster | 91s | PASSED |
+| 2 | DevOpsPro | 257s | PASSED |
+| 3 | SecurityAuditor | 196s | PASSED |
+| 4 | TesterElite | 338s | FAILED (agent wrote `pytest.mark.asyncio` without `pytest-asyncio` installed) |
+| 5 | IntegratorFinalizer | - | BLOCKED (dependency on step 4) |
+| 6 | Remediation (auto) | 98s | PASSED (scaffold defaults gate triggered remediation) |
+
+Total: 4/6 completed, 1 agent-level failure, 11m 54s, clean exit with no crashes or hangs.
+
+**Feature 1 (SARIF):** Valid SARIF 2.1.0 JSON produced. Tested both `--sarif results.sarif` and `--sarif -` (stdout). Schema version, tool driver, rules, and results all conform. Clean gate run produces valid SARIF with empty results array. Combined `--sarif` with `--json` to confirm additive output.
+
+**Feature 2 (gates.yaml):** Created `.swarm/gates.yaml` in promptvault-orch disabling `accessibility` and raising `duplicateBlocks.minLines` to 20. Re-ran gates: accessibility gate disappeared from output. Unknown key validation confirmed (rejected `bogusGate` with descriptive error listing valid names).
+
+**Feature 3 (spec-aware planning):** Verified `getGateRequirements()` produces correct clauses filtered by step category. Disabled gates excluded from prompt additions. Cost estimator confirmed 30% retry probability reduction.
+
 ## Prerequisite Features (from v4.2.0, verified and stabilized)
 
 - OWASP ASI Mapper and Report Renderer
@@ -61,4 +130,4 @@ Modified: `src/plan-generator.ts`, `src/cost-estimator.ts`
 
 ## Test Summary
 
-63 new tests across 4 test files. Full suite: 1385 passing, 6 pending, 0 failing.
+64 new tests across 4 test files. Full suite: 1386 passing, 6 pending, 0 failing. All 8 quality gates green.
