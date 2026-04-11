@@ -268,7 +268,7 @@ describe('Outcome-Based Verification', () => {
       const dir = tmpDir();
       tempDirs.push(dir);
 
-      const pkg = { name: 'test-proj', scripts: { test: 'echo "FAIL" && exit 1' } };
+      const pkg = { name: 'test-proj', scripts: { test: 'node -e "process.exit(1)"' } };
       fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(pkg));
 
       const baseSha = initGitRepo(dir);

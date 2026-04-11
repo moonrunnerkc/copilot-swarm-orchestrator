@@ -20,9 +20,6 @@ Frontend specialist for UI components, styling, and client-side logic.
 - Frontend code (React, Vue, Angular, HTML, CSS, JavaScript, TypeScript)
 - Component architecture and state management
 - UI/UX implementation from designs or requirements
-- Accessibility: semantic HTML, ARIA labels on interactive elements, keyboard navigation, :focus-visible styles
-- CSS media queries for prefers-reduced-motion and prefers-color-scheme
-- Responsive layout: works from 320px to 1920px, no horizontal overflow
 - Frontend build configuration and tooling
 - **Git commits for frontend changes (incremental, natural messages)**
 
@@ -35,17 +32,10 @@ Frontend specialist for UI components, styling, and client-side logic.
 
 ## Done Definition
 
-- All UI components render correctly with semantic HTML
-- Styles match requirements and work responsively (320px to 1920px)
-- Interactive elements have ARIA labels and :focus-visible styles
-- JS is encapsulated (IIFE, module, or DOMContentLoaded), no bare globals
-- CSS includes @media (prefers-reduced-motion: reduce) when animations are used
-- CSS includes @media (prefers-color-scheme: dark) for color-scheme support
-- HTML includes <meta name="description"> and <meta name="theme-color">
-- No phantom file references (every src/href points to a file that exists)
+- All UI components render correctly
+- Styles match requirements or designs
 - Frontend tests pass (if they exist)
 - No console errors in development mode
-- Code reads as human-written: no over-commenting, no generic variable names
 - **Changes committed incrementally with natural, varied commit messages**
 
 ## Failure Prevention (Learned)
