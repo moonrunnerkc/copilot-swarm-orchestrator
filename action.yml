@@ -29,6 +29,10 @@ inputs:
     description: 'PR mode: auto (merge on pass), review (wait for approval), none'
     required: false
     default: 'review'
+  sarif:
+    description: 'When true, run quality gates and upload results as SARIF to GitHub code scanning'
+    required: false
+    default: 'false'
 
 outputs:
   result:

@@ -19,6 +19,7 @@ import { ExecutionOptions, SessionState } from './types';
 import AgentsExporter from './agents-exporter';
 import { defaultModelForAdapter } from './adapters';
 import { loadRecipe, listRecipeDetails, parameterizeRecipe } from './recipe-loader';
+import { formatSarif } from './sarif-formatter';
 
 // ---------------------------------------------------------------------------
 // Progress spinner for long-running subprocess calls
@@ -1161,6 +1162,9 @@ export async function handleGatesCommand(args: string[]): Promise<number> {
     }
   }
 
+  const sarifIndex = args.indexOf('--sarif');
+  const sarifPath = sarifIndex !== -1 && args[sarifIndex + 1] ? args[sarifIndex + 1] : undefined;
+
   const config = load_quality_gates_config(projectRoot, configPath);
   const result = await run_quality_gates(projectRoot, config, outDir, baselineFiles, baseCommitSha);
 
@@ -1169,6 +1173,24 @@ export async function handleGatesCommand(args: string[]): Promise<number> {
   for (const gate of result.results) {
     const g = gate.status === 'pass' ? '✅' : gate.status === 'skip' ? '⏭️' : '❌';
     console.log(`  ${g} ${gate.id}: ${gate.issues.length} issue(s)`);
+  }
+
+  if (sarifPath) {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+    const sarifOutput = formatSarif(result, pkg.version);
+
+    if (sarifPath === '-') {
+      process.stdout.write(sarifOutput + '\n');
+    } else {
+      const resolved = path.resolve(process.cwd(), sarifPath);
+      const dir = path.dirname(resolved);
+      if (!fs.existsSync(dir)) {
+        console.error(`SARIF output directory does not exist: ${dir}`);
+        return 1;
+      }
+      fs.writeFileSync(resolved, sarifOutput, 'utf8');
+      console.log(`SARIF report written to ${resolved}`);
+    }
   }
 
   return result.passed ? 0 : 1;

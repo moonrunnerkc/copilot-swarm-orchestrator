@@ -8,6 +8,7 @@ PLAN="${INPUT_PLAN:-}"
 RECIPE="${INPUT_RECIPE:-}"
 MAX_RETRIES="${INPUT_MAX_RETRIES:-3}"
 PR="${INPUT_PR:-review}"
+SARIF="${INPUT_SARIF:-false}"
 
 # Build command as safe array; no string concatenation, no eval
 CMD=("node" "/app/dist/src/cli.js")
@@ -33,6 +34,15 @@ echo "Running swarm orchestrator (mode: ${CMD[2]:-unknown})"
 # Array dispatch: each element passes as a separate execve argument.
 # No shell re-parsing, no injection vector.
 "${CMD[@]}"
+
+# ── SARIF output for GitHub code scanning ──
+if [ "$SARIF" = "true" ]; then
+  SARIF_PATH="/tmp/swarm-gates.sarif"
+  node /app/dist/src/cli.js gates . --sarif "$SARIF_PATH" || true
+  if [ -f "$SARIF_PATH" ]; then
+    echo "sarif-path=${SARIF_PATH}" >> "$GITHUB_OUTPUT"
+  fi
+fi
 
 # ── Output capture (original contract preserved) ──
 if [ -f "/tmp/swarm-result.json" ]; then
