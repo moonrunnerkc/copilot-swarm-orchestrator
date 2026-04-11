@@ -5,6 +5,10 @@ import { execSync } from 'child_process';
 
 const TEST_PATTERN = /(?:^|\/)(?:test|tests|__tests__|spec)\/|\.(?:test|spec)\.\w+$/i;
 
+// Vendored dependency directories whose test files are irrelevant to the project
+const VENDORED_DIRS = /^(?:node_modules|venv|\.venv|env|\.env|\.tox|__pypackages__|bower_components|\.bundle)\//i;
+const SITE_PACKAGES = /\/site-packages\//;
+
 export interface BaselineSnapshot {
   allFiles: string[];
   testFiles: string[];
@@ -36,7 +40,9 @@ export function scanBaseline(workingDir: string): BaselineSnapshot {
   if (!output) return { allFiles: [], testFiles: [], headCommit };
 
   const allFiles = output.split('\n').filter(f => f.length > 0);
-  const testFiles = allFiles.filter(f => TEST_PATTERN.test(f));
+  const testFiles = allFiles.filter(f =>
+    TEST_PATTERN.test(f) && !VENDORED_DIRS.test(f) && !SITE_PACKAGES.test(f)
+  );
   return { allFiles, testFiles, headCommit };
 }
 

@@ -517,13 +517,12 @@ export class VerifierEngine {
     }
 
     const makefilePath = path.join(workdir, 'Makefile');
-    if (fs.existsSync(makefilePath)) {
-      const content = fs.readFileSync(makefilePath, 'utf8');
-      if (/^test\s*:/m.test(content)) return 'make test';
-    }
 
     // Python projects: check for pytest markers in common config files,
-    // then fall back to checking for a test directory with conftest or test files
+    // then fall back to checking for a test directory with conftest or test files.
+    // Checked BEFORE Makefile because Makefile test targets often run bare `pytest`
+    // without activating the venv, which fails in git worktrees where venv/
+    // is not present. resolvePythonBinary handles worktree-to-repo-root fallback.
     const pytestCmd = () => `${this.resolvePythonBinary(workdir)} -m pytest`;
 
     const pyprojectPath = path.join(workdir, 'pyproject.toml');
@@ -551,6 +550,13 @@ export class VerifierEngine {
           return pytestCmd();
         }
       }
+    }
+
+    // Makefile test target: checked after Python-specific signals so that
+    // projects with a venv get the correct interpreter via resolvePythonBinary
+    if (fs.existsSync(makefilePath)) {
+      const content = fs.readFileSync(makefilePath, 'utf8');
+      if (/^test\s*:/m.test(content)) return 'make test';
     }
 
     // Last resort: test directory with Python test files present

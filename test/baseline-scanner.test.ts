@@ -102,6 +102,38 @@ describe('BaselineScanner', () => {
       const result = scanBaseline(tmpDir);
       assert.strictEqual(result.headCommit, '');
     });
+
+    it('excludes vendored dependency tests from testFiles', () => {
+      // Simulate a Python project with venv tracked in git
+      const vendoredPaths = [
+        'venv/lib/python3.12/site-packages/greenlet/tests/test_gc.py',
+        'venv/lib/python3.12/site-packages/pip/_vendor/colorama/tests/ansi_test.py',
+        '.venv/lib/python3.12/site-packages/greenlet/tests/test_gc.py',
+        'node_modules/@jest/core/tests/run.test.js',
+      ];
+      const projectTests = [
+        'tests/test_api.py',
+        'tests/test_health.py',
+      ];
+
+      for (const f of [...vendoredPaths, ...projectTests, 'src/app.py']) {
+        const fullPath = path.join(tmpDir, f);
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        fs.writeFileSync(fullPath, '# placeholder');
+      }
+      execSync('git add -A && git commit -m "init"', { cwd: tmpDir, stdio: 'pipe' });
+
+      const result = scanBaseline(tmpDir);
+      // Project tests are included
+      assert.ok(result.testFiles.includes('tests/test_api.py'));
+      assert.ok(result.testFiles.includes('tests/test_health.py'));
+      // Vendored tests are excluded
+      for (const v of vendoredPaths) {
+        assert.ok(!result.testFiles.includes(v), `should exclude vendored: ${v}`);
+      }
+      // But vendored files are still in allFiles (tracked by git)
+      assert.ok(result.allFiles.length > projectTests.length);
+    });
   });
 
   describe('formatPreservationRules', () => {
