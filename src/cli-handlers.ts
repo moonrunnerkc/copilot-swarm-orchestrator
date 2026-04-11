@@ -1168,11 +1168,13 @@ export async function handleGatesCommand(args: string[]): Promise<number> {
   const config = load_quality_gates_config(projectRoot, configPath);
   const result = await run_quality_gates(projectRoot, config, outDir, baselineFiles, baseCommitSha);
 
+  // When SARIF goes to stdout, route status text to stderr to keep stdout clean
+  const log = sarifPath === '-' ? console.error : console.log;
   const icon = result.passed ? '✅' : '❌';
-  console.log(`${icon} quality gates ${result.passed ? 'passed' : 'failed'} (${result.totalDurationMs}ms)`);
+  log(`${icon} quality gates ${result.passed ? 'passed' : 'failed'} (${result.totalDurationMs}ms)`);
   for (const gate of result.results) {
     const g = gate.status === 'pass' ? '✅' : gate.status === 'skip' ? '⏭️' : '❌';
-    console.log(`  ${g} ${gate.id}: ${gate.issues.length} issue(s)`);
+    log(`  ${g} ${gate.id}: ${gate.issues.length} issue(s)`);
   }
 
   if (sarifPath) {
