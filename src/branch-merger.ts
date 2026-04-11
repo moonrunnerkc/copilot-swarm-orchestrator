@@ -47,6 +47,26 @@ export class BranchMerger {
   ) {}
 
   /**
+   * Clear residual unmerged index entries left by failed merges or stash pops.
+   * Aborts any in-progress merge, resets the index, and restores tracked files.
+   * Safe to call when the index is already clean.
+   */
+  private resetUnmergedState(): void {
+    const opts = { cwd: this.workingDir, stdio: 'pipe' as const, encoding: 'utf8' as const };
+    try { execSync('git merge --abort', opts); } catch { /* no merge in progress */ }
+    try {
+      const status = execSync('git status --porcelain', opts).trim();
+      const hasConflicts = status.split('\n').some(
+        line => /^(U.|.U|AA|DD)/.test(line)
+      );
+      if (hasConflicts) {
+        execSync('git reset HEAD', opts);
+        execSync('git checkout -- .', opts);
+      }
+    } catch { /* not critical */ }
+  }
+
+  /**
    * Merge completed wave branches back to main, with PR or direct merge.
    * Records unmerged branches and returns them for caller tracking.
    */
@@ -120,6 +140,7 @@ export class BranchMerger {
     }
 
     try {
+      this.resetUnmergedState();
       await this.worktreeManager.switchBranch(context.mainBranch);
 
       // Stash all changes (including untracked files like .copilot-instructions.md)
@@ -166,9 +187,11 @@ export class BranchMerger {
       if (stashed) {
         try {
           execSync('git stash pop', { cwd: this.workingDir, stdio: 'pipe' });
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.warn(`[merge] Stash pop conflict after wave merge (non-fatal): ${msg}`);
+        } catch {
+          // Stash pop conflicted (common with binary .pyc files after merges).
+          // Reset the conflicted state and drop the stash; merged content takes priority.
+          this.resetUnmergedState();
+          try { execSync('git stash drop', { cwd: this.workingDir, stdio: 'pipe' }); } catch { /* already gone */ }
         }
       }
     } finally {
@@ -200,6 +223,7 @@ export class BranchMerger {
       }
     }
 
+    this.resetUnmergedState();
     await this.worktreeManager.switchBranch(context.mainBranch);
 
     // Stash all changes including untracked files so they don't block
@@ -262,9 +286,9 @@ export class BranchMerger {
     if (stashed) {
       try {
         execSync('git stash pop', { cwd: this.workingDir, stdio: 'pipe' });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[merge] Stash pop conflict after final merge (non-fatal): ${msg}`);
+      } catch {
+        this.resetUnmergedState();
+        try { execSync('git stash drop', { cwd: this.workingDir, stdio: 'pipe' }); } catch { /* already gone */ }
       }
     }
 
@@ -312,14 +336,18 @@ export class BranchMerger {
         const statusOutput = execSync('git status --porcelain', {
           cwd: this.workingDir, encoding: 'utf8', stdio: 'pipe'
         });
-        const conflictLines = statusOutput.split('\n').filter(l => l.startsWith('UD') || l.startsWith('DU'));
+        const conflictLines = statusOutput.split('\n').filter(
+          l => l.startsWith('UD') || l.startsWith('DU') || l.startsWith('UU') || l.startsWith('AA')
+        );
 
         if (conflictLines.length > 0) {
           for (const line of conflictLines) {
             const filePath = line.slice(3).trim();
             if (line.startsWith('UD')) {
+              // Ours modified, theirs deleted: accept deletion
               execSync(`git rm -f "${filePath}"`, { cwd: this.workingDir, stdio: 'pipe' });
             } else {
+              // DU, UU, AA: accept theirs (binary .pyc, .db, or text conflicts)
               execSync(`git checkout --theirs "${filePath}" && git add "${filePath}"`, {
                 cwd: this.workingDir, stdio: 'pipe', shell: '/bin/bash'
               });
@@ -331,10 +359,10 @@ export class BranchMerger {
           } catch { /* ignore */ }
 
           execSync(
-            `git commit --no-edit -m "Merge ${branchName} (auto-resolved with modify/delete fix)"`,
+            `git commit --no-edit -m "Merge ${branchName} (auto-resolved conflicts)"`,
             { cwd: this.workingDir, stdio: 'pipe', env: mergeEnv }
           );
-          console.log(`  \u2705 Resolved modify/delete conflicts for ${branchName}`);
+          console.log(`  \u2705 Resolved merge conflicts for ${branchName}`);
           return true;
         }
       } catch {
