@@ -54,7 +54,7 @@ Modified: `src/plan-generator.ts`, `src/cost-estimator.ts`
 
 ## Bug Fixes (discovered during E2E validation)
 
-Six bugs were found and fixed by running a full multi-step swarm (`--tool claude-code`) against a real Python/FastAPI project (PromptVault, 5 coordinated agents, WebSocket endpoint goal).
+Seven bugs were found and fixed across two E2E validation campaigns against a real Python/FastAPI project (PromptVault, 5 coordinated agents, claude-code).
 
 ### SARIF stdout contamination
 
@@ -92,34 +92,42 @@ Crashed or killed runs left unmerged binary files (`.pyc`, `.db`) in the git ind
 
 Commit: `0111fe6`
 
+### Binary merge conflicts during wave merges
+
+Tracked `.pyc` files in `venv/` caused `UU` (both-modified) and `AA` (both-added) conflicts during stash pop after wave merges. The strategy 3 conflict filter only handled `UD`/`DU` patterns, so these binary conflicts persisted in the index. This produced "Could not commit verification report: unmerged files" warnings during the run and "Failed to switch to branch master" at exit. Extended the conflict filter to include `UU` and `AA` patterns. Added `resetUnmergedState()` before every branch switch in `mergeWaveBranches` and `mergeAllBranches`. Replaced the stash pop warning-only handler with proper reset and stash drop.
+
+Commit: `9e81d64`
+
 ## E2E Validation
 
 All three v5.0.0 features were validated against `promptvault-orch`, a Python/FastAPI application with SQLite, HTMX, and Fernet encryption.
 
 **Run configuration:**
-- Goal: "Add a WebSocket endpoint for real-time threat streaming"
+- Goal: "Add request logging middleware that logs method, path, status code, and response time for every request. Store logs in a SQLite audit_log table. Add a GET /api/audit-log endpoint that returns the last 50 entries. Include tests for the middleware and endpoint."
 - Tool: `claude-code`
-- Plan: 5 steps (BackendMaster, DevOpsPro, SecurityAuditor, TesterElite, IntegratorFinalizer)
+- Plan: 5 steps across 3 waves (BackendMaster, DevOpsPro, SecurityAuditor, TesterElite, IntegratorFinalizer)
+- Run ID: `swarm-2026-04-11T22-41-55-731Z`
 - Flags: `--no-dashboard`
 
-**Run 5 results** (after all bug fixes):
+**Results (5/5 passed, zero warnings, clean exit):**
 
 | Step | Agent | Duration | Result |
 |------|-------|----------|--------|
-| 1 | BackendMaster | 91s | PASSED |
-| 2 | DevOpsPro | 257s | PASSED |
-| 3 | SecurityAuditor | 196s | PASSED |
-| 4 | TesterElite | 338s | FAILED (agent wrote `pytest.mark.asyncio` without `pytest-asyncio` installed) |
-| 5 | IntegratorFinalizer | - | BLOCKED (dependency on step 4) |
-| 6 | Remediation (auto) | 98s | PASSED (scaffold defaults gate triggered remediation) |
+| 1 | BackendMaster | 179s | PASSED |
+| 2 | DevOpsPro | 263s | PASSED |
+| 3 | SecurityAuditor | 343s | PASSED |
+| 4 | TesterElite | 373s | PASSED |
+| 5 | IntegratorFinalizer | 425s | PASSED |
 
-Total: 4/6 completed, 1 agent-level failure, 11m 54s, clean exit with no crashes or hangs.
+Total: 5/5 completed, 0 failed, 3 batches, 17m 46s. Clean exit with "All steps completed successfully!" No unmerged-file warnings, no branch-switch errors, no stash conflicts.
 
-**Feature 1 (SARIF):** Valid SARIF 2.1.0 JSON produced. Tested both `--sarif results.sarif` and `--sarif -` (stdout). Schema version, tool driver, rules, and results all conform. Clean gate run produces valid SARIF with empty results array. Combined `--sarif` with `--json` to confirm additive output.
+Post-run: 168 tests passing in promptvault-orch (up from 80 pre-run). Clean git state on master.
 
-**Feature 2 (gates.yaml):** Created `.swarm/gates.yaml` in promptvault-orch disabling `accessibility` and raising `duplicateBlocks.minLines` to 20. Re-ran gates: accessibility gate disappeared from output. Unknown key validation confirmed (rejected `bogusGate` with descriptive error listing valid names).
+**Feature 1 (SARIF):** Valid SARIF 2.1.0 JSON produced. Tested both `--sarif results.sarif` (file mode) and `--sarif -` (stdout). Schema version, tool driver, rules, and results all conform. Clean gate run produces valid SARIF with empty results array. Combined `--sarif` with `--json` to confirm additive output. Stdout mode produces clean JSON with no status message contamination.
 
-**Feature 3 (spec-aware planning):** Verified `getGateRequirements()` produces correct clauses filtered by step category. Disabled gates excluded from prompt additions. Cost estimator confirmed 30% retry probability reduction.
+**Feature 2 (gates.yaml):** Created `.swarm/gates.yaml` in promptvault-orch disabling `accessibility` and raising `duplicateBlocks.minLines` to 20. Ran gates: accessibility gate skipped as configured, 7/7 remaining gates passed. Unknown key validation confirmed (rejected `bogusGate` with descriptive error listing valid names).
+
+**Feature 3 (spec-aware planning):** Plan file contains gate-aware clauses in acceptance criteria. `hardcoded-config` requirements appeared in Steps 1 and 5. Disabled gates excluded from prompt additions. Cost estimator confirmed 30% retry probability reduction.
 
 ## Prerequisite Features (from v4.2.0, verified and stabilized)
 
@@ -130,4 +138,4 @@ Total: 4/6 completed, 1 agent-level failure, 11m 54s, clean exit with no crashes
 
 ## Test Summary
 
-64 new tests across 4 test files. Full suite: 1386 passing, 6 pending, 0 failing. All 8 quality gates green.
+65 new tests across 4 test files. Full suite: 1386 passing, 6 pending, 0 failing. All 8 quality gates green on swarm-orchestrator. 168 tests passing on the target project (promptvault-orch) after the E2E run.
