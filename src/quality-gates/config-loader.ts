@@ -107,7 +107,8 @@ function load_yaml_config(filePath: string): Partial<QualityGatesConfig> {
  * @returns Fully resolved quality gates configuration
  */
 export function load_quality_gates_config(projectRoot: string, explicitPath?: string): QualityGatesConfig {
-  let config = DEFAULT_QUALITY_GATES_CONFIG;
+  // Start with a defensive copy so callers never mutate the shared default
+  let config = merge_config(DEFAULT_QUALITY_GATES_CONFIG, {});
 
   // Layer 2: per-project .swarm/gates.yaml
   const perProjectPath = path.join(projectRoot, '.swarm', 'gates.yaml');

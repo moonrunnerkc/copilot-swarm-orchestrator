@@ -1,5 +1,7 @@
 import { AgentProfile, ConfigLoader } from './config-loader';
+import { getGateRequirements, requiresTestStep } from './gate-prompt-builder';
 import { PlanStorage } from './plan-storage';
+import { QualityGatesConfig } from './quality-gates/types';
 
 export interface PlanStep {
   stepNumber: number;
@@ -31,7 +33,11 @@ export interface ReplanPayload {
 export type GoalType = 'api' | 'web-app' | 'cli-tool' | 'library' | 'infrastructure' | 'data-pipeline' | 'mobile-app' | 'generic';
 
 export class PlanGenerator {
-  constructor(private availableAgents: AgentProfile[]) {}
+  private gateConfig: QualityGatesConfig | undefined;
+
+  constructor(private availableAgents: AgentProfile[], gateConfig?: QualityGatesConfig) {
+    this.gateConfig = gateConfig;
+  }
 
   /**
    * Creates an execution plan from a high-level goal.
@@ -376,7 +382,52 @@ OUTPUT ONLY THE JSON, NOTHING ELSE.`;
         steps.push(...this.generateGenericSteps(goal, stepNumber));
     }
 
+    this.applyGateRequirements(steps, goal);
+
     return steps;
+  }
+
+  /**
+   * Append gate-derived requirements to step prompts when gate config is available.
+   * Also injects a test step if testCoverage is enabled and no TesterElite step exists.
+   */
+  private applyGateRequirements(steps: PlanStep[], goal: string): void {
+    if (!this.gateConfig) return;
+
+    for (const step of steps) {
+      const suffix = getGateRequirements(this.gateConfig, step.agentName);
+      if (suffix) {
+        step.task += suffix;
+      }
+    }
+
+    // Inject a test step when testCoverage is enabled and no test step exists
+    if (requiresTestStep(this.gateConfig)) {
+      const hasTestStep = steps.some(s => s.agentName === 'TesterElite');
+      if (!hasTestStep) {
+        const maxStep = steps.reduce((max, s) => Math.max(max, s.stepNumber), 0);
+        const codeStepNumbers = steps
+          .filter(s => s.agentName !== 'IntegratorFinalizer')
+          .map(s => s.stepNumber);
+
+        const testStep: PlanStep = {
+          stepNumber: maxStep + 1,
+          agentName: 'TesterElite',
+          task: `Write comprehensive tests for: ${goal}` +
+            getGateRequirements(this.gateConfig, 'TesterElite'),
+          dependencies: codeStepNumbers,
+          expectedOutputs: ['Unit tests', 'Integration tests', 'Test coverage report'],
+        };
+        steps.push(testStep);
+
+        // Update integrator dependencies to include the new test step
+        for (const step of steps) {
+          if (step.agentName === 'IntegratorFinalizer' && !step.dependencies.includes(testStep.stepNumber)) {
+            step.dependencies.push(testStep.stepNumber);
+          }
+        }
+      }
+    }
   }
 
   private detectGoalType(goal: string): GoalType {

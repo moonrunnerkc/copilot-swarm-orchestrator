@@ -41,6 +41,8 @@ export interface CostEstimateOptions {
   remainingAllowance?: number;
   fleetMode?: boolean;
   qualityGatesEnabled?: boolean;
+  /** When true, plan was generated with gate-aware prompts; reduces retry probability by 30%. */
+  gateAwarePrompts?: boolean;
 }
 
 export interface StepCostEstimate {
@@ -81,7 +83,13 @@ export class CostEstimator {
 
   estimate(plan: ExecutionPlan, options: CostEstimateOptions): CostEstimate {
     const multiplier = MODEL_MULTIPLIERS[options.modelName] ?? 1;
-    const retryProbability = this.calibrateRetryProbability(plan);
+    let retryProbability = this.calibrateRetryProbability(plan);
+
+    // Gate-aware prompts reduce repair cycles by front-loading requirements.
+    // Conservative estimate: 30% reduction in retry probability.
+    if (options.gateAwarePrompts) {
+      retryProbability *= 0.7;
+    }
 
     const perStep: StepCostEstimate[] = plan.steps.map(step => {
       const taskTokens = Math.ceil(step.task.length / 4);
