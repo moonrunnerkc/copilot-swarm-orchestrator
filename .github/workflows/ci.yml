@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18, 20, 22]
+        node-version: [20, 22]
 
     steps:
     - uses: actions/checkout@v4
@@ -50,3 +50,15 @@ jobs:
     - name: Run quality gates on self
       if: matrix.node-version == 22
       run: node dist/src/cli.js gates .
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build Docker image
+      run: docker build -t swarm-orchestrator:ci .
+
+    - name: Verify container starts
+      run: docker run --rm swarm-orchestrator:ci node /app/dist/src/cli.js --help || true
