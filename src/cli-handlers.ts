@@ -1837,11 +1837,34 @@ export async function handleRunCommand(args: string[]): Promise<number> {
     goal = tokens.join(' ');
   }
 
-  // Detect plan file: if the first positional arg resolves to an existing JSON file, execute it
+  // Detect plan file: if the first positional arg resolves to an existing file, execute it directly
   const firstPositional = positional[0];
   if (!goal && firstPositional) {
+    let isPlanFile = false;
     const resolved = path.resolve(process.cwd(), firstPositional);
-    if (fs.existsSync(resolved) && resolved.endsWith('.json')) {
+
+    // Check as a direct path (absolute or relative from cwd)
+    if (fs.existsSync(resolved)) {
+      try {
+        JSON.parse(fs.readFileSync(resolved, 'utf8'));
+        isPlanFile = true;
+      } catch {
+        // Exists but not valid JSON; not a plan file
+      }
+    }
+
+    // Check under plans/ directory for bare filenames
+    if (!isPlanFile) {
+      const storage = new PlanStorage();
+      try {
+        storage.loadPlan(firstPositional);
+        isPlanFile = true;
+      } catch {
+        // Not found in plans/ either; not a plan file
+      }
+    }
+
+    if (isPlanFile) {
       console.log('🐝 Swarm Orchestrator - Execute Plan\n');
       try {
         const options = parseSwarmFlags(args);
@@ -1850,16 +1873,6 @@ export async function handleRunCommand(args: string[]): Promise<number> {
         console.error('Error:', error instanceof Error ? error.message : error);
         return 1;
       }
-    }
-    // Also check plans/ directory for bare filenames
-    const storage = new PlanStorage();
-    try {
-      storage.loadPlan(firstPositional);
-      console.log('🐝 Swarm Orchestrator - Execute Plan\n');
-      const options = parseSwarmFlags(args);
-      return await executeSwarm(firstPositional, options);
-    } catch {
-      // Not a plan file; fall through to treat positional tokens as goal text
     }
   }
 
