@@ -232,6 +232,7 @@ npm start quick "Fix the race condition in src/worker.ts"
 | `--param key=value` | Set recipe parameters (with `use` command) |
 | `--team-size <n>` | Max concurrent teammates per wave with `claude-code-teams` (1-5) |
 | `--owasp-report` | Generate OWASP ASI compliance report after verification |
+| `--sarif <path>` | Write quality gate results as SARIF 2.1.0 JSON (use `-` for stdout) |
 | `--yes` / `-y` | Skip interactive confirmation prompts |
 | `--pr auto\|review` | PR behavior after execution |
 
@@ -247,6 +248,14 @@ Run with Claude Code and OWASP compliance report:
 
 ```bash
 npm start swarm plan.json --tool claude-code --governance --owasp-report
+```
+
+Run quality gates and produce SARIF for GitHub code scanning:
+
+```bash
+swarm gates ./your-repo --sarif results.sarif
+swarm gates ./your-repo --sarif -  # write to stdout
+swarm gates ./your-repo --sarif results.sarif --quality-gates-config custom.yaml
 ```
 
 Run a recipe:
@@ -354,6 +363,36 @@ gates:
     enabled: true
     minLines: 12
     maxOccurrences: 2
+```
+
+#### Per-project gate configuration
+
+Place a `.swarm/gates.yaml` file in your repository root to override gate defaults for that project. The schema is identical to `config/quality-gates.yaml`. Only include the fields you want to change; everything else inherits from built-in defaults.
+
+```yaml
+# .swarm/gates.yaml
+gates:
+  duplicateBlocks:
+    minLines: 20
+    maxOccurrences: 3
+  accessibility:
+    enabled: false
+```
+
+Resolution order: built-in defaults, then `.swarm/gates.yaml`, then `--quality-gates-config <path>`. Each layer deep-merges over the previous one. Unknown gate keys cause an error listing valid names.
+
+#### SARIF output
+
+The `--sarif <path>` flag on the `gates` command writes results as a SARIF 2.1.0 JSON file compatible with GitHub code scanning. Upload it via `github/codeql-action/upload-sarif@v3` for inline PR annotations.
+
+In the GitHub Action, set `sarif: true` to automatically run gates and produce SARIF output:
+
+```yaml
+- uses: moonrunnerkc/swarm-orchestrator@swarm-orchestrator
+  with:
+    goal: "Add unit tests for all untested modules"
+    tool: claude-code
+    sarif: true
 ```
 
 <br>

@@ -1176,7 +1176,7 @@ export async function handleGatesCommand(args: string[]): Promise<number> {
   }
 
   if (sarifPath) {
-    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'));
     const sarifOutput = formatSarif(result, pkg.version);
 
     if (sarifPath === '-') {
