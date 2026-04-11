@@ -1,0 +1,35 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+
+# Development files
+.git
+.github
+.env
+.env.*
+!.env.example
+
+# Documentation and non-runtime files
+docs
+examples
+*.md
+LICENSE
+SECURITY.md
+
+# Test artifacts
+test
+coverage
+test-output.txt
+
+# IDE and OS files
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# CI/CD
+runs

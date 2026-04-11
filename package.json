@@ -21,9 +21,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node -e \"require('fs').chmodSync('dist/src/cli.js', 0o755)\"",
     "build-plugin": "node scripts/build-plugin.js",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prebuild": "npm run clean",
     "prepublishOnly": "npm run build && npm test",
     "test": "npm run build && mocha --recursive 'dist/test/**/*.test.js'",
-    "start": "node dist/src/cli.js"
+    "test:ci": "mocha --recursive 'dist/test/**/*.test.js'",
+    "start": "node dist/src/cli.js",
+    "docker:build": "docker build -t swarm-orchestrator .",
+    "docker:run": "docker run --rm --env-file .env swarm-orchestrator"
   },
   "repository": {
     "type": "git",
