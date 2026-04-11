@@ -258,6 +258,12 @@ export class SwarmOrchestrator {
     options?: SwarmExecutionOptions
   ): Promise<SwarmExecutionContext> {
     const context = this.initializeSwarmExecution(plan, runDir, options?.maxConcurrency);
+
+    // Sanitize git state before starting. Previous crashed runs may have left
+    // unmerged files, staged changes, or an in-progress merge that would block
+    // branch creation, worktree setup, and post-step merge operations.
+    this.sanitizeGitState();
+
     context.agents = agents;
     context.qualityGatesTriggered = {
       duplicateRefactorAdded: false,
@@ -2099,6 +2105,37 @@ export class SwarmOrchestrator {
    */
   private ensureInitialCommit(): void {
     this.worktreeManager.ensureInitialCommit();
+  }
+
+  /**
+   * Clean up leftover git state from crashed runs: abort pending merges,
+   * reset staged/unmerged index entries, and restore working tree files.
+   * Prevents cascading failures when binary files (e.g. .pyc, .db) from
+   * a previous merge conflict block branch creation or verification commits.
+   */
+  private sanitizeGitState(): void {
+    const opts = { cwd: this.workingDir, stdio: 'pipe' as const, encoding: 'utf8' as const };
+
+    try {
+      execSync('git merge --abort', opts);
+      console.log('  [cleanup] Aborted in-progress merge from previous run');
+    } catch { /* no merge in progress; expected */ }
+
+    // Check for unmerged or staged entries that would block new operations
+    try {
+      const status = execSync('git status --porcelain', opts).trim();
+      const hasUnmerged = status.split('\n').some(line => line.startsWith('U') || line.startsWith('AA') || line.startsWith('DD'));
+      if (hasUnmerged) {
+        execSync('git reset HEAD', opts);
+        execSync('git checkout -- .', opts);
+        console.log('  [cleanup] Reset unmerged files from previous crashed run');
+      }
+    } catch { /* status check failed; not critical */ }
+
+    // Prune stale worktrees left by previous crashes
+    try {
+      execSync('git worktree prune', opts);
+    } catch { /* prune failed; not critical */ }
   }
 
   private generateExecutionId(): string {
