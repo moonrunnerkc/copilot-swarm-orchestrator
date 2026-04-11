@@ -129,19 +129,23 @@ Started as a submission for the GitHub Copilot CLI Challenge in early 2026 and h
 
 ## Quality Benchmarks
 
-The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting. The same goal run through the orchestrator produces output that would take 10-40 follow-up prompts to reach with a standalone agent.
+The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting.
 
-Seven head-to-head comparisons across three agent CLIs, three frontend projects, three backend APIs, and one CLI tool. Full attribute tables, gap analysis, and reprompt estimates in [docs/benchmarks.md](docs/benchmarks.md).
+Seven head-to-head comparisons across three agent CLIs, three frontend projects, three backend APIs, and one CLI tool. Full attribute tables, gap analysis, and reprompt projections in [docs/benchmarks.md](docs/benchmarks.md).
 
-| # | Agent | Project Type | Criteria | Agent Score | Orchestrator Score | Reprompts Saved |
-|---|-------|-------------|----------|:-----------:|:------------------:|:---------------:|
-| 1 | Copilot CLI | Frontend (Markdown Notes) | 30 | 3 | 30 | 30-40 |
-| 2 | Claude Code | Frontend (Tic-Tac-Toe) | 24 | 5 | 23 | 20-28 |
-| 3 | Codex | Frontend (Calculator) | 34 | 6 | 32 | 30-40 |
-| 4 | Claude Code | Backend (REST API) | 36 | 12 | 34 | 20-25 |
-| 5 | Copilot CLI | Backend (REST API) | 44 | 13 | 41 | 25-30 |
-| 6 | Codex | Backend (REST API) | 48 | 14 | 46 | 25-30 |
-| 7 | Claude Code | CLI Tool (Logwatch) | 50 | 30 | 35 | 10-15 |
+| # | Agent | Project Type | Criteria | Agent Score | Orchestrator Score |
+|---|-------|-------------|----------|:-----------:|:------------------:|
+| 1 | Copilot CLI | Frontend (Markdown Notes) | 30 | 3 | 30 |
+| 2 | Claude Code | Frontend (Tic-Tac-Toe) | 24 | 5 | 23 |
+| 3 | Codex | Frontend (Calculator) | 34 | 6 | 32 |
+| 4 | Claude Code | Backend (REST API) | 36 | 12 | 34 |
+| 5 | Copilot CLI | Backend (REST API) | 44 | 13 | 41 |
+| 6 | Codex | Backend (REST API) | 48 | 14 | 46 |
+| 7 | Claude Code | CLI Tool (Logwatch) | 50 | 30 | 35 |
+
+**Disclosure:** These benchmarks were conducted by the project author, not an independent evaluator. The scoring rubric rewards the same dimensions the orchestrator's quality gates enforce (security, test coverage, production readiness, documentation). Standalone agents are penalized for omitting requirements that were never in the goal prompt. This measures system-level output completeness, not raw model coding ability. See [docs/benchmarks.md](docs/benchmarks.md) for the full assessment with evidence and methodology notes.
+
+**One empirical validation:** The Benchmark 5 gap (Copilot CLI, REST API) was tested with real iterative prompting. Predicted: 13-15 follow-up prompts to reach parity. Actual: 14. See [docs/orchestrator-copilot-benchmarks.md](docs/orchestrator-copilot-benchmarks.md) Part 4.
 
 The orchestrator consistently wins on security hardening (headers, body limits, ID validation), test depth (dedicated unit suites per module, not just integration), configuration externalization (env vars with validation), and production scaffolding (Docker, CI scripts, README, coverage reporting). Standalone agents consistently miss these categories regardless of which CLI is used.
 

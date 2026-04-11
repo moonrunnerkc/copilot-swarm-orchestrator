@@ -1,8 +1,10 @@
-# Third-Party Benchmark Assessment
+# Scored Assessment: Orchestrator vs Copilot CLI
 
-**Evaluator:** Grok (xAI), blind assessment
+**Author:** Bradley R. Kinnard
 **Date:** April 9, 2026
-**Methodology:** Anonymized run results (System A / System B) scored independently against a 7-dimension rubric with predefined weights. Evaluator had no knowledge of which tools produced the output.
+**Scoring assistance:** Grok (xAI), used to help evaluate both outputs against a 7-dimension rubric with predefined weights. The evaluator had full access to both codebases; this was not a blind or anonymized assessment.
+
+**Disclosure:** This assessment was conducted by the orchestrator's author with AI scoring assistance. Both outputs were inspected in full (file contents, test counts, line-by-line code review). The rubric dimensions (security, test coverage, production readiness, documentation) overlap heavily with the quality gates the orchestrator enforces by design. This means the scoring measures "how well does the output match the orchestrator's built-in checklist" more than "how well does a general-purpose agent code." Standalone agents are penalized for omitting things the original goal prompt never asked for (security headers, dark mode, CI pipelines, etc.). That penalty is fair if the claim is "the orchestrator produces more production-complete output"; it is not a neutral measure of raw coding ability.
 
 ---
 
@@ -61,13 +63,17 @@ Both systems completed the stated goal. The divergence is entirely in correctnes
 
 System A's output was assessed as production-ready (approved as PR with one minor fix). System B's output was assessed as not mergeable without substantial additional work across security, configuration, testing, infrastructure, and correctness.
 
-The evaluator's core finding: System A delivered a production-ready improvement to the entire codebase. System B delivered a minimal patch with correctness defects that would require significant manual cleanup before deployment.
+The core finding: System A delivered a production-ready improvement to the entire codebase. System B delivered a minimal patch with correctness defects that would require significant additional work before deployment.
 
 ---
 
 # Quality Benchmarks
 
-The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting. The same goal run through the orchestrator produces output that would take 30-40 follow-up prompts to reach with a standalone agent.
+The orchestrator's prompt injection and quality gates front-load requirements that developers normally discover through iterative reprompting.
+
+**What this measures:** These benchmarks compare the orchestrator's full pipeline output (prompt injection + quality gates + multi-agent execution + repair) against single-prompt output from standalone agent CLIs. The standalone agents received only the goal prompt with no additional requirements. The orchestrator injected accessibility, security, testing, and infrastructure requirements before execution began. This is not a comparison of base model capability; it is a comparison of system-level output completeness.
+
+**What the reprompt estimates are:** Each benchmark includes a "reprompt math" estimate of how many follow-up prompts a standalone agent would need to reach parity. These are projections based on counting missing attributes, not empirical measurements from actual prompting sessions. One benchmark (Benchmark 5, the promptvault REST API) was subsequently validated with real iterative prompting; see [orchestrator-copilot-benchmarks.md](orchestrator-copilot-benchmarks.md) Part 4 for that data. The remaining estimates have not been empirically validated.
 
 Seven head-to-head comparisons below. All used the same orchestrator configuration with default quality gates.
 
@@ -120,7 +126,7 @@ Seven head-to-head comparisons below. All used the same orchestrator configurati
 
 **Test coverage.** The widest gap in any comparison so far. Copilot CLI: zero tests. Orchestrator: 60+ tests across five files covering note CRUD, immutability, rename edge cases (blank input falls back to "Untitled"), word counting edge cases (whitespace-only, irregular spacing), markdown rendering for every supported syntax, storage round-trip and corruption handling, audio API stubbing, and app-level integration (boot, empty state visibility, button wiring, sidebar toggle).
 
-**Reprompt math:** 27 missing attributes at minimum one prompt each. Responsive layout (sidebar toggle + breakpoints + click-outside), custom markdown renderer, and full test suite each take 3-5 rounds. Conservative estimate: **30-40 follow-up prompts** to bring Copilot CLI output to parity. The orchestrator required zero.
+**Estimated reprompt gap (not empirically validated):** 27 missing attributes at minimum one prompt each. Responsive layout (sidebar toggle + breakpoints + click-outside), custom markdown renderer, and full test suite each take 3-5 rounds. Projection: **30-40 follow-up prompts** to bring Copilot CLI output to parity. No actual iterative prompting was performed for this benchmark.
 
 ---
 
@@ -177,7 +183,7 @@ The orchestrator missed one: Claude Code's factory pattern for dependency inject
 
 **Responsive design.** Claude Code used fixed 100px cells with no breakpoint handling. The orchestrator used CSS `clamp()` for responsive sizing, `dvh` viewport units, and edge padding for small screens.
 
-**Reprompt math:** 19 missing attributes from Claude Code. Each requires at least one follow-up prompt. Several (dark mode variable overrides, responsive clamp system, module extraction) require 2-3 rounds. Conservative estimate: **20-28 follow-up prompts** to bring Claude Code output to parity.
+**Estimated reprompt gap (not empirically validated):** 19 missing attributes from Claude Code. Each requires at least one follow-up prompt. Several (dark mode variable overrides, responsive clamp system, module extraction) require 2-3 rounds. Projection: **20-28 follow-up prompts** to bring Claude Code output to parity. No actual iterative prompting was performed for this benchmark.
 
 ---
 
@@ -245,7 +251,7 @@ The orchestrator missed two: operator precedence (left-to-right chaining instead
 
 **Error handling.** Codex shows "Error" for divide-by-zero. The orchestrator shows "Cannot divide by zero." and resets state cleanly. It also rejects leading operators with a specific message, reports when backspace has nothing to delete, and shows "Complete the expression before evaluating." when equals is pressed too early.
 
-**Reprompt math:** 28 missing attributes from Codex. The state machine architecture alone would take 4-5 rounds. Full accessibility, dark mode, tests, audio, and project scaffolding add another 25+. Conservative estimate: **30-40 follow-up prompts** to reach parity.
+**Estimated reprompt gap (not empirically validated):** 28 missing attributes from Codex. The state machine architecture alone would take 4-5 rounds. Full accessibility, dark mode, tests, audio, and project scaffolding add another 25+. Projection: **30-40 follow-up prompts** to reach parity. No actual iterative prompting was performed for this benchmark.
 
 ---
 
@@ -321,7 +327,7 @@ The orchestrator missed two: the factory/DI pattern (Claude Code's `createApp(st
 
 **Configuration and documentation.** Claude Code externalized only PORT and hardcoded the data file path and CORS settings. The orchestrator externalized PORT, DATA_FILE, and CORS_ORIGIN as env vars, all documented in the README. Claude Code's README still contained the original "There is no backend service" text. The orchestrator replaced it with a full API reference table, env var documentation, and startup instructions. The orchestrator also added a Dockerfile and docker-compose.yml.
 
-**Reprompt math:** 24 missing attributes from Claude Code. Security hardening alone (headers, body limit, ID sanitization, error safety, SECURITY.md) would take 4-5 rounds. Full test coverage, config externalization, API response improvements, README rewrite, and Docker setup add another 15-20. Conservative estimate: **20-25 follow-up prompts** to bring Claude Code output to parity.
+**Estimated reprompt gap (not empirically validated):** 24 missing attributes from Claude Code. Security hardening alone (headers, body limit, ID sanitization, error safety, SECURITY.md) would take 4-5 rounds. Full test coverage, config externalization, API response improvements, README rewrite, and Docker setup add another 15-20. Projection: **20-25 follow-up prompts** to bring Claude Code output to parity. No actual iterative prompting was performed for this benchmark.
 
 ---
 
@@ -410,7 +416,7 @@ The gap on this backend project is wider than the Claude Code backend comparison
 
 Both implementations use synchronous file I/O (`fs.readFileSync`/`fs.writeFileSync`) for the JSON store. Neither used `fs/promises`. Under concurrent load this blocks the event loop. There is currently no quality gate for async I/O patterns.
 
-**Reprompt math:** 31 missing attributes from Copilot CLI. Security hardening (helmet, body limit, UUID validation, error hiding) would take 3-4 rounds. The 41 additional tests covering validation edge cases, storage unit tests, boundary values, and persistence verification would take 8-10 rounds. README, Docker, config module, and newest-first ordering add another 8-10. Conservative estimate: **25-30 follow-up prompts** to bring Copilot CLI output to parity.
+**Estimated reprompt gap (not empirically validated):** 31 missing attributes from Copilot CLI. Security hardening (helmet, body limit, UUID validation, error hiding) would take 3-4 rounds. The 41 additional tests covering validation edge cases, storage unit tests, boundary values, and persistence verification would take 8-10 rounds. README, Docker, config module, and newest-first ordering add another 8-10. Projection: **25-30 follow-up prompts** to bring Copilot CLI output to parity. No actual iterative prompting was performed for this benchmark.
 
 ---
 
@@ -505,7 +511,7 @@ The orchestrator missed two: Codex stores the result field as a number on disk (
 
 **Production engineering.** The orchestrator went further than any previous run with a CI pipeline (`npm run ci` = validate + coverage + build), a QA summary report documenting 99.03% line coverage and explicitly calling out the frontend integration gap, build and validation scripts, a Dockerfile with Node 24 alpine and healthcheck, docker-compose.yml with data volume mount, and comprehensive README with endpoint documentation, config table, and troubleshooting section.
 
-**Reprompt math:** 34 missing attributes from Codex. Security hardening (headers, body limit, content-type enforcement, entity-too-large, UUID validation, x-powered-by) would take 4-5 rounds. The 9 additional test suites with dedicated unit coverage for every module would take 10-12 rounds. Config externalization, CI pipeline, Docker, README, QA report, and validation scripts add another 10-12. Conservative estimate: **25-30 follow-up prompts** to bring Codex output to parity.
+**Estimated reprompt gap (not empirically validated):** 34 missing attributes from Codex. Security hardening (headers, body limit, content-type enforcement, entity-too-large, UUID validation, x-powered-by) would take 4-5 rounds. The 9 additional test suites with dedicated unit coverage for every module would take 10-12 rounds. Config externalization, CI pipeline, Docker, README, QA report, and validation scripts add another 10-12. Projection: **25-30 follow-up prompts** to bring Codex output to parity. No actual iterative prompting was performed for this benchmark.
 
 ---
 
@@ -619,7 +625,7 @@ Claude Code produced the more technically robust CLI. The async tailer, truncati
 
 This benchmark shows the gap narrowing where the agent's natural strengths (systems programming decisions, edge case handling) align closely with the task. The orchestrator's advantages in scaffolding, accessibility, and security hardening matter less for a CLI tool than they do for a web application or API.
 
-**Reprompt math:** 20 missing attributes from Claude Code. README, CI, packaging, and project scaffolding take 3-4 rounds. Module extraction would take 2-3 rounds. Short flags, non-object JSON handling, and typed colorization add another 3-4. Conservative estimate: **10-15 follow-up prompts** to bring Claude Code output to parity. The lowest reprompt estimate of any benchmark, reflecting how close this comparison was.
+**Estimated reprompt gap (not empirically validated):** 20 missing attributes from Claude Code. README, CI, packaging, and project scaffolding take 3-4 rounds. Module extraction would take 2-3 rounds. Short flags, non-object JSON handling, and typed colorization add another 3-4. Projection: **10-15 follow-up prompts** to bring Claude Code output to parity. The lowest projected gap of any benchmark, reflecting how close this comparison was. No actual iterative prompting was performed for this benchmark.
 
 ---
 
@@ -629,4 +635,8 @@ The orchestrator injects quality requirements into every agent prompt before exe
 
 Standalone agents optimize for "correct and working." The orchestrator adds "accessible, responsive, themed, and structured" before the agent writes a single line. The quality bar comes from the system, not from the user's prompt.
 
+This means the benchmarks above measure the orchestrator's checklist enforcement, not the standalone agents' ceiling. A skilled user who knows to ask for security headers, ARIA attributes, dark mode, and CI pipelines in their initial prompt would close much of the gap without an orchestrator. The value proposition is automating that knowledge, not revealing a capability difference in the underlying models.
+
 > **Note:** These results are from representative runs. The underlying agents are non-deterministic, so exact scores and counts may vary between runs. The quality attributes are enforced by prompt injection and gate verification, so they are reliably present, but specific implementation details (e.g., test count, number of CSS variables) can differ.
+
+> **Note on reprompt estimates:** The per-benchmark reprompt projections (10-40 follow-ups) are calculated by counting missing attributes and estimating prompts per attribute. They are not derived from controlled experiments. One empirical validation exists: the promptvault benchmark was tested with real iterative prompting. Predicted: 13-15 follow-ups. Actual: 14. See [orchestrator-copilot-benchmarks.md](orchestrator-copilot-benchmarks.md) Part 4 for the full methodology and evidence.
