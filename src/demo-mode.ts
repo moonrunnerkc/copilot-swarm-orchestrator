@@ -26,11 +26,7 @@ export class DemoMode {
   getAvailableScenarios(): DemoScenario[] {
     return [
       this.getDemoFastScenario(),
-      this.getDashboardShowcaseScenario(),
-      this.getTodoAppScenario(),
-      this.getApiServerScenario(),
-      this.getFullStackScenario(),
-      this.getSaaSMvpScenario()
+      this.getApiQuickScenario()
     ];
   }
 
@@ -69,229 +65,48 @@ export class DemoMode {
   }
 
   /**
-   * Dashboard Showcase - Impressive visual demo (~5-6 minutes)
-   * Creates an analytics dashboard with charts, animated counters, and live data.
-   * Wave 1: Two agents work in parallel (UI shell + data utils)
-   * Wave 2: API server (needs mockData from Wave 1)
-   * Wave 3: Integration step wires everything together with charts
+   * API Quick: 3-step REST API build showing wave dependencies.
+   * Wave 1: BackendMaster builds the endpoints.
+   * Wave 2: TesterElite adds tests (depends on step 1).
+   * Wave 3: DevOpsPro adds a Dockerfile (depends on step 1).
    */
-  private getDashboardShowcaseScenario(): DemoScenario {
+  private getApiQuickScenario(): DemoScenario {
     return {
-      name: 'dashboard-showcase',
-      description: 'Analytics dashboard with charts, animated counters, and live data',
-      goal: 'Build a visually impressive analytics dashboard with Chart.js charts, animated stat counters, mock API, and dark theme',
-      expectedDuration: '5-6 minutes',
+      name: 'api-quick',
+      description: 'REST API with tests and Dockerfile (3 agents, 2 waves, ~5 min)',
+      goal: 'Build a minimal REST API with health and items CRUD, add tests, and containerize with Docker',
+      expectedDuration: '4-6 minutes',
       steps: [
         {
           stepNumber: 1,
-          agentName: 'frontend_expert',
-          task: `Create a React + Vite dashboard shell using TypeScript. YOU ARE RESPONSIBLE FOR:
-- package.json with "type": "module", vite, @vitejs/plugin-react, typescript, @types/react, @types/react-dom, react, react-dom, chart.js, react-chartjs-2, express, cors deps
-- tsconfig.json with strict mode, jsx: "react-jsx", module: "ESNext", target: "ES2020"
-- vite.config.ts with proxy to localhost:3001 for /api
-- index.html with root div, viewport meta, lang="en", Google Fonts Inter link, and a skip-to-content link as the FIRST child inside <body>: <a href="#main-content" class="skip-link">Skip to content</a>
-- src/main.tsx entry point that wraps App in a React ErrorBoundary component
-- src/ErrorBoundary.tsx - a class component that catches render errors and shows a styled fallback UI with role="alert"
-- src/App.tsx with CSS Grid layout: sidebar (200px, dark #0f0f23), main area with header and 2x2 grid of placeholder skeleton shimmer cards (background #1a1a2e, card bg #252542)
-- Placeholder cards MUST render animated skeleton shimmer divs (pulsing gradient animation), not text like "Loading..."
-- src/App.css with dark theme styles and THREE responsive breakpoints:
-  - @media (min-width: 1440px): wider sidebar (240px), 4-column card grid, larger chart
-  - @media (max-width: 1024px): sidebar collapses to horizontal nav
-  - @media (max-width: 640px): single column cards, tighter padding
-- CSS MUST use /* */ comments only (never // comments, those are invalid CSS)
-- Add .skip-link CSS: visually hidden by default, visible on :focus (position: absolute, top: 0, left: 0, z-index: 1000, background: #6c63ff, color: #fff, padding: 0.5rem 1rem)
-- Add "start:server": "node server/index.js" and "test": "node --test test/*.test.js" scripts to package.json
-
-ACCESSIBILITY REQUIREMENTS (a11y):
-- Use semantic HTML elements: <nav> for navigation, <main id="main-content"> for main content, <header> for page header, <section> for card groups
-- Proper heading hierarchy: <h1> for page title ("Overview"), <h2> for section headings ("Key Metrics", "Revenue Trend", "Recent Activity")
-- Add aria-label on the <nav> element (e.g. "Main navigation")
-- Navigation links must be keyboard-focusable with visible focus styles in CSS (:focus-visible outline)
-- Cards should use <article> with aria-label describing the stat
-- Ensure color contrast: text on dark backgrounds must be at least #a0a0a0 (ratio 4.5:1 minimum)
-- Add aria-live="polite" on the container where dynamic content (stats/chart) will load
-
-IMPORTANT: package.json MUST have "type": "module". Use .tsx/.ts extensions for all source files. ALL files use ES module syntax (import/export), never CommonJS (require/module.exports).
-
-Style it modern, dark, and responsive. Add author comment "Author: Bradley R. Kinnard" at top of each file. Commit with message "add dashboard shell with dark theme".`,
+          agentName: 'backend_master',
+          task: 'Create a Node.js REST API with Express. Endpoints: GET /health returning { status: "ok" }, GET /api/items returning an in-memory array, POST /api/items accepting { name } and returning the created item with a generated id. Add input validation (reject empty name). Export the app for testing. Add a start script to package.json. Commit your work.',
           dependencies: [],
           expectedOutputs: [
-            'package.json with "type": "module", vite, typescript, react, chart.js, express, cors deps, start:server and test scripts',
-            'tsconfig.json with strict mode and react-jsx',
-            'vite.config.ts with API proxy to localhost:3001',
-            'src/ErrorBoundary.tsx class component with styled fallback and role="alert"',
-            'src/App.tsx with CSS Grid layout, dark theme, and skeleton shimmer placeholders',
-            'src/App.css with 3 responsive breakpoints at 1440px, 1024px, and 640px, :focus-visible styles, .skip-link styles',
-            'src/main.tsx entry point wrapping App in ErrorBoundary',
-            'index.html with Inter font, lang attribute, and skip-to-content link',
-            'Semantic HTML: nav, main with id="main-content", header, section with ARIA labels',
-            'Proper heading hierarchy: h1 for page title, h2 for sections'
+            'server.js with /health, GET /api/items, POST /api/items',
+            'package.json with start script',
+            'Input validation for name field'
           ]
         },
         {
           stepNumber: 2,
-          agentName: 'backend_master',
-          task: `Create mock data utilities with typed error handling. YOU ARE RESPONSIBLE FOR ONLY THIS FILE:
-- src/utils/mockData.js
-
-IMPORTANT: This project uses "type": "module" in package.json. You MUST use ES module syntax (export function / export default). NEVER use require() or module.exports.
-
-This file should export three pure functions:
-1. generateStats() - returns { users: random 1000-5000, revenue: random 10000-50000, orders: random 100-500, conversion: random 2.5-8.5 }
-2. generateChartData(days=7) - returns { labels: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], datasets: [{label: "Revenue", data: [random values 1000-5000 for each day], borderColor: "#6366f1", backgroundColor: "rgba(99,102,241,0.1)"}] }
-3. generateActivityFeed(count=5) - returns array of { id, user: random name, action: random action like "placed order", timestamp: recent ISO string }
-
-Input validation: if days or count is not a positive integer, throw a TypeError with a descriptive message including the invalid value.
-
-All functions return fresh random data each call. Use ES module named exports (export function ...).
-Add author comment "Author: Bradley R. Kinnard" at top.
-Commit with message "add mock data generators".`,
-          dependencies: [],
+          agentName: 'tester_elite',
+          task: 'Add tests for the REST API created in step 1. Use the Node.js built-in test runner (node:test and node:assert/strict). Test: GET /health returns 200 and { status: "ok" }, GET /api/items returns empty array initially, POST /api/items with valid name returns 201, POST /api/items with empty name returns 400, GET /api/items after POST includes the new item. Import the app from server.js and start/stop it in before/after hooks. Add a test script to package.json. Commit your work.',
+          dependencies: [1],
           expectedOutputs: [
-            'src/utils/mockData.js with generateStats, generateChartData, generateActivityFeed',
-            'Pure functions returning randomized mock data',
-            'ES module named exports (export function)',
-            'Input validation with TypeError for invalid parameters'
+            'test/api.test.js with 5+ test cases',
+            'Tests use node:test and node:assert/strict',
+            'package.json test script'
           ]
         },
         {
           stepNumber: 3,
-          agentName: 'tester_elite',
-          task: `Create the Express API server AND comprehensive tests. YOU ARE RESPONSIBLE FOR THESE FILES:
-- server/index.js
-- test/mockData.test.js
-- test/App.test.js
-
-IMPORTANT: This project uses "type": "module" in package.json. You MUST use ES module syntax (import/export). NEVER use require() or module.exports.
-
-SERVER (server/index.js):
-The mockData functions already exist at src/utils/mockData.js (created by another agent).
-Import them with: import { generateStats, generateChartData, generateActivityFeed } from '../src/utils/mockData.js';
-
-Create an Express server that:
-1. Enables CORS
-2. GET /api/stats returns generateStats()
-3. GET /api/chart returns generateChartData(7)
-4. GET /api/activity returns generateActivityFeed(5)
-5. Listens on port 3001
-6. Returns 500 with { error: "Internal server error" } JSON on uncaught endpoint errors
-7. Add a 10-second request timeout middleware (use setTimeout to abort long requests)
-8. Export the app and server objects so tests can start/stop the server programmatically
-
-UNIT TESTS (test/mockData.test.js):
-Import from node:test and node:assert/strict. Write tests for all three generator functions:
-- generateStats returns object with users, revenue, orders, conversion (all numbers, within expected ranges)
-- generateChartData returns object with labels array and datasets array, respects days parameter
-- generateActivityFeed returns array of objects with id, user, action, timestamp; IDs are unique
-
-INTEGRATION TESTS (test/App.test.js):
-Import from node:test and node:assert/strict.
-CRITICAL: Tests MUST auto-start the server before running and auto-stop after:
-- Import the server from server/index.js
-- In a before() hook, start listening on a random available port (use port 0, read server.address().port)
-- In an after() hook, call server.close()
-- Test all three endpoints: /api/stats, /api/chart, /api/activity
-- Verify response shapes, status codes, and content-type headers
-
-COMPONENT-LEVEL TESTS (in test/dashboard.test.js):
-Add a separate test file that imports the mockData generators and verifies:
-- StatCard-style output: calling generateStats() returns an object whose keys (users, revenue, orders, conversion) are present and numeric
-- Chart data shape: calling generateChartData(7) returns labels and datasets arrays with matching lengths
-- Activity feed shape: calling generateActivityFeed(5) returns 5 items, each with id, user, action, timestamp keys
-- Input validation: generateChartData(-1) and generateActivityFeed(0) throw TypeError
-
-ACCESSIBILITY TESTS (in test/App.test.js):
-Add a test that reads index.html and checks:
-- Contains lang="en" attribute
-- Contains skip-to-content link (href="#main-content" or class="skip-link")
-- Contains <main id="main-content"> or <main>
-
-Add author comment "Author: Bradley R. Kinnard" at top of each file.
-Commit with message "add Express API server and comprehensive tests".`,
-          dependencies: [2],
+          agentName: 'devops_pro',
+          task: 'Add a Dockerfile for the Node.js REST API. Use node:20-alpine base image, copy package.json first for layer caching, run npm ci --omit=dev, copy source files, expose port 3000, set NODE_ENV=production, and use CMD ["node", "server.js"]. Add a .dockerignore excluding node_modules, .git, and test/. Commit your work.',
+          dependencies: [1],
           expectedOutputs: [
-            'server/index.js with /api/stats, /api/chart, /api/activity endpoints using ES module imports',
-            'server/index.js exports app and server for programmatic start/stop',
-            'server/index.js has error handling middleware and request timeout',
-            'test/mockData.test.js with tests for all three generator functions',
-            'test/App.test.js with integration tests that auto-start/stop the server',
-            'test/App.test.js with accessibility assertions for lang, skip-link, main element',
-            'Imports mockData using ES module import syntax',
-            'CORS enabled, port 3001'
-          ]
-        },
-        {
-          stepNumber: 4,
-          agentName: 'integrator_finalizer',
-          task: `Complete the dashboard by UPDATING the existing src/App.tsx file (or src/App.jsx if .tsx was not created).
-
-CONTEXT: Other agents have already created:
-- src/App.tsx or src/App.jsx (placeholder dashboard shell with dark theme and skeleton shimmer)
-- src/App.css (dark theme styles with responsive breakpoints)
-- src/ErrorBoundary.tsx or src/ErrorBoundary.jsx (error boundary component)
-- src/utils/mockData.js (ES module data generators)
-- server/index.js (Express API on port 3001, ES module, exports app/server)
-- test/mockData.test.js (unit tests for data generators)
-- test/App.test.js (integration tests with auto-start server)
-- package.json with "type": "module" and all deps including chart.js, react-chartjs-2
-
-IMPORTANT: This project uses "type": "module". Use ES module syntax only (import/export). Never use require() or module.exports.
-
-YOUR JOB: Update the main App component to add:
-1. Import { Line } from 'react-chartjs-2' and Chart.js registration
-2. Add useState for stats, chartData, activity, loading, fetchError
-3. Create an AbortController in useEffect. Pass its signal to all fetch calls. Return a cleanup function that calls controller.abort() on unmount
-4. Fetch from /api/stats, /api/chart, /api/activity concurrently using Promise.all with the abort signal
-5. Add RETRY LOGIC: if a fetch fails with a non-abort error, retry up to 3 times with exponential backoff (delays: 1000ms, 2000ms, 4000ms). Use a helper function like fetchWithRetry(url, signal, maxRetries=3)
-6. Show an error banner with retry button when fetchError is set
-7. Create a StatCard component with animated count-up effect using requestAnimationFrame with ease-out cubic curve
-8. Render 4 stat cards in the grid: Users (icon users), Revenue $ (icon dollar), Orders (icon package), Conversion % (icon chart)
-9. Add a Line chart card using react-chartjs-2 with the fetched chartData
-10. Configure Chart.js with entrance animation: animation: { duration: 800, easing: 'easeOutQuart' }
-11. Add an activity feed card showing recent actions with relative timestamps using <time> element with dateTime attribute
-12. Add a "Refresh Data" button in the header that re-fetches all endpoints
-13. Add subtle hover effects on cards (transform: translateY(-2px), box-shadow)
-
-Also update src/App.css:
-- Use ONLY /* */ CSS comments, never // comments (those are invalid CSS)
-- Ensure all color hex values are valid (3, 4, 6, or 8 digits only)
-- Ensure responsive breakpoints at 1440px, 1024px, and 640px are all present
-- Add :focus-visible outline styles for ALL interactive elements (buttons, links)
-- Verify skeleton shimmer animation keyframes exist
-- Dead class check: verify every CSS class referenced in App.tsx (className="...") has a matching rule in App.css. Remove any unused classes.
-
-ACCESSIBILITY:
-- Stat cards must have aria-label describing the stat (e.g. aria-label="Users: 3,421")
-- The refresh button must have aria-label="Refresh data"
-- The error banner must have role="alert" so screen readers announce it immediately
-- Chart container should have role="img" and aria-label describing the chart
-- Activity feed list should use <ul> with aria-label and <li> items
-- Heading hierarchy: <h1> "Overview", <h2> "Key Metrics", <h2> "Revenue Trend", <h2> "Recent Activity"
-
-README: Create or update README.md with:
-- Project title and one-line description
-- Prerequisites (Node.js 18+)
-- Install instructions (npm install)
-- How to run: "npm run start:server" in one terminal, "npm run dev" in another
-- How to run tests: "npm test" (tests auto-start the server)
-- Tech stack table (React 18, Vite 5, Chart.js 4, Express 4, TypeScript)
-- Brief architecture overview with ASCII diagram showing browser -> Vite proxy -> Express -> mockData
-- API documentation: list each endpoint, its method, and response shape
-
-Make it visually polished. The app should work when running "npm run dev" (frontend) and "npm run start:server" (API) concurrently.
-Commit with message "complete dashboard with charts, live data, and docs".`,
-          dependencies: [1, 2, 3],
-          expectedOutputs: [
-            'Complete dashboard with animated stat cards, AbortController, and retry logic',
-            'fetchWithRetry helper with exponential backoff (3 retries, 1s/2s/4s delays)',
-            'Error banner with retry button and role="alert" for fetch failures',
-            'Line chart with Chart.js entrance animation (duration: 800, easeOutQuart)',
-            'Activity feed with <time> elements and relative timestamps',
-            'Refresh button with aria-label for live data updates',
-            'Heading hierarchy: h1 Overview, h2 Key Metrics, h2 Revenue Trend, h2 Recent Activity',
-            'Polished dark theme with hover effects and 3 responsive breakpoints',
-            'README.md with install, run, test instructions, tech stack table, architecture diagram, and API docs',
-            'All interactive elements have :focus-visible CSS styles'
+            'Dockerfile with multi-layer caching',
+            '.dockerignore'
           ]
         }
       ]
@@ -304,363 +119,6 @@ Commit with message "complete dashboard with charts, live data, and docs".`,
   getScenario(name: string): DemoScenario | undefined {
     const scenarios = this.getAvailableScenarios();
     return scenarios.find(s => s.name === name);
-  }
-
-  /**
-   * Todo App Demo - Small, fast demo
-   */
-  private getTodoAppScenario(): DemoScenario {
-    return {
-      name: 'todo-app',
-      description: 'Simple todo app with React frontend and Express backend',
-      goal: 'Build a todo app with React frontend, Express backend, and basic tests',
-      expectedDuration: '12-18 minutes',
-      steps: [
-        {
-          stepNumber: 1,
-          agentName: 'backend_master',
-          task: 'Create Express server with todo CRUD endpoints (GET, POST, PUT, DELETE /api/todos). Use "title" as the field name for todo text. Add input validation (trim whitespace, require title). Enable CORS. Add comment at top of server.js. Export app for testing. Set author in package.json.',
-          dependencies: [],
-          expectedOutputs: [
-            'server.js with CRUD endpoints',
-            'package.json with scripts and author',
-            'Input validation for title field'
-          ]
-        },
-        {
-          stepNumber: 2,
-          agentName: 'frontend_expert',
-          task: 'Create React todo UI that calls the backend API via fetch(). Use "title" field (matching backend). Add loading states during API calls. Add error handling with user feedback. Configure vite proxy for /api. Add comment at top of each component file.',
-          dependencies: [],
-          expectedOutputs: [
-            'src/App.jsx with fetch() calls to /api/todos',
-            'vite.config.js with proxy config',
-            'Loading and error states in UI'
-          ]
-        },
-        {
-          stepNumber: 3,
-          agentName: 'tester_elite',
-          task: 'Add unit tests for backend API and frontend components. Use "title" field in all tests (matching backend). Include at least one real integration test with supertest. Add comment at top of each test file.',
-          dependencies: [1, 2],
-          expectedOutputs: [
-            'API tests using supertest',
-            'Component tests with React Testing Library',
-            'Tests use correct field names'
-          ]
-        },
-        {
-          stepNumber: 4,
-          agentName: 'integrator_finalizer',
-          task: 'Verify frontend actually calls backend (check for fetch calls). Fix any field name mismatches (title vs text). Ensure vite proxy is configured. Add troubleshooting section to README. Add E2E tests. Verify README accurately describes the app.',
-          dependencies: [1, 2, 3],
-          expectedOutputs: [
-            'E2E integration tests',
-            'README with troubleshooting section',
-            'Verified frontend-backend integration'
-          ]
-        }
-      ]
-    };
-  }
-
-  /**
-   * API Server Demo - Medium complexity
-   */
-  private getApiServerScenario(): DemoScenario {
-    return {
-      name: 'api-server',
-      description: 'RESTful API server with auth, database, and deployment',
-      goal: 'Build a production-ready REST API with authentication, PostgreSQL database, and Docker deployment',
-      expectedDuration: '20-30 minutes',
-      steps: [
-        {
-          stepNumber: 1,
-          agentName: 'backend_master',
-          task: 'Create Express server with user authentication (JWT), CRUD endpoints for users and posts',
-          dependencies: [],
-          expectedOutputs: [
-            'src/server.ts',
-            'src/routes/auth.ts',
-            'src/routes/users.ts',
-            'src/routes/posts.ts',
-            'src/middleware/auth.ts'
-          ]
-        },
-        {
-          stepNumber: 2,
-          agentName: 'backend_master',
-          task: 'Add PostgreSQL database integration with Prisma ORM, migrations, and seed data',
-          dependencies: [1],
-          expectedOutputs: [
-            'prisma/schema.prisma',
-            'prisma/migrations/',
-            'src/db/client.ts'
-          ]
-        },
-        {
-          stepNumber: 3,
-          agentName: 'security_auditor',
-          task: 'Audit authentication implementation, add rate limiting, sanitize inputs, security headers',
-          dependencies: [1, 2],
-          expectedOutputs: [
-            'src/middleware/ratelimit.ts',
-            'src/middleware/security.ts',
-            'SECURITY.md'
-          ]
-        },
-        {
-          stepNumber: 4,
-          agentName: 'tester_elite',
-          task: 'Add comprehensive API tests (unit, integration, auth flows)',
-          dependencies: [1, 2, 3],
-          expectedOutputs: [
-            'test/routes/auth.test.ts',
-            'test/routes/users.test.ts',
-            'test/integration/api.test.ts'
-          ]
-        },
-        {
-          stepNumber: 5,
-          agentName: 'devops_pro',
-          task: 'Create Dockerfile, docker-compose.yml, GitHub Actions CI/CD pipeline',
-          dependencies: [1, 2, 3],
-          expectedOutputs: [
-            'Dockerfile',
-            'docker-compose.yml',
-            '.github/workflows/ci.yml',
-            '.github/workflows/deploy.yml'
-          ]
-        },
-        {
-          stepNumber: 6,
-          agentName: 'integrator_finalizer',
-          task: 'Final integration tests, API documentation, deployment guide, release notes',
-          dependencies: [1, 2, 3, 4, 5],
-          expectedOutputs: [
-            'docs/API.md',
-            'docs/DEPLOYMENT.md',
-            'CHANGELOG.md',
-            'test/e2e/api-workflow.test.ts'
-          ]
-        }
-      ]
-    };
-  }
-
-  /**
-   * Full-Stack Demo - Complex, showcase all features
-   */
-  private getFullStackScenario(): DemoScenario {
-    return {
-      name: 'full-stack-app',
-      description: 'Full-stack application with auth, testing, and deployment (showcase all agents)',
-      goal: 'Build a complete full-stack todo app with user authentication, comprehensive tests, security, and deployment',
-      expectedDuration: '25-35 minutes',
-      steps: [
-        {
-          stepNumber: 1,
-          agentName: 'backend_master',
-          task: 'Create Express + PostgreSQL backend with user auth (JWT), todo CRUD, user management',
-          dependencies: [],
-          expectedOutputs: [
-            'src/server/index.ts',
-            'src/routes/auth.ts',
-            'src/routes/todos.ts',
-            'src/models/',
-            'prisma/schema.prisma'
-          ]
-        },
-        {
-          stepNumber: 2,
-          agentName: 'frontend_expert',
-          task: 'Create React frontend with auth pages, todo dashboard, user profile',
-          dependencies: [],
-          expectedOutputs: [
-            'src/client/App.tsx',
-            'src/client/pages/Login.tsx',
-            'src/client/pages/Dashboard.tsx',
-            'src/client/components/TodoList.tsx'
-          ]
-        },
-        {
-          stepNumber: 3,
-          agentName: 'security_auditor',
-          task: 'Security audit: rate limiting, input sanitization, CORS, CSP headers, vulnerability scan',
-          dependencies: [1],
-          expectedOutputs: [
-            'src/middleware/security.ts',
-            'src/middleware/ratelimit.ts',
-            'SECURITY.md'
-          ]
-        },
-        {
-          stepNumber: 4,
-          agentName: 'tester_elite',
-          task: 'Backend unit and integration tests (auth, todos, models)',
-          dependencies: [1],
-          expectedOutputs: [
-            'test/routes/auth.test.ts',
-            'test/routes/todos.test.ts',
-            'test/models/user.test.ts'
-          ]
-        },
-        {
-          stepNumber: 5,
-          agentName: 'tester_elite',
-          task: 'Frontend component tests and E2E tests with Playwright',
-          dependencies: [2],
-          expectedOutputs: [
-            'test/client/components/TodoList.test.tsx',
-            'test/e2e/auth-flow.spec.ts',
-            'test/e2e/todo-crud.spec.ts'
-          ]
-        },
-        {
-          stepNumber: 6,
-          agentName: 'devops_pro',
-          task: 'Docker setup, GitHub Actions CI/CD, deployment to cloud (Railway/Render)',
-          dependencies: [1, 2, 3],
-          expectedOutputs: [
-            'Dockerfile',
-            'docker-compose.yml',
-            '.github/workflows/ci.yml',
-            '.github/workflows/deploy.yml'
-          ]
-        },
-        {
-          stepNumber: 7,
-          agentName: 'integrator_finalizer',
-          task: 'Integration: connect frontend to backend, E2E tests, docs, deployment guide, release',
-          dependencies: [1, 2, 3, 4, 5, 6],
-          expectedOutputs: [
-            'test/e2e/full-workflow.test.ts',
-            'README.md',
-            'docs/API.md',
-            'docs/DEPLOYMENT.md',
-            'CHANGELOG.md'
-          ]
-        }
-      ]
-    };
-  }
-
-  /**
-   * SaaS MVP Demo - Flagship scenario showcasing all capabilities
-   */
-  private getSaaSMvpScenario(): DemoScenario {
-    return {
-      name: 'saas-mvp',
-      description: 'Full SaaS todo app MVP with auth, Stripe payments, analytics dashboard, and deployment',
-      goal: 'Build and deploy a complete SaaS todo app MVP with user authentication, Stripe subscription payments, analytics dashboard, comprehensive tests, security audit, and cloud deployment',
-      expectedDuration: '30-45 minutes',
-      steps: [
-        {
-          stepNumber: 1,
-          agentName: 'backend_master',
-          task: 'Create Express + PostgreSQL backend with user auth (JWT), session management, todo CRUD with user ownership',
-          dependencies: [],
-          expectedOutputs: [
-            'src/server/index.ts',
-            'src/routes/auth.ts',
-            'src/routes/todos.ts',
-            'src/models/user.ts',
-            'src/models/todo.ts',
-            'prisma/schema.prisma'
-          ]
-        },
-        {
-          stepNumber: 2,
-          agentName: 'backend_master',
-          task: 'Add Stripe integration: subscription plans (free, pro, enterprise), webhook handling, payment methods',
-          dependencies: [1],
-          expectedOutputs: [
-            'src/routes/stripe.ts',
-            'src/services/stripe.ts',
-            'src/webhooks/stripe-events.ts',
-            'src/models/subscription.ts'
-          ]
-        },
-        {
-          stepNumber: 3,
-          agentName: 'frontend_expert',
-          task: 'Create React frontend with auth pages, todo dashboard, subscription management, pricing page',
-          dependencies: [],
-          expectedOutputs: [
-            'src/client/App.tsx',
-            'src/client/pages/Login.tsx',
-            'src/client/pages/Dashboard.tsx',
-            'src/client/pages/Pricing.tsx',
-            'src/client/components/TodoList.tsx',
-            'src/client/components/SubscriptionCard.tsx'
-          ]
-        },
-        {
-          stepNumber: 4,
-          agentName: 'frontend_expert',
-          task: 'Add analytics dashboard with user metrics (todos completed, active time, engagement), charts (Chart.js)',
-          dependencies: [3],
-          expectedOutputs: [
-            'src/client/pages/Analytics.tsx',
-            'src/client/components/MetricsCard.tsx',
-            'src/client/components/ActivityChart.tsx',
-            'src/services/analytics.ts'
-          ]
-        },
-        {
-          stepNumber: 5,
-          agentName: 'security_auditor',
-          task: 'Security audit: rate limiting, input sanitization, CORS, CSP, Stripe webhook signature verification, PCI compliance',
-          dependencies: [1, 2],
-          expectedOutputs: [
-            'src/middleware/security.ts',
-            'src/middleware/ratelimit.ts',
-            'src/middleware/stripe-verify.ts',
-            'SECURITY.md'
-          ]
-        },
-        {
-          stepNumber: 6,
-          agentName: 'tester_elite',
-          task: 'Comprehensive tests: auth flows, todo CRUD, Stripe integration (mocked webhooks), analytics data',
-          dependencies: [1, 2, 3, 4],
-          expectedOutputs: [
-            'test/routes/auth.test.ts',
-            'test/routes/todos.test.ts',
-            'test/services/stripe.test.ts',
-            'test/client/components/TodoList.test.tsx',
-            'test/e2e/subscription-flow.spec.ts'
-          ]
-        },
-        {
-          stepNumber: 7,
-          agentName: 'devops_pro',
-          task: 'Deployment setup: Docker multi-stage build, environment configs, GitHub Actions CI/CD, deploy to Railway/Render with DB',
-          dependencies: [1, 2, 3, 4, 5],
-          expectedOutputs: [
-            'Dockerfile',
-            'docker-compose.yml',
-            '.github/workflows/ci.yml',
-            '.github/workflows/deploy-preview.yml',
-            '.env.example'
-          ]
-        },
-        {
-          stepNumber: 8,
-          agentName: 'integrator_finalizer',
-          task: 'Final integration: connect all services, E2E tests (auth → subscribe → todos → analytics), comprehensive docs, deployment guide',
-          dependencies: [1, 2, 3, 4, 5, 6, 7],
-          expectedOutputs: [
-            'test/e2e/full-saas-workflow.spec.ts',
-            'README.md',
-            'docs/API.md',
-            'docs/DEPLOYMENT.md',
-            'docs/STRIPE-SETUP.md',
-            'CHANGELOG.md'
-          ]
-        }
-      ]
-    };
   }
 
   /**
@@ -704,5 +162,3 @@ Commit with message "complete dashboard with charts, live data, and docs".`,
     };
   }
 }
-
-export default DemoMode;

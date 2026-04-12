@@ -139,8 +139,8 @@ Examples:
   # Quick demo (recommended for first-time users)
   swarm demo-fast
 
-  # Full demo (12-18 min)
-  swarm demo todo-app
+  # REST API demo with tests and Dockerfile (~5 min)
+  swarm demo api-quick
 
   # Quick-fix mode for simple tasks
   swarm quick "fix typo in README"
@@ -1426,10 +1426,8 @@ export async function handleDemoCommand(args: string[]): Promise<number> {
 
   if (!subcommand || subcommand === '--help') {
     console.log('\nAvailable demo scenarios:');
-    console.log('  demo-fast      - Hello-world swarm (2-4 min, 2 steps)');
-    console.log('  todo-app        - Simple todo app (5-8 min, 4 steps)');
-    console.log('  api-server      - REST API with auth (10-15 min, 6 steps)');
-    console.log('  full-stack-app  - Complete full-stack app (15-20 min, 7 steps)\n');
+    console.log('  demo-fast      - Hello-world swarm (2 steps, ~1 min)');
+    console.log('  api-quick      - REST API with tests and Dockerfile (3 steps, ~5 min)\n');
     console.log('Usage:');
     console.log('  swarm demo <scenario-name>');
     console.log('  swarm demo list\n');

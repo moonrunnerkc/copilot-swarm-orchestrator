@@ -1,4 +1,4 @@
-# Demo Templates Gallery
+# Plan Templates
 
 Ready-made plan files for common project types. Copy a template and customize it
 for your project, or use them as-is with `swarm swarm <template>.json`.

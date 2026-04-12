@@ -15,4 +15,4 @@ Why this matters:
 Run it yourself:
 
 - Quick look: `npm start demo demo-fast`
-- Full run: `npm start demo todo-app`
+- Longer demo: `npm start demo api-quick`

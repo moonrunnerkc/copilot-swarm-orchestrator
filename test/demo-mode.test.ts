@@ -43,10 +43,16 @@ describe('DemoMode', () => {
       assert.ok(names.includes('demo-fast'), 'Missing demo-fast scenario');
     });
 
-    it('includes the todo-app scenario', () => {
+    it('includes the api-quick scenario', () => {
       const demo = new DemoMode();
       const names = demo.getAvailableScenarios().map(s => s.name);
-      assert.ok(names.includes('todo-app'), 'Missing todo-app scenario');
+      assert.ok(names.includes('api-quick'), 'Missing api-quick scenario');
+    });
+
+    it('returns exactly two scenarios', () => {
+      const demo = new DemoMode();
+      const scenarios = demo.getAvailableScenarios();
+      assert.strictEqual(scenarios.length, 2);
     });
   });
 
@@ -88,12 +94,12 @@ describe('DemoMode', () => {
 
     it('preserves step dependencies from scenario', () => {
       const demo = new DemoMode();
-      const scenario = demo.getScenario('todo-app')!;
+      const scenario = demo.getScenario('api-quick')!;
       const plan = demo.scenarioToPlan(scenario);
 
-      // todo-app has later steps depending on earlier ones
+      // api-quick has steps 2 and 3 depending on step 1
       const stepsWithDeps = plan.steps.filter(s => s.dependencies.length > 0);
-      assert.ok(stepsWithDeps.length > 0, 'todo-app plan should have steps with dependencies');
+      assert.ok(stepsWithDeps.length > 0, 'api-quick plan should have steps with dependencies');
     });
 
     it('each step has required fields', () => {
@@ -180,6 +186,24 @@ describe('DemoMode', () => {
       const scenario = demo.getScenario('demo-fast')!;
       const agents = scenario.steps.map(s => s.agentName);
       assert.notStrictEqual(agents[0], agents[1], 'demo-fast should use different agents');
+    });
+  });
+
+  describe('api-quick scenario specifics', () => {
+    it('has three steps with wave dependencies', () => {
+      const demo = new DemoMode();
+      const scenario = demo.getScenario('api-quick')!;
+      assert.strictEqual(scenario.steps.length, 3);
+      assert.strictEqual(scenario.steps[0].dependencies.length, 0);
+      assert.ok(scenario.steps[1].dependencies.includes(1), 'step 2 should depend on step 1');
+      assert.ok(scenario.steps[2].dependencies.includes(1), 'step 3 should depend on step 1');
+    });
+
+    it('uses three different agents', () => {
+      const demo = new DemoMode();
+      const scenario = demo.getScenario('api-quick')!;
+      const agents = new Set(scenario.steps.map(s => s.agentName));
+      assert.strictEqual(agents.size, 3, 'api-quick should use 3 distinct agents');
     });
   });
 });

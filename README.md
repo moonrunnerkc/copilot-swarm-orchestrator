@@ -511,7 +511,7 @@ Goal ──> Plan ──> Waves ──> Branches ──> Agents ──> Verify �
 | `verifier-engine.ts` | 1,106 | Evidence checking against transcripts (accepts pre-parsed index to avoid double parse), verification report generation |
 | `plan-generator.ts` | 938 | Plan creation, dependency validation, Copilot-assisted generation, plan-cache short-circuit |
 | `share-parser.ts` | 673 | Transcript parsing: files, commands, tests, commits, claims, MCP evidence |
-| `demo-mode.ts` | 700 | Six demo scenarios with full agent prompts and expected outputs |
+| `demo-mode.ts` | 166 | Two demo scenarios (demo-fast, api-quick) with agent prompts and expected outputs |
 | `session-executor.ts` | 657 | Copilot CLI subprocess management, transcript capture, /fleet prompt wrapping |
 | `dashboard.tsx` | 558 | TUI dashboard with real-time progress, repo status, per-axis critic scores, lean savings |
 | `repair-agent.ts` | 442 | Self-repair loop with failure classification, targeted strategies, context accumulation |
@@ -571,59 +571,32 @@ runs/<execution-id>/
 
 ## Demos
 
-Six built-in scenarios for verifying your setup or seeing the pipeline end-to-end.
+Two built-in scenarios for verifying your setup or seeing the pipeline end-to-end.
 
-> **Cost note:** Demos run real agent sessions against real APIs. Each step consumes at least one premium request (or API call for Claude Code / Codex). Larger demos with expensive models can use significant budget. For example, `saas-mvp` with `o3` (20x multiplier) could consume 160+ premium requests. Use `--cost-estimate-only` to preview costs before committing.
+> **Cost note:** Demos run real agent sessions against real APIs. Each step consumes at least one premium request (or API call for Claude Code / Codex). Use `--cost-estimate-only` to preview costs before committing.
 
 ```bash
 npm start demo list          # see all scenarios
 npm start demo-fast          # quickest: two parallel agents, ~1 min
-npm start demo <name>        # run any scenario
+npm start demo api-quick     # REST API with tests and Dockerfile, ~5 min
 ```
-
-<details>
-<summary><strong>All demo scenarios</strong></summary>
-
-<br>
 
 | Scenario | Agents | Waves | What gets built | Time |
 |----------|--------|-------|-----------------|------|
 | `demo-fast` | 2 | 1 | Two independent utility modules (parallel proof) | ~1 min |
-| `dashboard-showcase` | 4 | 3 | React + Chart.js analytics dashboard, Express API, dark theme, ~27 tests | ~8 min |
-| `todo-app` | 4 | 3 | React todo app with Express backend and test suite | ~15 min |
-| `api-server` | 6 | 4 | REST API with JWT auth, PostgreSQL/Prisma, Docker, CI/CD | ~25 min |
-| `full-stack-app` | 7 | 5 | Full-stack todo with auth, Playwright E2E, Docker, CI/CD | ~30 min |
-| `saas-mvp` | 8 | 5 | SaaS MVP with Stripe payments, analytics, security audit, deployment | ~40 min |
+| `api-quick` | 3 | 2 | REST API with health/CRUD endpoints, tests, and Dockerfile | ~5 min |
 
-</details>
+`demo-fast` proves parallel execution with zero dependencies. `api-quick` shows wave-based scheduling: BackendMaster builds the API first, then TesterElite and DevOpsPro run in parallel on wave 2.
 
 <details>
-<summary><strong>Output quality</strong> (dashboard-showcase example)</summary>
-
-<br>
-
-The `dashboard-showcase` demo typically produces 9 source files and 3 test files (React 18, Vite 5, Express 4, Chart.js 4) totaling ~1,300 lines that pass these checks out of the box:
-
-- **Build:** `vite build` completes with zero warnings
-- **Tests:** ~27 passing (unit + API integration) using the Node.js built-in test runner
-- **Accessibility:** semantic HTML, 20+ ARIA attributes, `:focus-visible` styles, `aria-live` for dynamic content, skip-to-content link
-- **Responsive:** three CSS breakpoints (1440px wide layout, 1024px sidebar collapse, 640px single column)
-- **Error handling:** React ErrorBoundary, fetch error banner with retry, loading skeletons, abort controller cleanup
-- **Documentation:** generated README with install, run, test instructions and architecture overview
-
-</details>
-
-<details>
-<summary><strong>Demo cost reference</strong></summary>
+<summary><strong>Cost reference</strong></summary>
 
 <br>
 
 | Scenario | Steps | Min requests (1x model) | Max requests (all retries + repairs) |
 |----------|-------|-------------------------|--------------------------------------|
 | `demo-fast` | 2 | 2 | ~14 |
-| `dashboard-showcase` | 4 | 4 | ~28 |
-| `api-server` | 6 | 6 | ~42 |
-| `saas-mvp` | 8 | 8 | ~56 |
+| `api-quick` | 3 | 3 | ~21 |
 
 </details>
 
@@ -635,7 +608,7 @@ The `dashboard-showcase` demo typically produces 9 source files and 3 test files
 
 ## Status
 
-Actively maintained. 84 source files, 95 test files, 50 tests passing. Development is ongoing with regular updates.
+Actively maintained. 89 source files, 102 test files, 1,386 tests passing. Development is ongoing with regular updates.
 
 See [Releases](https://github.com/moonrunnerkc/swarm-orchestrator/releases) for version history.
 
