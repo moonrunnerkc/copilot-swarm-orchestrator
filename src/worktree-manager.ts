@@ -278,6 +278,8 @@ node_modules/
     }
 
     execSync('git init', { cwd: resolved, stdio: 'pipe' });
+    execSync('git config user.email "swarm-orchestrator@local"', { cwd: resolved, stdio: 'pipe' });
+    execSync('git config user.name "Swarm Orchestrator"', { cwd: resolved, stdio: 'pipe' });
     execSync('git add -A', { cwd: resolved, stdio: 'pipe' });
     try {
       execSync('git commit -m "initialize project for swarm orchestration"', {

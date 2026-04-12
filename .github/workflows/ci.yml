@@ -29,7 +29,9 @@ jobs:
       run: npm run build
 
     - name: Test
-      run: npm test 2>&1 | tee test-output.txt
+      run: |
+        set -o pipefail
+        npm test 2>&1 | tee test-output.txt
 
     - name: Publish test summary
       if: always() && matrix.node-version == 22
@@ -51,9 +53,6 @@ jobs:
       if: matrix.node-version == 22
       run: |
         rm -f test-output.txt
-        echo "--- npm audit diagnostic ---"
-        npm audit --audit-level=moderate --omit=dev || true
-        echo "--- running gates ---"
         node dist/src/cli.js gates .
 
   docker:
