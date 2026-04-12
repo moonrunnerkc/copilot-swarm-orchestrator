@@ -76,6 +76,7 @@ export const DEFAULT_QUALITY_GATES_CONFIG: QualityGatesConfig = {
         '^package-lock\\.json$',
         '^pnpm-lock\\.yaml$',
         '^yarn\\.lock$',
+        '^test-output\\.txt$',
         '^dist/',
         '^build/',
         '^coverage/',

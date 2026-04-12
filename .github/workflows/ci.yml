@@ -49,7 +49,9 @@ jobs:
 
     - name: Run quality gates on self
       if: matrix.node-version == 22
-      run: node dist/src/cli.js gates .
+      run: |
+        rm -f test-output.txt
+        node dist/src/cli.js gates .
 
   docker:
     runs-on: ubuntu-latest
