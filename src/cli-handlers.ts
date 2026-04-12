@@ -1175,6 +1175,16 @@ export async function handleGatesCommand(args: string[]): Promise<number> {
   for (const gate of result.results) {
     const g = gate.status === 'pass' ? '✅' : gate.status === 'skip' ? '⏭️' : '❌';
     log(`  ${g} ${gate.id}: ${gate.issues.length} issue(s)`);
+    if (gate.issues.length > 0) {
+      for (const issue of gate.issues) {
+        const loc = issue.filePath ? ` (${issue.filePath}${issue.line ? ':' + issue.line : ''})` : '';
+        log(`     ${issue.message}${loc}`);
+        if (issue.excerpt) {
+          const trimmed = issue.excerpt.split('\n').slice(0, 5).join('\n');
+          log(`     ${trimmed}`);
+        }
+      }
+    }
   }
 
   if (sarifPath) {
